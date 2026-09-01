@@ -1,0 +1,26 @@
+[Unit]
+Description=Create a consistent Mnote Capture backup
+Requires=heartnote-capture-api.service
+After=heartnote-capture-api.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/heartnote-capture-backup
+Environment=HEARTNOTE_CAPTURE_DATA=/var/lib/heartnote-capture
+Environment=HEARTNOTE_CAPTURE_BACKUP_DIR=/var/backups/heartnote-capture
+Environment=HEARTNOTE_CAPTURE_BACKUP_RETENTION_DAYS=14
+UMask=0077
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+# SQLite may create transient WAL/SHM files while opening the live database,
+# so the data directory must be writable even though this script never changes
+# capture rows.
+ReadWritePaths=/var/lib/heartnote-capture /var/backups/heartnote-capture

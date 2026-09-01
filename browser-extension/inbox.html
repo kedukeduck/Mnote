@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Mnote Inbox</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="inbox stack">
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <h1>Capture Inbox</h1>
+        <p class="muted">先捕获，再回顾和整理。</p>
+      </div>
+      <div class="row">
+        <button id="syncButton">同步待处理</button>
+        <button id="exportButton">导出 ZIP</button>
+      </div>
+    </div>
+    <form id="searchForm" class="row">
+      <input id="query" type="search" placeholder="搜索评论、原文、OCR、应用或网址" style="flex:1">
+      <button class="primary">搜索</button>
+      <button type="button" id="recentButton">最近记录</button>
+    </form>
+    <div class="status" id="status"></div>
+    <section class="record-list" id="recordList"></section>
+  </main>
+  <script type="module" src="inbox.js"></script>
+</body>
+</html>

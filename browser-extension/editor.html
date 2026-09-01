@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Mnote 批注</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="editor-page">
+  <header class="editor-header">
+    <div>
+      <h1 id="pageHeading">截图批注</h1>
+      <div class="source-line" id="sourceLine"></div>
+    </div>
+    <div class="row">
+      <span class="status" id="topStatus"></span>
+      <button class="primary" id="saveButton">保存记录</button>
+    </div>
+  </header>
+  <main class="editor-grid">
+    <section class="canvas-stage" id="canvasStage">
+      <div class="canvas-shell"><canvas id="annotationCanvas"></canvas></div>
+    </section>
+    <section class="selection-stage" id="selectionStage" hidden>
+      <div class="card stack">
+        <span class="badge">网页原文</span>
+        <div class="quote" id="selectionText"></div>
+        <p class="muted">该记录会分别保存原文、定位信息和你的评论，避免混为一谈。</p>
+      </div>
+    </section>
+    <aside class="editor-panel stack">
+      <section class="stack" id="drawingTools">
+        <div class="row">
+          <button class="tool active" data-tool="pen">划线</button>
+          <button class="tool" data-tool="highlighter">荧光笔</button>
+          <button class="tool" data-tool="ellipse">圈选</button>
+          <button class="tool" data-tool="rectangle">方框</button>
+        </div>
+        <div class="row">
+          <label>颜色 <input id="color" type="color" value="#ef3f3f"></label>
+          <label>粗细 <input id="width" type="range" min="2" max="28" value="6"></label>
+        </div>
+        <div class="row">
+          <button id="undoButton">撤销</button>
+          <button id="clearButton">清空批注</button>
+        </div>
+      </section>
+      <label>记录类型
+        <select id="kind">
+          <option value="thought">想法</option>
+          <option value="comment">评论</option>
+          <option value="todo">TODO</option>
+          <option value="later">稍后处理</option>
+          <option value="capture">仅收藏</option>
+        </select>
+      </label>
+      <label>当时的想法或评论
+        <textarea id="comment" maxlength="20000" autofocus placeholder="这段内容为什么触发了我？下一步要做什么？"></textarea>
+      </label>
+      <label>AI 可读范围
+        <select id="aiAccess">
+          <option value="local_only">仅第一方本地读取（默认）</option>
+          <option value="remote_no_memory">可供 AI 读取，不进入模型记忆</option>
+          <option value="remote_memory">可供 AI 读取并允许形成长期理解</option>
+          <option value="deny">禁止 AI 读取</option>
+        </select>
+      </label>
+      <p class="muted">无法配置同步或网络中断时，记录会进入浏览器本地待同步箱，不会因上传失败而丢失。</p>
+      <div class="status" id="status"></div>
+    </aside>
+  </main>
+  <script type="module" src="editor.js"></script>
+</body>
+</html>

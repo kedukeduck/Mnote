@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heartnote-capture-server"
+version = "0.1.0"
+description = "Local-first sync, search, export, and read-only MCP service for Mnote captures"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+mcp = ["mcp>=2,<3"]
+test = ["mcp>=2,<3"]
+
+[project.scripts]
+heartnote-capture-api = "heartnote_capture.http_api:main"
+heartnote-capture-mcp = "heartnote_capture.mcp_server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+heartnote_capture = ["web/*.html", "web/*.css", "web/*.js"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

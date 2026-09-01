@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "Mnote",
+  "short_name": "Mnote",
+  "version": "0.1.0",
+  "minimum_chrome_version": "116",
+  "description": "保存网页选中文字，或对当前可视区域截图划线、圈选并写下想法。",
+  "permissions": [
+    "activeTab",
+    "alarms",
+    "contextMenus",
+    "scripting",
+    "storage",
+    "tabs",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Mnote",
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html",
+  "commands": {
+    "capture-screenshot": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "截图并打开批注"
+    },
+    "capture-selection": {
+      "suggested_key": {
+        "default": "Alt+Shift+H",
+        "mac": "Alt+Shift+H"
+      },
+      "description": "记录当前选中文字"
+    }
+  }
+}

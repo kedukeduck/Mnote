@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Mnote</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="popup stack">
+  <div class="row" style="justify-content:space-between">
+    <h1>Mnote</h1>
+    <span class="badge" id="connectionBadge">检查中</span>
+  </div>
+  <button class="big-action primary" id="screenshotButton">截图并划线 / 圈选<br><small>快捷键 Ctrl+Shift+Y</small></button>
+  <button class="big-action" id="selectionButton">记录当前选中文字<br><small>保留网页地址和原文定位</small></button>
+  <button class="big-action" id="ideaButton">立刻记一个想法 / TODO</button>
+  <div class="row">
+    <button class="ghost" id="inboxButton">打开 Inbox</button>
+    <button class="ghost" id="optionsButton">同步设置</button>
+  </div>
+  <div class="status" id="status"></div>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Mnote 同步设置</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="settings stack">
+    <div>
+      <h1>同步与隐私设置</h1>
+      <p class="muted">Token 只存放在浏览器扩展自己的本地存储中，不会注入网页。</p>
+    </div>
+    <form id="settingsForm" class="card stack">
+      <label>Capture Server 地址
+        <input id="serverUrl" type="url" required placeholder="http://127.0.0.1:8787">
+      </label>
+      <label>写入 Token
+        <input id="writeToken" type="password" autocomplete="off" placeholder="HEARTNOTE_CAPTURE_WRITE_TOKEN">
+      </label>
+      <label>第一方只读 Token（用于完整 Inbox 与导出）
+        <input id="readToken" type="password" autocomplete="off" placeholder="HEARTNOTE_CAPTURE_READ_TOKEN">
+      </label>
+      <label>新记录默认 AI 可读范围
+        <select id="aiAccess">
+          <option value="local_only">仅第一方本地读取（默认）</option>
+          <option value="remote_no_memory">可读取，不进入模型记忆</option>
+          <option value="remote_memory">可读取并允许长期理解</option>
+          <option value="deny">禁止 AI 读取</option>
+        </select>
+      </label>
+      <div class="row">
+        <button class="primary" type="submit">保存并测试</button>
+        <button type="button" id="syncButton">立即同步待处理记录</button>
+      </div>
+      <div class="status" id="status"></div>
+    </form>
+    <section class="card stack">
+      <strong>权限说明</strong>
+      <span>默认只允许连接本机的 127.0.0.1 / localhost。填写局域网或 HTTPS 服务后，浏览器会单独询问该地址的访问权限。</span>
+      <span>扩展只有在你点击采集或使用快捷键时，才读取当前网页选区或抓取当前可见标签页。</span>
+    </section>
+  </main>
+  <script type="module" src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Mnote Inbox</title>
+    <link rel="stylesheet" href="assets/app.css">
+    <script src="assets/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="Mnote Inbox 首页">
+        <span class="brand-mark" aria-hidden="true">H</span>
+        <span>
+          <strong>Mnote</strong>
+          <small>个人知识收件箱</small>
+        </span>
+      </a>
+      <span class="local-badge" title="令牌只保存在当前标签页会话中">本地会话</span>
+    </header>
+
+    <main>
+      <section id="auth-panel" class="auth-card" aria-labelledby="auth-title">
+        <p class="eyebrow">PRIVATE BY DEFAULT</p>
+        <h1 id="auth-title">打开你的收件箱</h1>
+        <p class="lede">Read Token 用于浏览与导出；可选的 Write Token 只用于删除和恢复。两种令牌仅保存在当前标签页的 <code>sessionStorage</code>，关闭标签页后失效。</p>
+        <form id="auth-form" class="auth-form">
+          <div class="token-fields">
+            <div>
+              <label for="read-token-input">Read Token <span aria-hidden="true">*</span></label>
+              <input id="read-token-input" name="read-token" type="password" required autocomplete="off" spellcheck="false" placeholder="浏览、搜索、图片与导出">
+            </div>
+            <div>
+              <label for="write-token-input">Write Token <span class="optional">可选</span></label>
+              <input id="write-token-input" name="write-token" type="password" autocomplete="off" spellcheck="false" placeholder="删除与恢复时才会发送">
+            </div>
+          </div>
+          <button type="submit" class="primary enter-button">进入</button>
+          <p id="auth-message" class="message" role="alert"></p>
+        </form>
+      </section>
+
+      <section id="workspace" class="workspace" hidden>
+        <div class="workspace-heading">
+          <div>
+            <p class="eyebrow">INBOX</p>
+            <h1>捕获记录</h1>
+          </div>
+          <div class="top-actions">
+            <button id="export-button" type="button" class="quiet">导出全部</button>
+            <button id="logout-button" type="button" class="quiet danger-text">锁定</button>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <form id="search-form" class="search-form" role="search">
+            <label class="sr-only" for="search-input">搜索记录</label>
+            <input id="search-input" type="search" placeholder="搜索评论、原文、OCR、应用或网址…" autocomplete="off">
+            <button type="submit" class="primary">搜索</button>
+          </form>
+          <div class="view-actions">
+            <label class="switch-label">
+              <input id="trash-toggle" type="checkbox">
+              <span>回收站</span>
+            </label>
+            <button id="refresh-button" type="button" class="icon-button" aria-label="刷新" title="刷新">↻</button>
+          </div>
+        </div>
+
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+
+        <div class="content-grid">
+          <section class="record-column" aria-label="记录列表">
+            <div id="record-list" class="record-list"></div>
+            <div id="empty-state" class="empty-state" hidden>
+              <span aria-hidden="true">✦</span>
+              <h2>这里还没有记录</h2>
+              <p>从手机、Windows 或浏览器扩展发送一条捕获后，它会出现在这里。</p>
+            </div>
+          </section>
+
+          <aside id="detail-panel" class="detail-panel" aria-label="记录详情" hidden>
+            <div class="detail-header">
+              <div>
+                <p id="detail-kind" class="eyebrow"></p>
+                <h2 id="detail-title"></h2>
+              </div>
+              <button id="close-detail" type="button" class="icon-button" aria-label="关闭详情">×</button>
+            </div>
+            <div id="detail-meta" class="detail-meta"></div>
+            <section id="comment-section" class="detail-section">
+              <h3>我的记录</h3>
+              <p id="detail-comment" class="preserve-lines"></p>
+            </section>
+            <section id="source-section" class="detail-section">
+              <h3>来源内容</h3>
+              <p id="detail-source" class="preserve-lines"></p>
+              <a id="detail-url" class="source-link" target="_blank" rel="noopener noreferrer" hidden></a>
+            </section>
+            <section class="detail-section">
+              <h3>截图证据</h3>
+              <div id="detail-images" class="image-stack"></div>
+            </section>
+            <details class="raw-details">
+              <summary>结构化记录</summary>
+              <pre id="detail-json"></pre>
+            </details>
+            <div id="detail-actions" class="detail-actions"></div>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

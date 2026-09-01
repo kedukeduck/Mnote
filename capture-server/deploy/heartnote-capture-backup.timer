@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Mnote Capture backup
+
+[Timer]
+OnCalendar=*-*-* 03:35:00
+RandomizedDelaySec=30min
+Persistent=true
+Unit=heartnote-capture-backup.service
+
+[Install]
+WantedBy=timers.target

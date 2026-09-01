@@ -1,0 +1,12 @@
+.gradle/
+.idea/
+local.properties
+**/build/
+*.iml
+*.log
+.DS_Store
+deliverables/
+.signing/
+capture-server/data/
+capture-server/.venv/
+capture-server/src/*.egg-info/

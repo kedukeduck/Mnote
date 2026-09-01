@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+data_dir="${HEARTNOTE_CAPTURE_DATA:-/var/lib/heartnote-capture}"
+backup_dir="${HEARTNOTE_CAPTURE_BACKUP_DIR:-/var/backups/heartnote-capture}"
+retention_days="${HEARTNOTE_CAPTURE_BACKUP_RETENTION_DAYS:-14}"
+database="${data_dir}/captures.sqlite3"
+
+if [[ ! -f "${database}" ]]; then
+  echo "HeartNote database does not exist: ${database}" >&2
+  exit 1
+fi
+
+umask 077
+mkdir -p "${backup_dir}"
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+staging="$(mktemp -d "${backup_dir}/.staging-${timestamp}-XXXXXX")"
+archive_temp="${backup_dir}/.heartnote-capture-${timestamp}.tar.gz.tmp"
+archive="${backup_dir}/heartnote-capture-${timestamp}.tar.gz"
+
+cleanup() {
+  if [[ -d "${staging}" && "${staging}" == "${backup_dir}/.staging-"* ]]; then
+    find "${staging}" -depth -delete
+  fi
+  rm -f -- "${archive_temp}"
+}
+trap cleanup EXIT
+
+mkdir -p "${staging}/data"
+sqlite3 "${database}" ".backup '${staging}/data/captures.sqlite3'"
+if [[ -d "${data_dir}/blobs" ]]; then
+  rsync -a "${data_dir}/blobs/" "${staging}/data/blobs/"
+fi
+
+cat >"${staging}/RESTORE.txt" <<EOF
+HeartNote Capture backup created at ${timestamp} UTC.
+
+Restore only while heartnote-capture-api.service is stopped:
+1. Extract this archive into a temporary directory.
+2. Replace /var/lib/heartnote-capture/captures.sqlite3 and blobs/ with data/.
+3. Set owner to heartnote-capture:heartnote-capture and permissions to 0700.
+4. Start heartnote-capture-api.service and run its health check.
+EOF
+
+tar -C "${staging}" -czf "${archive_temp}" RESTORE.txt data
+chmod 0600 "${archive_temp}"
+mv "${archive_temp}" "${archive}"
+sha256sum "${archive}" >"${archive}.sha256"
+chmod 0600 "${archive}.sha256"
+
+find "${backup_dir}" -maxdepth 1 -type f \
+  \( -name 'heartnote-capture-*.tar.gz' -o -name 'heartnote-capture-*.tar.gz.sha256' \) \
+  -mtime "+${retention_days}" -delete
+
+echo "Created ${archive}"

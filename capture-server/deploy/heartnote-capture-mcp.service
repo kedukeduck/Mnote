@@ -1,0 +1,29 @@
+[Unit]
+Description=Mnote read-only MCP service
+After=network.target heartnote-capture-api.service
+
+[Service]
+Type=simple
+User=heartnote-capture
+Group=heartnote-capture
+EnvironmentFile=/etc/heartnote-capture/server.env
+WorkingDirectory=/opt/heartnote-capture
+ExecStart=/opt/heartnote-capture/.venv/bin/heartnote-capture-mcp --transport streamable-http --host 127.0.0.1 --port 8788
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/heartnote-capture
+
+[Install]
+WantedBy=multi-user.target
