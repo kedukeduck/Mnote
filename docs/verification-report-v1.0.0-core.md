@@ -1,7 +1,7 @@
 # Mnote V1 Core 验证报告
 
 - 候选版本：`v1.0.0-core`
-- 验证日期：2026-08-31（UTC+8）
+- 验证日期：2026-09-01（UTC+8）
 - 状态：自动化门禁通过；Android 与真实 Windows/浏览器人工验收待执行
 - 范围基线：[V1 Core 交付契约](v1-core-release-contract.md)
 
@@ -16,13 +16,12 @@
 ### Android
 
 - `./gradlew testDebugUnitTest assembleDebug lintDebug`：通过。
-- `./gradlew --no-daemon testReleaseUnitTest assembleRelease lintRelease`：通过。
 - 5 个单元测试覆盖四档 `ai_access`、最保守默认值、HTTPS/私网 HTTP 地址规则和 Token 输入边界。
 - `aapt dump xmltree` 确认 APK 含截图辅助功能服务、快捷设置磁贴、透明触发页、编辑页和本地 Inbox。
-- Release APK：包名 `com.codex.mnote`，`versionCode=1`，`versionName=1.0.0-test`，`minSdk=26`，`targetSdk=35`。
+- Debug 测试 APK：包名 `com.codex.mnote`，桌面名称 `Mnote`，`versionCode=1`，`versionName=1.0.0-test`，`minSdk=26`，`targetSdk=35`。
 - `apksigner verify --verbose --print-certs`：APK Signature Scheme v2 验证通过，单一签名者证书 SHA-256 为 `b8facf6a55636be9138264aaf85f4462cd8b25ba00a49e46b2defe3ee83182ae`。
 
-Android SDK 在构建时提示本机 Platform-Tools 许可未被该 SDK 副本接受，但所需构建工具已存在，Debug 与 Release 构建、单测和 lint 均以退出码 0 完成。`adb devices -l` 未发现连接设备，所以没有把系统授权、磁贴、厂商后台策略或 `FLAG_SECURE` 行为标成通过。
+Android SDK 在构建时提示本机 Platform-Tools 许可未被该 SDK 副本接受，但所需构建工具已存在，Debug 构建、单测和 lint 均以退出码 0 完成。当前环境未连接 Android 设备，所以没有把系统授权、磁贴、厂商后台策略或 `FLAG_SECURE` 行为标成通过。
 
 ### Windows
 
@@ -76,7 +75,7 @@ GUI 烟测使用 Wine 9.0 的 1280×800 单屏虚拟桌面。它能证明应用�
 bash scripts/verify-mnote-v1.sh
 ```
 
-该命令依次执行 Android Debug 单测/构建/lint、Windows x64 构建、Windows GUI 与同步烟测、扩展测试、服务端 14 个测试和 APK 组件清单检查。交付打包脚本会在干净 Git 提交上重新执行同一门禁，再构建并验证 Release APK：
+该命令依次执行 Android Debug 单测/构建/lint、Windows x64 构建、Windows GUI 与同步烟测、扩展测试、服务端 14 个测试和 APK 组件清单检查。交付打包脚本会在干净 Git 提交上重新执行同一门禁，再复制并验证可安装的测试签名 APK：
 
 ```bash
 bash scripts/package-mnote-v1.sh v1.0.0-core

@@ -19,13 +19,13 @@ mnote-v1.0.0-core/
     Mnote-Android-1.0.0-test.apk
     signing-certificate.txt
   windows/
-    Mnote-Capture-Windows-x64.exe
+    Mnote-Windows-x64.exe
     README-Windows.md
     settings.example.ini
   extension/
-    Mnote-Capture-Chrome-Edge.zip
+    Mnote-Chrome-Edge.zip
   server/
-    Mnote-Capture-Server.zip
+    Mnote-Server.zip
   docs/
 ```
 
@@ -40,7 +40,7 @@ sha256sum -c SHA256SUMS
 Windows PowerShell 可用：
 
 ```powershell
-Get-FileHash .\Mnote-Capture-Windows-x64.exe -Algorithm SHA256
+Get-FileHash .\Mnote-Windows-x64.exe -Algorithm SHA256
 ```
 
 交付包不会包含服务器 Token、Android 签名私钥或任何真实笔记/截图。
@@ -53,7 +53,7 @@ Get-FileHash .\Mnote-Capture-Windows-x64.exe -Algorithm SHA256
 
 1. 确认手机是 Android 11 或更新版本。
 2. 安装 `android/Mnote-Android-1.0.0-test.apk`。
-3. 打开 Mnote，侧栏进入“全局摘录”。
+3. 打开 Mnote；启动页就是本地摘录 Inbox。
 4. 阅读独立权限披露后，仅在愿意时启用“Mnote”辅助功能服务。
 5. 从系统快捷设置编辑页加入“全局摘录”磁贴。
 6. 切到任意普通 App，点磁贴；框选后使用画笔或荧光笔，写评论并保存。
@@ -77,7 +77,7 @@ Android 本地记录位于应用私有目录，普通文件管理器不可直接
 
 ### 2.2 Windows
 
-1. 把 `Mnote-Capture-Windows-x64.exe` 放到固定目录。
+1. 把 `Mnote-Windows-x64.exe` 放到固定目录。
 2. 这是未做 Authenticode 商业签名的测试构建；先核对 SHA-256，再按系统提示运行。不要以管理员身份常驻。
 3. 启动后程序驻留系统托盘。
 4. 在任意普通桌面应用中按 `Ctrl+Shift+F9`，或双击托盘图标。
@@ -96,7 +96,7 @@ Android 本地记录位于应用私有目录，普通文件管理器不可直接
 
 ### 2.3 Chrome / Edge
 
-1. 解压 `extension/Mnote-Capture-Chrome-Edge.zip` 到固定目录。
+1. 解压 `extension/Mnote-Chrome-Edge.zip` 到固定目录。
 2. Chrome 打开 `chrome://extensions`，Edge 打开 `edge://extensions`。
 3. 开启开发者模式，点“加载已解压的扩展程序”，选择解压目录。
 4. 固定 Mnote 图标。
@@ -114,7 +114,7 @@ Android 本地记录位于应用私有目录，普通文件管理器不可直接
 服务端需要 Python 3.11+。REST API 本身只用标准库；MCP 额外安装官方 Python SDK。
 
 ```bash
-unzip Mnote-Capture-Server.zip
+unzip Mnote-Server.zip
 cd capture-server
 python3 -m venv .venv
 . .venv/bin/activate
@@ -153,7 +153,7 @@ heartnote-capture-api
 
 ### Android
 
-Mnote 设置 → 全局摘录同步，填写服务地址、写入 Token 和每条新记录的 AI 可见范围。Token 由 Android Keystore 加密后保存。明文 HTTP 只允许 `localhost` 或字面量私有 IP；其他地址必须用 HTTPS。
+Mnote 首页 → 同步设置，填写服务地址、写入 Token 和每条新记录的 AI 可见范围。Token 由 Android Keystore 加密后保存。明文 HTTP 只允许 `localhost` 或字面量私有 IP；其他地址必须用 HTTPS。
 
 ### Windows
 

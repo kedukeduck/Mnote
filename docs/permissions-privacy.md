@@ -84,7 +84,7 @@
 
 ### 4.2 当前仓库与发布声明的区别
 
-仓库中的主 Android 应用已经有网络、通知、前台服务等其他 Mnote 功能所需声明，但这不证明全局摘录所需的无障碍服务、磁贴、悬浮入口或分享接收器已经完成。每个发布包必须从最终 APK 的 merged manifest 重新生成权限清单，并在交付报告中逐项解释。
+独立 Mnote Manifest 只显式声明联网所需的 `INTERNET` 和 `ACCESS_NETWORK_STATE`；WorkManager 依赖会在 merged manifest 中加入后台任务所需的系统权限。无障碍服务、快捷磁贴以及分享/处理文字 Activity 均已注册，但悬浮窗、常驻前台服务和开机自动采集没有进入 V1。每个发布包仍必须从最终 APK 的 merged manifest 重新生成权限清单并逐项解释。
 
 ### 4.3 Android 拒绝与撤销
 
