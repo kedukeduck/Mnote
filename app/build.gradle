@@ -11,8 +11,8 @@ android {
         applicationId "com.codex.mnote"
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName "1.0.0-test"
+        versionCode 2
+        versionName "1.0.1-test"
     }
 
     buildTypes {
@@ -35,10 +35,15 @@ android {
         abortOnError true
         checkReleaseBuilds true
     }
+
+    testOptions {
+        unitTests.includeAndroidResources = true
+    }
 }
 
 dependencies {
     implementation "androidx.core:core:1.15.0"
     implementation "androidx.work:work-runtime:2.11.2"
     testImplementation "junit:junit:4.13.2"
+    testImplementation "org.robolectric:robolectric:4.14.1"
 }

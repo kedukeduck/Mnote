@@ -35,6 +35,7 @@
             android:excludeFromRecents="true"
             android:exported="false"
             android:noHistory="true"
+            android:taskAffinity=""
             android:theme="@style/Theme.CaptureTrigger" />
 
         <activity

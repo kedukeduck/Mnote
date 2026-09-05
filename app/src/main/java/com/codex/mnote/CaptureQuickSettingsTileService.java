@@ -1,6 +1,7 @@
 package com.codex.mnote;
 
 import android.annotation.SuppressLint;
+import android.app.ActivityOptions;
 import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Context;
@@ -59,20 +60,41 @@ public final class CaptureQuickSettingsTileService extends TileService {
     @SuppressWarnings("deprecation")
     @SuppressLint("StartActivityAndCollapseDeprecated")
     private void launchTrigger() {
-        Intent intent = new Intent(this, CaptureTriggerActivity.class)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                        | Intent.FLAG_ACTIVITY_NO_ANIMATION
-                        | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        Intent intent = captureIntent(this);
         if (Build.VERSION.SDK_INT >= 34) {
-            PendingIntent pendingIntent = PendingIntent.getActivity(
-                    this,
-                    4301,
-                    intent,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-            );
-            startActivityAndCollapse(pendingIntent);
+            startActivityAndCollapse(capturePendingIntent(this));
         } else {
             startActivityAndCollapse(intent);
         }
+    }
+
+    static Intent captureIntent(Context context) {
+        // A translucent activity in Mnote's existing task exposes its Inbox,
+        // not the source app. Each capture needs a separate, unaffiliated task.
+        return new Intent(context, CaptureTriggerActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
+                        | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
+                        | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+    }
+
+    static PendingIntent capturePendingIntent(Context context) {
+        ActivityOptions options = ActivityOptions.makeBasic();
+        if (Build.VERSION.SDK_INT >= 35) {
+            // Only SystemUI receives this immutable, explicit, user-clicked
+            // capability; no background worker or external app is given it.
+            options.setPendingIntentCreatorBackgroundActivityStartMode(
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+            );
+        }
+        return PendingIntent.getActivity(
+                context,
+                // Use a new identity so a PendingIntent cached by SystemUI
+                // from 1.0.0 cannot retain that version's task-launch flags.
+                4302,
+                captureIntent(context),
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE,
+                options.toBundle()
+        );
     }
 }
