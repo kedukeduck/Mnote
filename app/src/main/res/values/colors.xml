@@ -1,15 +1,17 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="coral">#6750A4</color>
-    <color name="coral_dark">#4F378B</color>
-    <color name="coral_soft">#FFF1ECFF</color>
-    <color name="cream">#FFFFFBFE</color>
-    <color name="card">#FFFFFFFF</color>
-    <color name="ink">#FF1D1B20</color>
-    <color name="ink_muted">#FF625B71</color>
-    <color name="line">#FFE7E0EC</color>
-    <color name="success">#FF2E7D5B</color>
-    <color name="danger">#FFB3261E</color>
-    <color name="white">#FFFFFFFF</color>
-    <color name="ic_launcher_background">#FF6750A4</color>
+    <!-- Legacy names retained so all existing screens share the new palette. -->
+    <color name="coral">#0068D9</color>
+    <color name="coral_dark">#0059BB</color>
+    <color name="coral_soft">#EAF2FF</color>
+    <color name="cream">#F5F5F7</color>
+    <color name="card">#FFFFFF</color>
+    <color name="ink">#1D1D1F</color>
+    <color name="ink_muted">#6E6E73</color>
+    <color name="line">#E5E5EA</color>
+    <color name="success">#287D49</color>
+    <color name="danger">#C53030</color>
+    <color name="white">#FFFFFF</color>
+    <color name="disabled_fill">#DCE4EE</color>
+    <color name="canvas_background">#ECECEF</color>
+    <color name="ic_launcher_background">#0068D9</color>
 </resources>

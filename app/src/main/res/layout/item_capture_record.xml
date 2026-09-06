@@ -2,9 +2,10 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginTop="10dp"
+    android:layout_marginTop="14dp"
     android:background="@drawable/bg_card"
     android:focusable="true"
+    android:foreground="?android:attr/selectableItemBackground"
     android:orientation="vertical">
 
     <ImageView
@@ -12,7 +13,7 @@
         android:layout_width="match_parent"
         android:layout_height="190dp"
         android:adjustViewBounds="false"
-        android:background="#FF1C1B1E"
+        android:background="@drawable/bg_canvas"
         android:contentDescription="@string/capture_item_image_description"
         android:scaleType="centerInside"
         android:visibility="gone" />
@@ -27,7 +28,8 @@
         <TextView
             android:id="@+id/capture_item_kind"
             android:layout_width="wrap_content"
-            android:layout_height="32dp"
+            android:layout_height="wrap_content"
+            android:minHeight="28dp"
             android:background="@drawable/bg_capture_kind"
             android:gravity="center"
             android:minWidth="62dp"
@@ -35,7 +37,7 @@
             android:paddingEnd="10dp"
             android:textColor="@color/coral_dark"
             android:textSize="13sp"
-            android:textStyle="bold" />
+            android:fontFamily="sans-serif-medium" />
 
         <TextView
             android:id="@+id/capture_item_time"
@@ -55,8 +57,9 @@
         android:layout_marginTop="10dp"
         android:lineSpacingExtra="3dp"
         android:textColor="@color/ink"
-        android:textSize="16sp"
-        android:textStyle="bold"
+        android:textSize="18sp"
+        android:maxLines="6"
+        android:ellipsize="end"
         android:visibility="gone" />
 
     <TextView
@@ -78,7 +81,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
         android:textColor="@color/ink_muted"
-        android:textSize="11sp" />
+        android:textSize="12sp" />
 
     <TextView
         android:id="@+id/capture_item_sync_status"
@@ -87,7 +90,6 @@
         android:layout_marginTop="5dp"
         android:text="@string/capture_sync_item_local"
         android:textColor="@color/ink_muted"
-        android:textSize="11sp"
-        android:textStyle="bold" />
+        android:textSize="12sp" />
 
 </LinearLayout>

@@ -9,9 +9,13 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
+import android.view.Gravity;
+import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.RadioGroup;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -61,6 +65,7 @@ public final class CaptureEditorActivity extends Activity {
     private boolean saving;
     private boolean saved;
     private boolean destroyed;
+    private boolean requestNoteKeyboard;
 
     static Intent forScreenshot(Activity activity, File draft) {
         return new Intent(activity, CaptureEditorActivity.class)
@@ -97,9 +102,27 @@ public final class CaptureEditorActivity extends Activity {
         requestCancel();
     }
 
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && requestNoteKeyboard && !isFinishing()) {
+            commentInput.post(() -> {
+                if (destroyed || !hasWindowFocus() || !requestNoteKeyboard) {
+                    return;
+                }
+                InputMethodManager keyboard = getSystemService(InputMethodManager.class);
+                if (keyboard != null) {
+                    keyboard.showSoftInput(commentInput, InputMethodManager.SHOW_IMPLICIT);
+                }
+                requestNoteKeyboard = false;
+            });
+        }
+    }
+
     private void bindViews() {
         markupView = findViewById(R.id.capture_markup_view);
         markupContainer = findViewById(R.id.capture_markup_container);
+        markupContainer.setClipToOutline(true);
         textContainer = findViewById(R.id.capture_source_text_container);
         toolRow = findViewById(R.id.capture_tool_row);
         progress = findViewById(R.id.capture_editor_progress);
@@ -202,6 +225,28 @@ public final class CaptureEditorActivity extends Activity {
         toolRow.setVisibility(View.GONE);
         status.setText(R.string.capture_quick_note_detail);
         setLoading(false);
+        // No invisible screenshot frame above the input: the entire remaining
+        // page becomes a writing surface, including when the keyboard opens.
+        findViewById(R.id.capture_evidence_container).setVisibility(View.GONE);
+        LinearLayout composer = findViewById(R.id.capture_composer);
+        LinearLayout.LayoutParams composerParams =
+                (LinearLayout.LayoutParams) composer.getLayoutParams();
+        composerParams.height = 0;
+        composerParams.weight = 1;
+        composer.setLayoutParams(composerParams);
+        LinearLayout.LayoutParams inputParams =
+                (LinearLayout.LayoutParams) commentInput.getLayoutParams();
+        inputParams.height = 0;
+        inputParams.weight = 1;
+        commentInput.setLayoutParams(inputParams);
+        commentInput.setMaxLines(Integer.MAX_VALUE);
+        commentInput.setMinHeight(0);
+        commentInput.setTextSize(19);
+        commentInput.setGravity(Gravity.TOP | Gravity.START);
+        commentInput.setHint(R.string.quick_note_input_hint);
+        requestNoteKeyboard = true;
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
         commentInput.requestFocus();
     }
 
@@ -421,6 +466,12 @@ public final class CaptureEditorActivity extends Activity {
                     R.string.capture_wait_for_save,
                     Toast.LENGTH_SHORT
             ).show();
+            return;
+        }
+        if (!loading && sourceBitmap == null && sourceText.isEmpty()
+                && commentInput.getText().toString().trim().isEmpty()) {
+            setResult(RESULT_CANCELED);
+            finish();
             return;
         }
         new AlertDialog.Builder(this)

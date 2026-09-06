@@ -52,6 +52,7 @@ public final class CaptureInboxActivity extends Activity {
     private TextView accessStatus;
     private Button captureButton;
     private Button addTileButton;
+    private Button addNoteTileButton;
     private TextView recordCount;
     private TextView syncStatus;
     private Button syncAllButton;
@@ -113,6 +114,7 @@ public final class CaptureInboxActivity extends Activity {
         accessStatus = findViewById(R.id.capture_access_status);
         captureButton = findViewById(R.id.capture_start_button);
         addTileButton = findViewById(R.id.capture_add_tile_button);
+        addNoteTileButton = findViewById(R.id.capture_add_note_tile_button);
         recordCount = findViewById(R.id.capture_record_count);
         syncStatus = findViewById(R.id.capture_sync_status);
         syncAllButton = findViewById(R.id.capture_sync_all_button);
@@ -122,7 +124,15 @@ public final class CaptureInboxActivity extends Activity {
 
     private void bindActions() {
         captureButton.setOnClickListener(view -> startCaptureOrSetup());
-        addTileButton.setOnClickListener(view -> requestTile());
+        addTileButton.setOnClickListener(view -> requestTile(false));
+        addNoteTileButton.setOnClickListener(view -> requestTile(true));
+        findViewById(R.id.capture_setup_toggle).setOnClickListener(view -> {
+            View panel = findViewById(R.id.capture_setup_panel);
+            boolean expanded = panel.getVisibility() != View.VISIBLE;
+            panel.setVisibility(expanded ? View.VISIBLE : View.GONE);
+            ((TextView) view).setText(expanded
+                    ? R.string.capture_setup_collapse : R.string.capture_setup_expand);
+        });
         findViewById(R.id.capture_quick_note_button).setOnClickListener(
                 view -> startActivity(
                         new Intent(this, CaptureEditorActivity.class)
@@ -157,7 +167,7 @@ public final class CaptureInboxActivity extends Activity {
             captureButton.setText(R.string.capture_retry_connection_button);
         } else {
             accessStatus.setText(R.string.capture_access_disabled_detail);
-            accessStatus.setTextColor(getColor(R.color.danger));
+            accessStatus.setTextColor(getColor(R.color.ink_muted));
             captureButton.setText(R.string.capture_setup_button);
         }
     }
@@ -203,7 +213,7 @@ public final class CaptureInboxActivity extends Activity {
         }
     }
 
-    private void requestTile() {
+    private void requestTile(boolean note) {
         if (Build.VERSION.SDK_INT < 33) {
             Toast.makeText(
                     this,
@@ -222,25 +232,37 @@ public final class CaptureInboxActivity extends Activity {
             return;
         }
         addTileButton.setEnabled(false);
-        manager.requestAddTileService(
-                new ComponentName(this, CaptureQuickSettingsTileService.class),
-                getString(R.string.capture_tile_label),
-                Icon.createWithResource(this, R.drawable.ic_capture_tile),
-                getMainExecutor(),
-                result -> {
-                    addTileButton.setEnabled(true);
-                    int message;
-                    if (result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED) {
-                        message = R.string.capture_tile_added;
-                    } else if (result
-                            == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED) {
-                        message = R.string.capture_tile_already_added;
-                    } else {
-                        message = R.string.capture_tile_not_added;
+        addNoteTileButton.setEnabled(false);
+        try {
+            manager.requestAddTileService(
+                    new ComponentName(this, note
+                            ? QuickNoteTileService.class : CaptureQuickSettingsTileService.class),
+                    getString(note ? R.string.quick_note_tile_label : R.string.capture_tile_label),
+                    Icon.createWithResource(this, note
+                            ? R.drawable.ic_quick_note : R.drawable.ic_capture_tile),
+                    getMainExecutor(),
+                    result -> {
+                        addTileButton.setEnabled(true);
+                        addNoteTileButton.setEnabled(true);
+                        int message;
+                        if (result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED) {
+                            message = note ? R.string.quick_note_tile_added : R.string.capture_tile_added;
+                        } else if (result
+                                == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED) {
+                            message = note ? R.string.quick_note_tile_already_added
+                                    : R.string.capture_tile_already_added;
+                        } else {
+                            message = R.string.capture_tile_not_added;
+                        }
+                        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
                     }
-                    Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-                }
-        );
+            );
+        } catch (RuntimeException error) {
+            // OEMs may not implement the tile prompt. Manual editing still works.
+            addTileButton.setEnabled(true);
+            addNoteTileButton.setEnabled(true);
+            Toast.makeText(this, R.string.capture_add_tile_manual, Toast.LENGTH_LONG).show();
+        }
     }
 
     private void renderRecords() {
@@ -285,6 +307,7 @@ public final class CaptureInboxActivity extends Activity {
         TextView exactText = card.findViewById(R.id.capture_item_exact_text);
         TextView sync = card.findViewById(R.id.capture_item_sync_status);
         ImageView image = card.findViewById(R.id.capture_item_image);
+        image.setClipToOutline(true);
 
         kind.setText(kindLabel(record.kind));
         time.setText(DateFormat.format(
@@ -292,15 +315,7 @@ public final class CaptureInboxActivity extends Activity {
                 new Date(record.createdAt)
         ));
         setOptionalText(comment, record.comment);
-        String sourceLine = getString(
-                R.string.capture_item_source_format,
-                record.fidelityLevel,
-                getString(sourceTypeLabel(record.sourceType)),
-                record.sourcePackage.isEmpty()
-                        ? getString(R.string.capture_source_unknown)
-                        : record.sourcePackage
-        );
-        source.setText(sourceLine);
+        source.setText(sourceTypeLabel(record.sourceType));
         sync.setText(syncStateLabel(record.syncState));
         if (CaptureStore.SYNC_SYNCED.equals(record.syncState)) {
             sync.setTextColor(getColor(R.color.success));
@@ -336,7 +351,7 @@ public final class CaptureInboxActivity extends Activity {
             });
         }
         card.setContentDescription(
-                kind.getText() + "，" + time.getText() + "，" + sourceLine
+                kind.getText() + "，" + time.getText() + "，" + source.getText()
                         + "，" + sync.getText() + "，"
                         + getString(R.string.capture_detail_open_hint)
         );

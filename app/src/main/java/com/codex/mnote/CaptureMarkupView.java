@@ -57,10 +57,10 @@ public final class CaptureMarkupView extends View {
     public CaptureMarkupView(Context context, AttributeSet attributes) {
         super(context, attributes);
         density = getResources().getDisplayMetrics().density;
-        setBackgroundColor(Color.rgb(28, 27, 30));
+        setBackgroundColor(context.getColor(R.color.canvas_background));
         selectionBorderPaint.setStyle(Paint.Style.STROKE);
         selectionBorderPaint.setStrokeWidth(Math.max(2f, density * 2f));
-        selectionBorderPaint.setColor(Color.WHITE);
+        selectionBorderPaint.setColor(context.getColor(R.color.coral));
         selectionShadePaint.setStyle(Paint.Style.FILL);
         selectionShadePaint.setColor(0x88000000);
         setFocusable(true);

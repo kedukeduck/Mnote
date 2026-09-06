@@ -40,11 +40,12 @@ public final class CaptureSyncSettingsActivity extends Activity {
     private View buildContent() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
+        scroll.setFitsSystemWindows(true);
         scroll.setBackgroundColor(getColor(R.color.cream));
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(18), dp(18), dp(32));
+        root.setPadding(dp(22), dp(14), dp(22), dp(32));
         scroll.addView(root, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT
@@ -56,11 +57,12 @@ public final class CaptureSyncSettingsActivity extends Activity {
         Button back = new Button(this);
         back.setText(R.string.capture_sync_settings_back);
         back.setAllCaps(false);
+        back.setTextColor(getColor(R.color.coral));
         back.setOnClickListener(view -> finish());
         header.addView(back, new LinearLayout.LayoutParams(dp(72), dp(48)));
         TextView title = text(
                 getString(R.string.capture_sync_settings_title),
-                24,
+                22,
                 R.color.ink
         );
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -88,6 +90,7 @@ public final class CaptureSyncSettingsActivity extends Activity {
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI
         );
         baseUrlInput.setHint(R.string.capture_sync_url_hint);
+        styleInput(baseUrlInput);
         root.addView(baseUrlInput, matchWrap());
 
         TextView urlRule = text(
@@ -95,7 +98,19 @@ public final class CaptureSyncSettingsActivity extends Activity {
                 12,
                 R.color.ink_muted
         );
-        addWithTopMargin(root, urlRule, 4);
+        urlRule.setVisibility(View.GONE);
+        Button urlHelp = new Button(this);
+        urlHelp.setText(R.string.capture_sync_url_help);
+        urlHelp.setTextSize(12);
+        urlHelp.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        urlHelp.setPadding(0, 0, 0, 0);
+        urlHelp.setOnClickListener(view -> {
+            boolean show = urlRule.getVisibility() != View.VISIBLE;
+            urlRule.setVisibility(show ? View.VISIBLE : View.GONE);
+            urlHelp.setText(show ? R.string.capture_sync_url_help_hide : R.string.capture_sync_url_help);
+        });
+        root.addView(urlHelp, matchWrap());
+        root.addView(urlRule, matchWrap());
 
         addLabel(root, R.string.capture_sync_token_label, 20);
         tokenInput = new EditText(this);
@@ -106,6 +121,7 @@ public final class CaptureSyncSettingsActivity extends Activity {
         tokenInput.setImportantForAutofill(
                 View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
         );
+        styleInput(tokenInput);
         root.addView(tokenInput, matchWrap());
 
         TextView tokenRule = text(
@@ -118,6 +134,8 @@ public final class CaptureSyncSettingsActivity extends Activity {
         addLabel(root, R.string.capture_sync_ai_label, 22);
         aiAccessGroup = new RadioGroup(this);
         aiAccessGroup.setOrientation(RadioGroup.VERTICAL);
+        aiAccessGroup.setBackgroundResource(R.drawable.bg_card);
+        aiAccessGroup.setPadding(dp(12), dp(8), dp(12), dp(8));
         addAiChoice(
                 CaptureSyncPreferences.AI_DENY,
                 R.string.capture_sync_ai_deny
@@ -157,7 +175,7 @@ public final class CaptureSyncSettingsActivity extends Activity {
         saveButton.setOnClickListener(view -> save());
         LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(52)
+                LinearLayout.LayoutParams.WRAP_CONTENT
         );
         saveParams.topMargin = dp(12);
         root.addView(saveButton, saveParams);
@@ -170,7 +188,7 @@ public final class CaptureSyncSettingsActivity extends Activity {
         disableButton.setOnClickListener(view -> confirmDisable());
         LinearLayout.LayoutParams disableParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(52)
+                LinearLayout.LayoutParams.WRAP_CONTENT
         );
         disableParams.topMargin = dp(8);
         root.addView(disableButton, disableParams);
@@ -281,8 +299,18 @@ public final class CaptureSyncSettingsActivity extends Activity {
         option.setText(label);
         option.setTextColor(getColor(R.color.ink));
         option.setTextSize(14);
-        option.setPadding(0, dp(5), 0, dp(5));
+        option.setMinHeight(dp(56));
+        option.setPadding(0, dp(12), 0, dp(12));
         aiAccessGroup.addView(option, matchWrap());
+    }
+
+    private void styleInput(EditText input) {
+        input.setBackgroundResource(R.drawable.bg_input);
+        input.setTextColor(getColor(R.color.ink));
+        input.setHintTextColor(getColor(R.color.ink_muted));
+        input.setTextSize(15);
+        input.setMinHeight(dp(56));
+        input.setPadding(dp(16), dp(14), dp(16), dp(14));
     }
 
     private void addLabel(LinearLayout root, int label, int topMarginDp) {
