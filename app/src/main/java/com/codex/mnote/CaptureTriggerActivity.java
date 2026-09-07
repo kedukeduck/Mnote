@@ -115,7 +115,9 @@ public final class CaptureTriggerActivity extends Activity {
             return;
         }
         captureRequested = true;
-        CaptureSourceContext source = CaptureAccessibilityService.readSourceOnce();
+        CaptureSourceContext currentSource = CaptureAccessibilityService.readSourceOnce();
+        CaptureSourceContext source = currentSource.appPackage.isEmpty() && currentSource.allowClickFallback
+                ? CaptureSourceContext.fromClick(getIntent()) : currentSource;
         CaptureAccessibilityService.captureOnce(
                 new CaptureAccessibilityService.CaptureCallback() {
                     @Override

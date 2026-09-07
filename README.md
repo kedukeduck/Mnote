@@ -22,11 +22,11 @@ Mnote 是一个独立的本地优先个人知识捕获项目，用于在 Android
 
 ## Android 构建
 
-当前 Android 增量测试版：[1.0.4-test APK](https://github.com/kedukeduck/Mnote/releases/download/mnote-android-v1.0.4-test/Mnote-Android-1.0.4-test.apk)。
+当前 Android 增量测试版：[1.0.5-test APK](https://github.com/kedukeduck/Mnote/releases/download/mnote-android-v1.0.5-test/Mnote-Android-1.0.5-test.apk)。
 支持“全屏选区 → 下一步 → 底部想法卡片”的两步摘录、独立随手记，以及主动摘录时一次性识别来源应用 / 已适配浏览器的地址栏。
 浏览器适配包含 Chrome、Edge、Brave、Firefox；完整程度取决于浏览器暴露的地址栏。升级后可能需要重新启用无障碍服务以获得窗口内容读取能力。
 微博等原生 App 的内部页面链接仍不能保证自动取得；可收起批注、复制原帖链接，再恢复并粘贴。原生选中文字后“记到 Mnote”或分享入口仍保留，本版不提供截图 OCR 选字。
-详见[本版说明与验收边界](docs/android-1.0.4-selection-browser-source.md)。
+本版修复透明截图工具布局、想法页顶部选区预览与键盘避让、来源读取时机和保存结果 Toast。详见[本版说明与验收边界](docs/android-1.0.5-overlay-fixes.md)。
 
 ```bash
 ./gradlew --no-daemon testDebugUnitTest assembleDebug lintDebug

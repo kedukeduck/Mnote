@@ -1,4 +1,5 @@
 <resources>
     <item name="capture_overlay_minimize" type="id" />
     <item name="capture_tool_move" type="id" />
+    <item name="capture_selection_preview" type="id" />
 </resources>

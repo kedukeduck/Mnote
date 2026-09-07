@@ -63,8 +63,11 @@ public final class CaptureQuickSettingsTileService extends TileService {
     @SuppressLint("StartActivityAndCollapseDeprecated")
     private void launchTrigger() {
         Intent intent = captureIntent(this);
+        // Read before the transparent Activity becomes the active window. No
+        // background cache: this snapshot belongs only to this explicit click.
+        if (!CaptureAccessibilityService.hasOverlay()) CaptureAccessibilityService.readSourceOnce().attachTo(intent);
         if (Build.VERSION.SDK_INT >= 34) {
-            startActivityAndCollapse(capturePendingIntent(this));
+            startActivityAndCollapse(capturePendingIntent(this, intent));
         } else {
             startActivityAndCollapse(intent);
         }
@@ -81,6 +84,10 @@ public final class CaptureQuickSettingsTileService extends TileService {
     }
 
     static PendingIntent capturePendingIntent(Context context) {
+        return capturePendingIntent(context, captureIntent(context));
+    }
+
+    private static PendingIntent capturePendingIntent(Context context, Intent intent) {
         ActivityOptions options = ActivityOptions.makeBasic();
         if (Build.VERSION.SDK_INT >= 35) {
             // Only SystemUI receives this immutable, explicit, user-clicked
@@ -94,7 +101,7 @@ public final class CaptureQuickSettingsTileService extends TileService {
                 // Use a new identity so a PendingIntent cached by SystemUI
                 // from 1.0.0 cannot retain that version's task-launch flags.
                 4302,
-                captureIntent(context),
+                intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE,
                 options.toBundle()
         );

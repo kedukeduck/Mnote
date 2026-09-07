@@ -188,4 +188,6 @@
     <string name="capture_detected_app_only">未获取页面链接，可分享或粘贴补充</string>
     <string name="capture_detected_url">已读取地址栏，可展开来源链接核对完整地址</string>
     <string name="capture_detected_url_https">已读取地址栏并补全 HTTPS，请核对是否为完整页面链接</string>
+    <string name="capture_selection_preview">本次保存的截图选区预览</string>
+    <string name="capture_source_unavailable_help">未读取到来源窗口。可保存后重新启用无障碍服务，确认允许查看屏幕内容。</string>
 </resources>

@@ -133,8 +133,11 @@ public class CaptureOverlayEditorTest {
         assertTrue(CaptureStore.list(service, 10).isEmpty());
         assertFalse(markup.isEnabled());
         View dock = ReflectionHelpers.getField(editor, "column");
-        assertTrue(dock.getHeight() <= root().getHeight() * .60f);
-        assertTrue(dock.getTop() > root().getHeight() * .39f);
+        assertTrue(dock.getTop() < 50);
+        android.widget.ImageView preview = root().findViewById(R.id.capture_selection_preview);
+        assertTrue(preview.isShown());
+        assertNotNull(preview.getDrawable());
+        assertTrue(preview.getTop() < root().findViewById(R.id.capture_editor_status).getTop());
         ((EditText) root().findViewById(R.id.capture_comment_input)).setText("先选区域，再写想法");
         render("overlay-compose.png");
         root().findViewById(R.id.capture_editor_cancel).performClick();
@@ -161,7 +164,7 @@ public class CaptureOverlayEditorTest {
         layout(390, 844);
         assertTrue(dock.getTop() < 50);
         next();
-        assertTrue(dock.getTop() > 300);
+        assertTrue(dock.getTop() < 50);
         editor.minimize();
         assertTrue(editor.restore());
         assertTrue(root().findViewById(R.id.capture_composer).isShown());
@@ -208,6 +211,7 @@ public class CaptureOverlayEditorTest {
         assertFalse(draft.exists());
         assertFalse((Boolean) ReflectionHelpers.getField(editor, "attached"));
         assertEquals(1, closeCount);
+        assertEquals(service.getString(R.string.capture_saved), org.robolectric.shadows.ShadowToast.getTextOfLatestToast());
     }
 
     @Test public void cancellationUsesOverlayConfirmationAndPreservesUntilConfirmed() throws Exception {
@@ -341,7 +345,7 @@ public class CaptureOverlayEditorTest {
             ScrollView scroll = (ScrollView) composer.getParent();
             assertTrue(scroll.getHeight() > 48);
             scroll.setSmoothScrollingEnabled(false);
-            scroll.scrollTo(0, composer.getHeight());
+            scroll.scrollTo(0, 0);
             View commentView = root().findViewById(R.id.capture_comment_input);
             render("overlay-large-font-keyboard.png");
             Rect visible = new Rect();
@@ -356,6 +360,69 @@ public class CaptureOverlayEditorTest {
     }
 
     private View root() { return ReflectionHelpers.getField(editor, "root"); }
+
+    @Test public void selectionControlsHaveNoOpaquePanelOrButtonBackground() throws Exception {
+        open();
+        View dock = ReflectionHelpers.getField(editor, "column");
+        assertEquals(0, ((android.graphics.drawable.ColorDrawable) dock.getBackground()).getColor());
+        assertEquals(0f, dock.getElevation(), 0f);
+        assertTrue(dock.getHeight() <= 132);
+        for (int id : new int[]{R.id.capture_editor_save, R.id.capture_overlay_minimize,
+                R.id.capture_editor_cancel, R.id.capture_tool_select, R.id.capture_tool_pen, R.id.capture_tool_move}) {
+            assertNull(root().findViewById(id).getBackground());
+        }
+    }
+
+    @Test public void imeInsetsLiftInputEvenWhenOverlayIsNotResizedAndDoNotDoubleLiftWhenResized() throws Exception {
+        open(); next();
+        android.view.WindowInsets shown = new android.view.WindowInsets.Builder()
+                .setInsets(android.view.WindowInsets.Type.ime(), android.graphics.Insets.of(0, 0, 0, 320))
+                .setVisible(android.view.WindowInsets.Type.ime(), true).build();
+        root().dispatchApplyWindowInsets(shown);
+        layout(390, 844);
+        assertInputAbove(524);
+        render("overlay-ime-visible.png");
+        layout(390, 524);
+        View dock = ReflectionHelpers.getField(editor, "column");
+        assertTrue("IME must not be subtracted twice", dock.getHeight() > 400);
+        assertInputAbove(524);
+        root().dispatchApplyWindowInsets(new android.view.WindowInsets.Builder()
+                .setInsets(android.view.WindowInsets.Type.ime(), android.graphics.Insets.NONE)
+                .setVisible(android.view.WindowInsets.Type.ime(), false).build());
+        layout(390, 844);
+        assertTrue(dock.getHeight() > 500);
+    }
+
+    @Test public void visibleFrameFallbackAlsoProtectsInputWithoutImeInsets() throws Exception {
+        open(); next();
+        ReflectionHelpers.setField(editor, "visibleBottom", 524);
+        layout(390, 844);
+        assertInputAbove(524);
+    }
+
+    private void assertInputAbove(int bottom) {
+        View input = root().findViewById(R.id.capture_comment_input);
+        Rect rect = new Rect();
+        assertTrue(input.getGlobalVisibleRect(rect));
+        assertTrue("input bottom=" + rect.bottom, rect.bottom <= bottom);
+        assertTrue(rect.height() >= 48);
+        assertTrue(root().findViewById(R.id.capture_selection_preview).getGlobalVisibleRect(new Rect()));
+        assertTrue(root().findViewById(R.id.capture_editor_save).getGlobalVisibleRect(new Rect()));
+    }
+
+    @Test public void failedLocalSaveToastsFailureAndKeepsEditableSession() throws Exception {
+        open(); next();
+        ((EditText) root().findViewById(R.id.capture_comment_input)).setText("不要丢掉这句话");
+        // Simulate the system removing the temporary screenshot before the write.
+        CaptureStore.discardDraft(service, draft);
+        root().findViewById(R.id.capture_editor_save).performClick();
+        drain();
+        assertEquals(service.getString(R.string.capture_error_save_failed), org.robolectric.shadows.ShadowToast.getTextOfLatestToast());
+        assertEquals(0, closeCount);
+        assertTrue(root().findViewById(R.id.capture_editor_save).isEnabled());
+        assertEquals("不要丢掉这句话", ((EditText) root().findViewById(R.id.capture_comment_input)).getText().toString());
+        assertTrue(CaptureStore.list(service, 10).isEmpty());
+    }
 
     private void next() {
         root().findViewById(R.id.capture_editor_save).performClick();

@@ -3,6 +3,8 @@ package com.codex.mnote;
 import android.accessibilityservice.AccessibilityService;
 import android.app.KeyguardManager;
 import android.content.Context;
+import android.content.Intent;
+import android.os.SystemClock;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 
@@ -16,17 +18,49 @@ import java.util.Set;
 /** One-shot source snapshot. Never reads page text, clicks controls or caches navigation. */
 final class CaptureSourceContext {
     static final CaptureSourceContext EMPTY = new CaptureSourceContext("", "", "");
+    private static final CaptureSourceContext BLOCKED = new CaptureSourceContext("", "", "", false);
     final String appPackage;
     final String url;
     final String origin;
+    final boolean allowClickFallback;
 
     CaptureSourceContext(String appPackage, String url, String origin) {
+        this(appPackage, url, origin, true);
+    }
+
+    private CaptureSourceContext(String appPackage, String url, String origin, boolean allowClickFallback) {
         this.appPackage = appPackage == null ? "" : appPackage;
         this.url = CaptureSourceUrl.clean(url);
         this.origin = this.url.isEmpty() ? "" : origin;
+        this.allowClickFallback = allowClickFallback;
     }
 
     String appLabel(Context context) { return appLabel(context, appPackage); }
+
+    void attachTo(Intent intent) {
+        intent.putExtra("mnote.source.package", appPackage)
+                .putExtra("mnote.source.url", url).putExtra("mnote.source.origin", origin)
+                .putExtra("mnote.source.time", SystemClock.elapsedRealtime());
+    }
+
+    static CaptureSourceContext fromClick(Intent intent) {
+        long age = SystemClock.elapsedRealtime() - intent.getLongExtra("mnote.source.time", -10_000L);
+        if (age < 0 || age > 2_000L) return EMPTY;
+        return new CaptureSourceContext(intent.getStringExtra("mnote.source.package"),
+                intent.getStringExtra("mnote.source.url"), intent.getStringExtra("mnote.source.origin"));
+    }
+
+    private static CaptureSourceContext activeRoot(AccessibilityService service) {
+        AccessibilityNodeInfo root = null;
+        try {
+            root = service.getRootInActiveWindow();
+            if (root == null) return EMPTY;
+            String pkg = root.getPackageName() == null ? "" : root.getPackageName().toString();
+            if (pkg.isEmpty() || pkg.equals(service.getPackageName()) || pkg.equals("com.android.systemui")) return EMPTY;
+            return fromRoot(root);
+        } catch (RuntimeException ignored) { return EMPTY; }
+        finally { if (root != null) root.recycle(); }
+    }
 
     static String appLabel(Context context, String appPackage) {
         if (appPackage.isEmpty()) return context.getString(R.string.capture_source_unknown);
@@ -38,7 +72,7 @@ final class CaptureSourceContext {
 
     static CaptureSourceContext read(AccessibilityService service) {
         KeyguardManager lock = service.getSystemService(KeyguardManager.class);
-        if (lock != null && lock.isKeyguardLocked()) return EMPTY;
+        if (lock != null && lock.isKeyguardLocked()) return BLOCKED;
         List<AccessibilityWindowInfo> windows = new ArrayList<>();
         try {
             windows.addAll(service.getWindows());
@@ -55,7 +89,7 @@ final class CaptureSourceContext {
                         skippedBridge = true;
                         continue;
                     }
-                    return EMPTY;
+                    return activeRoot(service);
                 }
                 try {
                     String pkg = root.getPackageName() == null ? "" : root.getPackageName().toString();
@@ -63,7 +97,11 @@ final class CaptureSourceContext {
                         skippedBridge = true; // Transparent trigger above the source app.
                         continue;
                     }
-                    if (pkg.isEmpty() || pkg.equals(service.getPackageName()) || pkg.equals("com.android.systemui")) return EMPTY;
+                    // OEMs may expose Quick Settings as an application window.
+                    // It is capture chrome, not the app visible underneath it.
+                    if (pkg.equals("com.android.systemui")) continue;
+                    if (pkg.isEmpty()) return activeRoot(service);
+                    if (pkg.equals(service.getPackageName())) return BLOCKED;
                     return fromRoot(root);
                 } finally { root.recycle(); }
             }
@@ -72,11 +110,19 @@ final class CaptureSourceContext {
         } finally {
             for (AccessibilityWindowInfo window : windows) window.recycle();
         }
-        return EMPTY;
+        return activeRoot(service);
     }
 
     static CaptureSourceContext fromRoot(AccessibilityNodeInfo root) {
         String pkg = root.getPackageName() == null ? "" : root.getPackageName().toString();
+        try { return readAddress(root, pkg); }
+        catch (RuntimeException ignored) {
+            // URL lookup failure must not discard an already-known source app.
+            return new CaptureSourceContext(pkg, "", "");
+        }
+    }
+
+    private static CaptureSourceContext readAddress(AccessibilityNodeInfo root, String pkg) {
         Set<String> candidates = new LinkedHashSet<>();
         boolean inferred = false;
         for (String id : addressIds(pkg)) {

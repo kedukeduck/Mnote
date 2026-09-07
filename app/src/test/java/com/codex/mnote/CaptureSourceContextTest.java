@@ -173,11 +173,49 @@ public class CaptureSourceContextTest {
         assertEquals("browser_address_bar_https", payload.getJSONObject("source").getString("url_origin"));
     }
 
+    @Test public void activeRootRecoversSourceWhenWindowListIsUnavailable() {
+        var controller = Robolectric.buildService(CaptureAccessibilityService.class).create();
+        try {
+            ServiceInfoShadow state = Shadow.extract(controller.get());
+            state.activeRoot = root(CHROME, field(CHROME, "url_bar", URL));
+            shadowOf(controller.get()).setWindows(Collections.emptyList());
+            assertEquals(URL, CaptureSourceContext.read(controller.get()).url);
+            state.activeRoot = root("com.android.systemui");
+            assertEquals("", CaptureSourceContext.read(controller.get()).appPackage);
+        } finally { controller.destroy(); }
+    }
+
+    @Test public void systemUiApplicationWindowDoesNotHideUnderlyingSourceAtTileClick() {
+        var controller = Robolectric.buildService(CaptureAccessibilityService.class).create();
+        try {
+            shadowOf(controller.get()).setWindows(Arrays.asList(window(root("com.android.systemui"), 4),
+                    window(root(CHROME, field(CHROME, "url_bar", URL)), 1)));
+            assertEquals(CHROME, CaptureSourceContext.read(controller.get()).appPackage);
+        } finally { controller.destroy(); }
+    }
+
+    @Test public void clickSnapshotExpiresAndEmptyIntentsDoNotInventSource() {
+        android.content.Intent intent = new android.content.Intent();
+        assertEquals("", CaptureSourceContext.fromClick(intent).appPackage);
+        new CaptureSourceContext(CHROME, URL, "browser_address_bar").attachTo(intent);
+        assertEquals(URL, CaptureSourceContext.fromClick(intent).url);
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(2001));
+        assertEquals("", CaptureSourceContext.fromClick(intent).appPackage);
+    }
+
     private static AccessibilityNodeInfo root(String pkg, AccessibilityNodeInfo... fields) {
         AccessibilityNodeInfo root = AccessibilityNodeInfo.obtain();
         root.setPackageName(pkg);
         query(root).fields.addAll(Arrays.asList(fields));
         return root;
+    }
+
+    @Test public void addressLookupFailureStillPreservesKnownApplication() {
+        AccessibilityNodeInfo root = root(CHROME);
+        query(root).failQuery = true;
+        CaptureSourceContext source = CaptureSourceContext.fromRoot(root);
+        assertEquals(CHROME, source.appPackage);
+        assertEquals("", source.url);
     }
 
     private static AccessibilityNodeInfo field(String pkg, String id, String text) {
@@ -203,8 +241,10 @@ public class CaptureSourceContextTest {
     public static class NodeQueryShadow extends ShadowAccessibilityNodeInfo {
         final List<AccessibilityNodeInfo> fields = new ArrayList<>();
         final List<String> queries = new ArrayList<>();
+        boolean failQuery;
         @Implementation protected List<AccessibilityNodeInfo> findAccessibilityNodeInfosByViewId(String id) {
             queries.add(id);
+            if (failQuery) throw new IllegalStateException("Window disappeared during address lookup");
             List<AccessibilityNodeInfo> matches = new ArrayList<>();
             for (AccessibilityNodeInfo field : fields) {
                 if (id.equals(field.getViewIdResourceName())) matches.add(AccessibilityNodeInfo.obtain(field));
@@ -223,6 +263,8 @@ public class CaptureSourceContextTest {
     @Implements(AccessibilityService.class)
     public static class ServiceInfoShadow extends ShadowAccessibilityService {
         private AccessibilityServiceInfo info;
+        AccessibilityNodeInfo activeRoot;
+        @Implementation protected AccessibilityNodeInfo getRootInActiveWindow() { return activeRoot; }
         @Implementation protected void setServiceInfo(AccessibilityServiceInfo value) { info = value; }
         @Implementation protected AccessibilityServiceInfo getServiceInfo() { return info; }
     }

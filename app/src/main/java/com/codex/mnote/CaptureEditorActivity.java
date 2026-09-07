@@ -379,7 +379,10 @@ public final class CaptureEditorActivity extends Activity {
         }
         String comment = commentInput.getText().toString().trim();
         String url = sourceLink.validated();
-        if (url == null) return;
+        if (url == null) {
+            Toast.makeText(this, R.string.capture_url_invalid, Toast.LENGTH_LONG).show();
+            return;
+        }
         String urlOrigin = sourceLink.origin(url);
         if (sourceBitmap == null && sourceText.isEmpty() && comment.isEmpty() && url.isEmpty()) {
             commentInput.setError(getString(R.string.capture_comment_required));
@@ -514,6 +517,7 @@ public final class CaptureEditorActivity extends Activity {
     }
 
     private void showStatusError(int message) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
         status.setTextColor(getColor(R.color.danger));
         status.setText(message);
     }

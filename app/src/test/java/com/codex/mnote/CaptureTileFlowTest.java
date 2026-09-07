@@ -242,6 +242,32 @@ public class CaptureTileFlowTest {
         return Robolectric.buildActivity(CaptureTriggerActivity.class).create().start().resume();
     }
 
+    @Test public void clickSourceSurvivesBridgeWindowButCurrentSourceWinsIfAvailable() throws Exception {
+        Intent intent = CaptureQuickSettingsTileService.captureIntent(RuntimeEnvironment.getApplication());
+        new CaptureSourceContext("com.sina.weibo", "", "").attachTo(intent);
+        ScreenshotServiceShadow.source = CaptureSourceContext.EMPTY;
+        try (ActivityController<CaptureTriggerActivity> controller =
+                     Robolectric.buildActivity(CaptureTriggerActivity.class, intent).create().start().resume()) {
+            controller.get().onWindowFocusChanged(true);
+            idle(350);
+            File draft = File.createTempFile("source-fallback", ".png", controller.get().getCacheDir());
+            ScreenshotServiceShadow.callback.onCaptured(draft);
+            assertEquals("com.sina.weibo", ScreenshotServiceShadow.overlaidSource.appPackage);
+            Files.deleteIfExists(draft.toPath());
+        }
+        ScreenshotServiceShadow.source = new CaptureSourceContext("com.android.chrome", "https://example.com/new", "browser_address_bar");
+        try (ActivityController<CaptureTriggerActivity> controller =
+                     Robolectric.buildActivity(CaptureTriggerActivity.class, intent).create().start().resume()) {
+            controller.get().onWindowFocusChanged(true);
+            idle(350);
+            File draft = File.createTempFile("source-current", ".png", controller.get().getCacheDir());
+            ScreenshotServiceShadow.callback.onCaptured(draft);
+            assertEquals("com.android.chrome", ScreenshotServiceShadow.overlaidSource.appPackage);
+            assertEquals("https://example.com/new", ScreenshotServiceShadow.overlaidSource.url);
+            Files.deleteIfExists(draft.toPath());
+        }
+    }
+
     private static void idle(long millis) {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(millis));
     }
