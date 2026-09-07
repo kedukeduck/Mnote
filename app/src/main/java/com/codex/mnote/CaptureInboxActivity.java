@@ -434,7 +434,7 @@ public final class CaptureInboxActivity extends Activity {
                 getString(sourceTypeLabel(record.sourceType)),
                 record.sourcePackage.isEmpty()
                         ? getString(R.string.capture_source_unknown)
-                        : record.sourcePackage,
+                        : CaptureSourceContext.appLabel(this, record.sourcePackage) + " · " + record.sourcePackage,
                 record.fidelityLevel,
                 record.aiAccess,
                 getString(syncStateLabel(record.syncState))

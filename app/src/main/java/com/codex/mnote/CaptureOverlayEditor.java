@@ -37,6 +37,7 @@ final class CaptureOverlayEditor {
     private final WindowManager windows;
     private final File draft;
     private final Runnable onClosed;
+    private final CaptureSourceContext source;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService writer = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "capture-overlay");
@@ -53,6 +54,10 @@ final class CaptureOverlayEditor {
     private final WindowManager.LayoutParams params;
     private ScrollView composerScroll;
     private LinearLayout column;
+    private boolean composing;
+    private boolean toolsAtTop;
+    private int topInset;
+    private int bottomInset;
     private Bitmap sourceBitmap;
     private AlertDialog dialog;
     private boolean attached;
@@ -63,10 +68,15 @@ final class CaptureOverlayEditor {
     private Runnable unregisterBack;
 
     CaptureOverlayEditor(Context service, File draft, Runnable onClosed) {
+        this(service, draft, CaptureSourceContext.EMPTY, onClosed);
+    }
+
+    CaptureOverlayEditor(Context service, File draft, CaptureSourceContext source, Runnable onClosed) {
         this.context = new ContextThemeWrapper(service, R.style.Theme_Mnote);
         this.windows = service.getSystemService(WindowManager.class);
         this.draft = draft;
         this.onClosed = onClosed;
+        this.source = source;
         root = new FrameLayout(context) {
             @Override protected void onMeasure(int widthSpec, int heightSpec) {
                 if (composerScroll != null) {
@@ -74,17 +84,17 @@ final class CaptureOverlayEditor {
                 }
                 super.onMeasure(widthSpec, heightSpec);
                 if (composerScroll == null || column == null) return;
-                int available = column.getMeasuredHeight() - column.getPaddingTop() - column.getPaddingBottom();
+                int height = getMeasuredHeight() - topInset - bottomInset - dp(24);
+                int cap = height < dp(560) ? height : Math.round(height * 0.60f);
+                int available = cap - column.getPaddingTop() - column.getPaddingBottom();
                 for (int index = 0; index < column.getChildCount(); index++) {
                     View child = column.getChildAt(index);
-                    if (child == composerScroll || child.getVisibility() == View.GONE
-                            || child.getId() == R.id.capture_evidence_container) continue;
+                    if (child == composerScroll || child.getVisibility() == View.GONE) continue;
                     LinearLayout.LayoutParams childParams = (LinearLayout.LayoutParams) child.getLayoutParams();
                     available -= child.getMeasuredHeight() + childParams.topMargin + childParams.bottomMargin;
                 }
-                // A weighted image above a wrap-content ScrollView otherwise
-                // lets the sheet measure against the whole window, overflow it,
-                // and report no scroll range. Cap it to the actual remainder.
+                // Cap the scrollable form to the dock budget, leaving the
+                // frozen screenshot visible above it on a normal-size screen.
                 if (composerScroll.getMeasuredHeight() > Math.max(0, available)) {
                     composerScroll.getLayoutParams().height = Math.max(0, available);
                     super.onMeasure(widthSpec, heightSpec);
@@ -93,15 +103,14 @@ final class CaptureOverlayEditor {
 
             @Override public boolean dispatchKeyEvent(KeyEvent event) {
                 if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
-                    if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) requestClose();
+                    if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) back();
                     return true;
                 }
                 return super.dispatchKeyEvent(event);
             }
         };
         root.setFocusableInTouchMode(true);
-        root.setPadding(dp(8), dp(8), dp(8), dp(8));
-        root.setBackgroundColor(0x33000000);
+        root.setBackgroundColor(0xFF101114);
         View editor = LayoutInflater.from(context).inflate(R.layout.activity_capture_editor, root, false);
         editor.setBackgroundResource(R.drawable.bg_overlay_panel);
         editor.setClipToOutline(true);
@@ -118,8 +127,35 @@ final class CaptureOverlayEditor {
                 ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
         column.addView(composerScroll, composerIndex, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        // The frozen screenshot is the full-screen canvas, not a thumbnail in
+        // a form. Only the compact dock floats over it; the form is step two.
+        View evidence = root.findViewById(R.id.capture_evidence_container);
+        column.removeView(evidence);
+        root.addView(evidence, 0, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        column.setFitsSystemWindows(false);
+        FrameLayout.LayoutParams dockParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
+        dockParams.setMargins(dp(12), dp(12), dp(12), dp(24));
+        column.setLayoutParams(dockParams);
+        column.setElevation(dp(12));
+        root.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        root.setOnApplyWindowInsetsListener((view, insets) -> {
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets bars = insets.getInsets(
+                        android.view.WindowInsets.Type.systemBars() | android.view.WindowInsets.Type.displayCutout());
+                topInset = bars.top;
+                bottomInset = bars.bottom;
+            } else {
+                topInset = insets.getStableInsetTop();
+                bottomInset = insets.getStableInsetBottom();
+            }
+            positionDock();
+            return insets;
+        });
         markup = root.findViewById(R.id.capture_markup_view);
-        root.findViewById(R.id.capture_markup_container).setClipToOutline(true);
+        root.findViewById(R.id.capture_markup_container).setBackground(null);
         comment = root.findViewById(R.id.capture_comment_input);
         // Keep the lower panel compact when the keyboard or link field opens.
         comment.setMaxLines(2);
@@ -128,9 +164,12 @@ final class CaptureOverlayEditor {
         status = root.findViewById(R.id.capture_editor_status);
         save = root.findViewById(R.id.capture_editor_save);
         sourceLink = new SourceLinkField(root);
-        ((TextView) root.findViewById(R.id.capture_editor_title)).setText(R.string.capture_overlay_title);
-        root.findViewById(R.id.capture_editor_cancel).setOnClickListener(view -> requestClose());
-        save.setOnClickListener(view -> save());
+        sourceLink.acceptDetected(source.url, source.origin);
+        root.findViewById(R.id.capture_editor_cancel).setOnClickListener(view -> back());
+        save.setOnClickListener(view -> {
+            if (loading || saving) return;
+            if (composing) save(); else setComposing(true);
+        });
         save.setEnabled(false);
         LinearLayout header = (LinearLayout) save.getParent();
         Button minimize = new Button(context);
@@ -147,6 +186,12 @@ final class CaptureOverlayEditor {
         bindTool(R.id.capture_tool_highlighter, CaptureMarkupView.Tool.HIGHLIGHTER);
         root.findViewById(R.id.capture_tool_undo).setOnClickListener(view -> markup.undo());
         root.findViewById(R.id.capture_tool_whole).setOnClickListener(view -> markup.selectWholeImage());
+        LinearLayout tools = (LinearLayout) root.findViewById(R.id.capture_tool_whole).getParent();
+        TextView move = new TextView(context, null, 0, R.style.CaptureToolChip);
+        move.setId(R.id.capture_tool_move);
+        move.setText(R.string.capture_dock_move);
+        move.setOnClickListener(view -> { toolsAtTop = !toolsAtTop; positionDock(); });
+        tools.addView(move);
         markup.setChangeListener(this::renderTools);
         params = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
@@ -160,7 +205,7 @@ final class CaptureOverlayEditor {
         root.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
             @Override public void onViewAttachedToWindow(View view) {
                 if (Build.VERSION.SDK_INT >= 33) {
-                    unregisterBack = Api33Back.register(root, CaptureOverlayEditor.this::requestClose);
+                    unregisterBack = Api33Back.register(root, CaptureOverlayEditor.this::back);
                 }
             }
             @Override public void onViewDetachedFromWindow(View view) {
@@ -171,6 +216,54 @@ final class CaptureOverlayEditor {
                 }
             }
         });
+        setComposing(false);
+    }
+
+    private void positionDock() {
+        FrameLayout.LayoutParams dock = (FrameLayout.LayoutParams) column.getLayoutParams();
+        dock.gravity = !composing && toolsAtTop ? Gravity.TOP : Gravity.BOTTOM;
+        dock.topMargin = topInset + dp(12);
+        dock.bottomMargin = bottomInset + dp(12);
+        column.setLayoutParams(dock);
+        TextView move = root.findViewById(R.id.capture_tool_move);
+        if (move != null) move.setText(toolsAtTop ? R.string.capture_dock_bottom : R.string.capture_dock_move);
+    }
+
+    private void back() {
+        if (composing && !saving) setComposing(false); else requestClose();
+    }
+
+    private void setComposing(boolean value) {
+        composing = value;
+        composerScroll.setVisibility(value ? View.VISIBLE : View.GONE);
+        root.findViewById(R.id.capture_tool_row).setVisibility(!value && !loading ? View.VISIBLE : View.GONE);
+        markup.setEnabled(!value);
+        ((TextView) root.findViewById(R.id.capture_editor_title)).setText(
+                value ? R.string.capture_compose_title : R.string.capture_select_title);
+        ((TextView) root.findViewById(R.id.capture_editor_cancel)).setText(
+                value ? R.string.capture_reselect : R.string.capture_cancel);
+        save.setText(value ? R.string.capture_save : R.string.capture_next);
+        if (!loading) status.setText(value ? sourceSummary() : context.getString(R.string.capture_select_help));
+        if (!value) {
+            comment.clearFocus();
+            InputMethodManager keyboard = context.getSystemService(InputMethodManager.class);
+            if (keyboard != null) keyboard.hideSoftInputFromWindow(root.getWindowToken(), 0);
+        } else {
+            comment.requestFocus();
+            comment.post(() -> {
+                if (!attached || !composing || closed) return;
+                InputMethodManager keyboard = context.getSystemService(InputMethodManager.class);
+                if (keyboard != null) keyboard.showSoftInput(comment, InputMethodManager.SHOW_IMPLICIT);
+            });
+        }
+        positionDock();
+    }
+
+    private String sourceSummary() {
+        String message = source.url.isEmpty() ? context.getString(R.string.capture_detected_app_only)
+                : context.getString("browser_address_bar_https".equals(source.origin)
+                        ? R.string.capture_detected_url_https : R.string.capture_detected_url);
+        return source.appLabel(context) + " · " + message;
     }
 
     boolean open() {
@@ -192,8 +285,7 @@ final class CaptureOverlayEditor {
                 sourceBitmap = decoded;
                 markup.setSourceBitmap(decoded);
                 root.findViewById(R.id.capture_markup_container).setVisibility(View.VISIBLE);
-                root.findViewById(R.id.capture_tool_row).setVisibility(View.VISIBLE);
-                status.setText(R.string.capture_overlay_help);
+                setComposing(false);
                 save.setEnabled(true);
                 renderTools();
             });
@@ -295,7 +387,7 @@ final class CaptureOverlayEditor {
     }
 
     private void save() {
-        if (closed || loading || saving || sourceBitmap == null) return;
+        if (closed || loading || saving || !composing || sourceBitmap == null) return;
         String url = sourceLink.validated();
         if (url == null) return;
         String note = comment.getText().toString().trim();
@@ -326,7 +418,7 @@ final class CaptureOverlayEditor {
             boolean success = false;
             try {
                 CaptureStore.CaptureRecord record = CaptureStore.save(context, draft,
-                        originalCopy, annotatedCopy, annotations, recordKind, note, "screen", "", "", url, urlOrigin);
+                        originalCopy, annotatedCopy, annotations, recordKind, note, "screen", "", source.appPackage, url, urlOrigin);
                 success = true;
                 if (CaptureStore.SYNC_PENDING.equals(record.syncState)) CaptureSyncWorker.enqueue(context);
             } catch (Exception error) {

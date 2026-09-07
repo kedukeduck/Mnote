@@ -57,7 +57,7 @@ public class CaptureOverlayEditorTest {
                 "com.codex.mnote.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION");
         serviceController = Robolectric.buildService(CaptureAccessibilityService.class).create();
         service = serviceController.get();
-        Bitmap bitmap = Bitmap.createBitmap(390, 620, Bitmap.Config.ARGB_8888);
+        Bitmap bitmap = Bitmap.createBitmap(390, 844, Bitmap.Config.ARGB_8888);
         bitmap.eraseColor(Color.WHITE);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         paint.setColor(Color.rgb(29, 29, 31));
@@ -89,6 +89,9 @@ public class CaptureOverlayEditorTest {
         assertNull(shadowOf(RuntimeEnvironment.getApplication()).getNextStartedActivity());
         assertEquals(View.VISIBLE, root().findViewById(R.id.capture_markup_container).getVisibility());
         assertTrue(root().findViewById(R.id.capture_editor_save).isEnabled());
+        assertFalse(root().findViewById(R.id.capture_composer).isShown());
+        assertEquals("下一步", ((android.widget.Button) root().findViewById(R.id.capture_editor_save)).getText().toString());
+        assertEquals(root().getHeight(), root().findViewById(R.id.capture_markup_view).getHeight());
         render("overlay-editor.png");
     }
 
@@ -101,6 +104,7 @@ public class CaptureOverlayEditorTest {
         assertTrue(root().findViewById(R.id.capture_tool_pen).isSelected());
         stroke(markup);
         assertTrue(markup.canUndo());
+        next();
         editor.minimize();
         assertFalse((Boolean) ReflectionHelpers.getField(editor, "attached"));
         assertTrue(draft.exists());
@@ -114,6 +118,73 @@ public class CaptureOverlayEditorTest {
         assertTrue(CaptureStore.list(service, 10).isEmpty());
     }
 
+    @Test public void selectionThenCompactComposerCanGoBackWithoutLosingCropOrNote() throws Exception {
+        open();
+        CaptureMarkupView markup = root().findViewById(R.id.capture_markup_view);
+        MotionEvent down = MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, 40, 100, 0);
+        MotionEvent up = MotionEvent.obtain(0, 20, MotionEvent.ACTION_UP, 240, 350, 0);
+        markup.onTouchEvent(down);
+        markup.onTouchEvent(up);
+        down.recycle(); up.recycle();
+        String selection = markup.annotationLayer().getJSONObject("selection").toString();
+        next();
+        assertTrue(root().findViewById(R.id.capture_composer).isShown());
+        assertFalse(root().findViewById(R.id.capture_tool_row).isShown());
+        assertTrue(CaptureStore.list(service, 10).isEmpty());
+        assertFalse(markup.isEnabled());
+        View dock = ReflectionHelpers.getField(editor, "column");
+        assertTrue(dock.getHeight() <= root().getHeight() * .60f);
+        assertTrue(dock.getTop() > root().getHeight() * .39f);
+        ((EditText) root().findViewById(R.id.capture_comment_input)).setText("先选区域，再写想法");
+        render("overlay-compose.png");
+        root().findViewById(R.id.capture_editor_cancel).performClick();
+        layout(390, 844);
+        assertFalse(root().findViewById(R.id.capture_composer).isShown());
+        assertTrue(markup.isEnabled());
+        assertEquals(selection, markup.annotationLayer().getJSONObject("selection").toString());
+        next();
+        assertEquals("先选区域，再写想法", ((EditText) root().findViewById(R.id.capture_comment_input)).getText().toString());
+        root().findViewById(R.id.capture_editor_save).performClick();
+        drain();
+        CaptureStore.CaptureRecord record = CaptureStore.list(service, 10).get(0);
+        Bitmap crop = android.graphics.BitmapFactory.decodeFile(record.originalFile.getAbsolutePath());
+        assertEquals(200, crop.getWidth());
+        assertEquals(250, crop.getHeight());
+        crop.recycle();
+    }
+
+    @Test public void toolbarCanMoveAwayFromBottomSelectionAndReturnsForComposer() throws Exception {
+        open();
+        View dock = ReflectionHelpers.getField(editor, "column");
+        assertTrue(dock.getTop() > 500);
+        root().findViewById(R.id.capture_tool_move).performClick();
+        layout(390, 844);
+        assertTrue(dock.getTop() < 50);
+        next();
+        assertTrue(dock.getTop() > 300);
+        editor.minimize();
+        assertTrue(editor.restore());
+        assertTrue(root().findViewById(R.id.capture_composer).isShown());
+    }
+
+    @Test public void detectedSourceIsEditableAndCapturedOnlyOnceForEntireSession() throws Exception {
+        editor.close();
+        editor = new CaptureOverlayEditor(service, draft,
+                new CaptureSourceContext("com.android.chrome", "https://example.com/article/123", "browser_address_bar"), () -> closeCount++);
+        open();
+        next();
+        EditText input = root().findViewById(R.id.capture_source_url);
+        assertEquals("https://example.com/article/123", input.getText().toString());
+        editor.minimize();
+        assertTrue(editor.restore());
+        root().findViewById(R.id.capture_editor_save).performClick();
+        drain();
+        CaptureStore.CaptureRecord record = CaptureStore.list(service, 10).get(0);
+        assertEquals("com.android.chrome", record.sourcePackage);
+        assertEquals("browser_address_bar", record.sourceUrlOrigin);
+        assertEquals("https://example.com/article/123", record.sourceUrl);
+    }
+
     @Test public void savesScreenshotAnnotationCommentAndLinkTogetherThenRemovesWindow() throws Exception {
         open();
         ((EditText) root().findViewById(R.id.capture_comment_input)).setText("回头继续读这条动态");
@@ -121,6 +192,7 @@ public class CaptureOverlayEditorTest {
         ((RadioGroup) root().findViewById(R.id.capture_kind_group)).check(R.id.capture_kind_todo);
         root().findViewById(R.id.capture_tool_highlighter).performClick();
         stroke(root().findViewById(R.id.capture_markup_view));
+        next();
         root().findViewById(R.id.capture_editor_save).performClick();
         drain();
         List<CaptureStore.CaptureRecord> records = CaptureStore.list(service, 10);
@@ -159,6 +231,7 @@ public class CaptureOverlayEditorTest {
 
     @Test public void invalidSourceLinkCannotBeSavedOrExecuted() throws Exception {
         open();
+        next();
         EditText link = root().findViewById(R.id.capture_source_url);
         link.setText("intent://detail#Intent;scheme=unsafe;end");
         root().findViewById(R.id.capture_editor_save).performClick();
@@ -223,6 +296,7 @@ public class CaptureOverlayEditorTest {
 
     @Test public void closingDuringSaveDoesNotDeleteDraftBeforeAtomicWriteCompletes() throws Exception {
         open();
+        next();
         ((EditText) root().findViewById(R.id.capture_comment_input)).setText("正在保存时关闭服务");
         root().findViewById(R.id.capture_editor_save).performClick();
         ExecutorService writer = ReflectionHelpers.getField(editor, "writer");
@@ -237,6 +311,7 @@ public class CaptureOverlayEditorTest {
 
     @Test public void expandedLinkAndKeyboardSizedViewportKeepInputsReachable() throws Exception {
         open();
+        next();
         root().findViewById(R.id.capture_url_toggle).performClick();
         ((EditText) root().findViewById(R.id.capture_source_url)).setText("https://m.weibo.cn/detail/123456789");
         layout(360, 480);
@@ -258,6 +333,7 @@ public class CaptureOverlayEditorTest {
         try {
             editor = new CaptureOverlayEditor(service, draft, () -> {});
             open();
+            next();
             root().findViewById(R.id.capture_url_toggle).performClick();
             layout(360, 400);
             View composer = root().findViewById(R.id.capture_composer);
@@ -280,6 +356,11 @@ public class CaptureOverlayEditorTest {
     }
 
     private View root() { return ReflectionHelpers.getField(editor, "root"); }
+
+    private void next() {
+        root().findViewById(R.id.capture_editor_save).performClick();
+        layout(390, 844);
+    }
 
     private void layout(int width, int height) {
         root().measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),

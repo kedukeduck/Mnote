@@ -50,10 +50,10 @@
     <string name="capture_service_connecting_toast">服务仍在连接，请稍等片刻再试。</string>
 
     <string name="capture_accessibility_service_label">Mnote 单次摘录</string>
-    <string name="capture_accessibility_service_summary">仅在你主动点击时进行一次截图</string>
-    <string name="capture_accessibility_service_description">响应用户点击截取一次当前画面，并在原应用上方显示悬浮批注。此服务不读取其他应用的界面控件、不监听输入、不自动截图、不持续录屏，也不绕过安全窗口。来源链接由用户分享或主动粘贴提供，不会自动读取其他应用的页面地址。</string>
+    <string name="capture_accessibility_service_summary">主动摘录时截图、识别来源应用和浏览器地址栏</string>
+    <string name="capture_accessibility_service_description">仅在你主动点击摘录时截取一次画面、识别来源应用，并尝试读取已适配浏览器的地址栏。先圈选截图，再填写想法。需要查看窗口内容的无障碍能力，但不遍历网页正文、不监听输入或浏览历史、不自动点击、不持续录屏，不绕过安全窗口；非浏览器链接可通过分享或主动粘贴补充。升级后若来源识别不可用，请关闭再重新启用此服务以更新授权。</string>
     <string name="capture_accessibility_dialog_title">启用单次截图</string>
-    <string name="capture_accessibility_dialog_detail">请在系统辅助功能列表中启用“Mnote 单次摘录”。它只会响应你点击磁贴或应用按钮后的单次截图，不读取 UI 树，也不会自动运行。</string>
+    <string name="capture_accessibility_dialog_detail">请在系统辅助功能列表中启用“Mnote 单次摘录”。仅当你主动摘录时，它会截取画面、读取来源应用标识及已适配浏览器的地址栏，用于随记录保存和同步。需要查看窗口内容权限，但不读取网页正文、监听输入或持续记录浏览历史。不想启用时，仍可使用随手记和系统分享。升级后识别不可用可关闭再重新启用服务。</string>
     <string name="capture_accessibility_connecting_detail">系统显示服务已启用，但它尚未连接。可以稍等后重试；如果一直未连接，请进入辅助功能设置重新启用。</string>
     <string name="capture_open_accessibility_settings">前往辅助功能设置</string>
     <string name="capture_retry">重试</string>
@@ -62,7 +62,7 @@
     <string name="capture_editor_text_title">文字摘录</string>
     <string name="capture_editor_share_title">分享摘录</string>
     <string name="capture_editor_quick_title">随手记</string>
-    <string name="capture_process_text_label">记到全局摘录</string>
+    <string name="capture_process_text_label">记到 Mnote</string>
     <string name="capture_cancel">取消</string>
     <string name="capture_save">保存</string>
     <string name="capture_confirm">知道了</string>
@@ -163,7 +163,7 @@
     <string name="capture_url_attached">已附来源链接 · 点按展开或收起</string>
     <string name="capture_url_hint">粘贴原帖或网页的分享链接</string>
     <string name="capture_url_paste">粘贴</string>
-    <string name="capture_url_help">只保存你提供的网页链接，不猜测当前页面地址。多个链接时请选出原页面链接。</string>
+    <string name="capture_url_help">请核对原页面链接：浏览器可能只暴露域名或省略协议；可编辑、移除或粘贴完整分享链接。</string>
     <string name="capture_url_invalid">请输入完整的 http:// 或 https:// 网页链接，不支持脚本、文件和 intent 链接。</string>
     <string name="capture_url_clipboard_empty">未找到唯一可用的网页链接，请先复制原页面的分享链接，或手动粘贴并编辑。</string>
     <string name="capture_url_detail">来源页面链接</string>
@@ -175,8 +175,17 @@
     <string name="capture_overlay_minimize">收起</string>
     <string name="capture_overlay_minimized">批注已暂存于悬浮会话。再次点“单次摘录”继续；可先到原 App 复制分享链接。</string>
     <string name="capture_overlay_fallback">悬浮批注无法打开，已改用编辑页；这次截图仍保留。</string>
-    <string name="capture_overlay_help">在当前应用上方批注；收起后可复制原页面链接，再点“单次摘录”继续。</string>
     <string name="capture_overlay_error">无法读取这次截图，请关闭后重新截取。</string>
     <string name="capture_overlay_restore_error">系统暂时无法恢复悬浮层。会话仍保留，请再次点击“单次摘录”重试；请勿关闭无障碍服务。</string>
     <string name="capture_overlay_discard">未保存的批注、想法和链接将被放弃，临时截图也会删除。</string>
+    <string name="capture_select_title">选取画面</string>
+    <string name="capture_compose_title">记下想法</string>
+    <string name="capture_next">下一步</string>
+    <string name="capture_reselect">重选</string>
+    <string name="capture_select_help">拖动框选区域，也可画笔批注或保留全图</string>
+    <string name="capture_dock_move">工具栏置顶</string>
+    <string name="capture_dock_bottom">工具栏置底</string>
+    <string name="capture_detected_app_only">未获取页面链接，可分享或粘贴补充</string>
+    <string name="capture_detected_url">已读取地址栏，可展开来源链接核对完整地址</string>
+    <string name="capture_detected_url_https">已读取地址栏并补全 HTTPS，请核对是否为完整页面链接</string>
 </resources>

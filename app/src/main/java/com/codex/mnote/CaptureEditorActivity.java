@@ -83,6 +83,12 @@ public final class CaptureEditorActivity extends Activity {
         bindActions();
         sourcePackage = resolveSourcePackage();
         handleIntent(getIntent());
+        if (ACTION_EDIT_SCREENSHOT.equals(getIntent().getAction())) {
+            String detectedPackage = getIntent().getStringExtra("capture_source_package");
+            if (detectedPackage != null) sourcePackage = detectedPackage;
+            sourceLink.acceptDetected(getIntent().getStringExtra("capture_source_url"),
+                    getIntent().getStringExtra("capture_source_origin"));
+        }
     }
 
     @Override

@@ -16,6 +16,7 @@ final class SourceLinkField {
     private final View panel;
     private final TextView toggle;
     private String sharedUrl = "";
+    private String automaticOrigin = "shared_text";
 
     SourceLinkField(View root) {
         input = root.findViewById(R.id.capture_source_url);
@@ -34,6 +35,7 @@ final class SourceLinkField {
     }
 
     void acceptSharedText(CharSequence text) {
+        automaticOrigin = "shared_text";
         sharedUrl = CaptureSourceUrl.fromSharedText(text);
         input.setText(sharedUrl);
         if (!sharedUrl.isEmpty()) panel.setVisibility(View.VISIBLE);
@@ -53,7 +55,14 @@ final class SourceLinkField {
     }
 
     String origin(String url) {
-        return url.isEmpty() ? "" : url.equals(sharedUrl) ? "shared_text" : "user_entered";
+        return url.isEmpty() ? "" : url.equals(sharedUrl) ? automaticOrigin : "user_entered";
+    }
+
+    void acceptDetected(String url, String origin) {
+        sharedUrl = CaptureSourceUrl.clean(url);
+        automaticOrigin = origin;
+        input.setText(sharedUrl);
+        updateLabel();
     }
 
     boolean hasInput() { return !input.getText().toString().trim().isEmpty(); }

@@ -27,7 +27,8 @@ import java.util.concurrent.ThreadFactory;
 
 /**
  * Provides one screenshot only after an explicit button or Quick Settings
- * action. The service neither requests nor reads the active UI tree.
+ * action. Source app and allowlisted browser address fields are read only for
+ * that explicit capture; no accessibility events or navigation history are recorded.
  */
 public final class CaptureAccessibilityService extends AccessibilityService {
     enum Failure {
@@ -85,10 +86,20 @@ public final class CaptureAccessibilityService extends AccessibilityService {
     }
 
     static boolean showOverlay(File draft) {
+        return showOverlay(draft, CaptureSourceContext.EMPTY);
+    }
+
+    static CaptureSourceContext readSourceOnce() {
+        CaptureAccessibilityService service;
+        synchronized (INSTANCE_LOCK) { service = activeService.get(); }
+        return service == null ? CaptureSourceContext.EMPTY : CaptureSourceContext.read(service);
+    }
+
+    static boolean showOverlay(File draft, CaptureSourceContext source) {
         CaptureAccessibilityService service;
         synchronized (INSTANCE_LOCK) { service = activeService.get(); }
         if (service == null || service.overlay != null) return false;
-        CaptureOverlayEditor editor = new CaptureOverlayEditor(service, draft, () -> service.overlay = null);
+        CaptureOverlayEditor editor = new CaptureOverlayEditor(service, draft, source, () -> service.overlay = null);
         service.overlay = editor;
         if (!editor.open()) {
             // Failed attachment never takes ownership of the draft: the
@@ -161,10 +172,10 @@ public final class CaptureAccessibilityService extends AccessibilityService {
         super.onServiceConnected();
         AccessibilityServiceInfo info = getServiceInfo();
         if (info != null) {
-            // We need no accessibility events and never retrieve window content.
+            // No event subscription: query known address fields only on an explicit capture.
             info.eventTypes = 0;
-            info.flags &= ~AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
-            info.flags &= ~AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
+            info.flags |= AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
+            info.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
             info.flags &= ~AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS;
             setServiceInfo(info);
         }

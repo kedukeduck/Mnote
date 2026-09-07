@@ -51,6 +51,9 @@ public class CaptureTileFlowTest {
         ScreenshotServiceShadow.overlayAccepted = true;
         ScreenshotServiceShadow.overlayRequests = 0;
         ScreenshotServiceShadow.restores = 0;
+        ScreenshotServiceShadow.sourceReads = 0;
+        ScreenshotServiceShadow.source = new CaptureSourceContext("com.android.chrome", "https://example.com/post", "browser_address_bar");
+        ScreenshotServiceShadow.overlaidSource = null;
     }
 
     @Test
@@ -174,9 +177,11 @@ public class CaptureTileFlowTest {
             activity.onWindowFocusChanged(true);
             idle(350);
             assertNull(shadowOf(activity).getNextStartedActivity());
+            assertEquals(1, ScreenshotServiceShadow.sourceReads);
             File draft = File.createTempFile("tile-test", ".png", activity.getCacheDir());
             ScreenshotServiceShadow.callback.onCaptured(draft);
             assertEquals(1, ScreenshotServiceShadow.overlayRequests);
+            assertEquals("https://example.com/post", ScreenshotServiceShadow.overlaidSource.url);
             assertNull(shadowOf(activity).getNextStartedActivity());
             assertTrue(activity.isFinishing());
             Files.deleteIfExists(draft.toPath());
@@ -190,6 +195,7 @@ public class CaptureTileFlowTest {
             idle(1_000);
             assertEquals(1, ScreenshotServiceShadow.restores);
             assertEquals(0, ScreenshotServiceShadow.requests);
+            assertEquals(0, ScreenshotServiceShadow.sourceReads);
             assertTrue(controller.get().isFinishing());
             assertNull(shadowOf(controller.get()).getNextStartedActivity());
         }
@@ -206,6 +212,9 @@ public class CaptureTileFlowTest {
             Intent fallback = shadowOf(controller.get()).getNextStartedActivity();
             assertEquals(new ComponentName(controller.get(), CaptureEditorActivity.class), fallback.getComponent());
             assertEquals(draft.getAbsolutePath(), fallback.getStringExtra("com.codex.mnote.extra.CAPTURE_DRAFT_PATH"));
+            assertEquals("com.android.chrome", fallback.getStringExtra("capture_source_package"));
+            assertEquals("https://example.com/post", fallback.getStringExtra("capture_source_url"));
+            assertEquals("browser_address_bar", fallback.getStringExtra("capture_source_origin"));
             assertTrue(draft.exists());
             Files.deleteIfExists(draft.toPath());
         }
@@ -247,11 +256,17 @@ public class CaptureTileFlowTest {
         static boolean overlayAccepted;
         static int overlayRequests;
         static int restores;
+        static int sourceReads;
+        static CaptureSourceContext source;
+        static CaptureSourceContext overlaidSource;
+
+        @Implementation protected static CaptureSourceContext readSourceOnce() { sourceReads++; return source; }
 
         @Implementation protected static boolean hasOverlay() { return overlayPresent; }
         @Implementation protected static boolean restoreOverlay() { restores++; return true; }
-        @Implementation protected static boolean showOverlay(File draft) {
+        @Implementation protected static boolean showOverlay(File draft, CaptureSourceContext source) {
             overlayRequests++;
+            overlaidSource = source;
             return overlayAccepted;
         }
 

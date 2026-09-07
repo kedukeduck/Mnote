@@ -178,6 +178,12 @@ final class CaptureStore {
      * Commits one record. Image records contain both an unmarked crop and a
      * rendered preview; text-only records keep source text as a separate field.
      */
+    private static String cleanUrlOrigin(String origin) {
+        if ("shared_text".equals(origin) || "browser_address_bar".equals(origin)
+                || "browser_address_bar_https".equals(origin)) return origin;
+        return "user_entered";
+    }
+
     static CaptureRecord save(
             Context context,
             File sourceDraft,
@@ -248,7 +254,7 @@ final class CaptureStore {
                     .put("sourcePackage", safeText(sourcePackage, 255))
                     .put("sourceUrl", safeUrl)
                     .put("sourceUrlOrigin", safeUrl.isEmpty() ? ""
-                            : "shared_text".equals(sourceUrlOrigin) ? "shared_text" : "user_entered")
+                            : cleanUrlOrigin(sourceUrlOrigin))
                     .put("fidelityLevel", fidelityLevel(sourceType, hasImage))
                     .put("hasImage", hasImage)
                     .put("originalFile", hasImage ? ORIGINAL_FILENAME : JSONObject.NULL)

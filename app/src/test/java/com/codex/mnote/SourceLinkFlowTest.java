@@ -136,6 +136,45 @@ public class SourceLinkFlowTest {
         }
     }
 
+    @Test public void screenshotFallbackPreservesDetectedBrowserMetadata() throws Exception {
+        Context context = RuntimeEnvironment.getApplication();
+        android.graphics.Bitmap image = android.graphics.Bitmap.createBitmap(100, 100, android.graphics.Bitmap.Config.ARGB_8888);
+        java.io.File draft = CaptureStore.writeDraftBitmap(context, image);
+        image.recycle();
+        Intent intent = new Intent(context, CaptureEditorActivity.class)
+                .setAction("com.codex.mnote.action.EDIT_SCREENSHOT")
+                .putExtra("com.codex.mnote.extra.CAPTURE_DRAFT_PATH", draft.getAbsolutePath())
+                .putExtra("capture_source_package", "com.android.chrome")
+                .putExtra("capture_source_url", URL)
+                .putExtra("capture_source_origin", "browser_address_bar");
+        try (ActivityController<CaptureEditorActivity> controller =
+                     Robolectric.buildActivity(CaptureEditorActivity.class, intent).setup()) {
+            CaptureEditorActivity activity = controller.get();
+            ExecutorService writer = ReflectionHelpers.getField(activity, "executor");
+            writer.submit(() -> {}).get(5, TimeUnit.SECONDS);
+            shadowOf(Looper.getMainLooper()).idle();
+            CaptureStore.CaptureRecord record = save(activity);
+            assertEquals("com.android.chrome", record.sourcePackage);
+            assertEquals(URL, record.sourceUrl);
+            assertEquals("browser_address_bar", record.sourceUrlOrigin);
+            assertTrue(record.hasImage);
+        }
+    }
+
+    @Test public void detectedUrlCanBeEditedOrRemovedWithoutRetainingAutomaticOrigin() {
+        try (ActivityController<CaptureEditorActivity> controller =
+                     Robolectric.buildActivity(CaptureEditorActivity.class).setup()) {
+            SourceLinkField field = ReflectionHelpers.getField(controller.get(), "sourceLink");
+            field.acceptDetected(URL, "browser_address_bar");
+            assertEquals("browser_address_bar", field.origin(field.validated()));
+            field.input.setText("https://example.com/another");
+            assertEquals("user_entered", field.origin(field.validated()));
+            field.input.setText("");
+            assertEquals("", field.validated());
+            assertEquals("", field.origin(field.validated()));
+        }
+    }
+
     private static CaptureStore.CaptureRecord save(CaptureEditorActivity activity) throws Exception {
         activity.findViewById(R.id.capture_editor_save).performClick();
         ExecutorService writer = ReflectionHelpers.getField(activity, "executor");

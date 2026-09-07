@@ -199,6 +199,7 @@ public final class CaptureMarkupView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        if (!isEnabled()) return true;
         if (source == null || imageRect.isEmpty()) {
             return false;
         }

@@ -16,6 +16,7 @@ import java.io.File;
 
 /** Transparent, user-visible bridge between a tile click and one screenshot. */
 public final class CaptureTriggerActivity extends Activity {
+    static final String SOURCE_BRIDGE_TITLE = "Mnote one-shot capture bridge";
     private static final long SHADE_SETTLE_MILLIS = 350L;
     private static final long SERVICE_CONNECT_TIMEOUT_MILLIS = 3_000L;
 
@@ -32,6 +33,7 @@ public final class CaptureTriggerActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().setDimAmount(0f);
+        getWindow().setTitle(SOURCE_BRIDGE_TITLE);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
         CaptureStore.cleanupStaleDrafts(this);
     }
@@ -113,6 +115,7 @@ public final class CaptureTriggerActivity extends Activity {
             return;
         }
         captureRequested = true;
+        CaptureSourceContext source = CaptureAccessibilityService.readSourceOnce();
         CaptureAccessibilityService.captureOnce(
                 new CaptureAccessibilityService.CaptureCallback() {
                     @Override
@@ -129,14 +132,17 @@ public final class CaptureTriggerActivity extends Activity {
                         }
                         boolean overlaid = false;
                         try {
-                            overlaid = CaptureAccessibilityService.showOverlay(draft);
+                            overlaid = CaptureAccessibilityService.showOverlay(draft, source);
                         } catch (RuntimeException error) {
                             // Preserve the screenshot if a device rejects the overlay.
                         }
                         if (!overlaid) {
                             Toast.makeText(CaptureTriggerActivity.this,
                                     R.string.capture_overlay_fallback, Toast.LENGTH_LONG).show();
-                            startActivity(CaptureEditorActivity.forScreenshot(CaptureTriggerActivity.this, draft));
+                            startActivity(CaptureEditorActivity.forScreenshot(CaptureTriggerActivity.this, draft)
+                                    .putExtra("capture_source_package", source.appPackage)
+                                    .putExtra("capture_source_url", source.url)
+                                    .putExtra("capture_source_origin", source.origin));
                         }
                         finish();
                         overridePendingTransition(0, 0);
