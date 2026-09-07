@@ -47,6 +47,10 @@ public class CaptureTileFlowTest {
         ScreenshotServiceShadow.configured = true;
         ScreenshotServiceShadow.requests = 0;
         ScreenshotServiceShadow.callback = null;
+        ScreenshotServiceShadow.overlayPresent = false;
+        ScreenshotServiceShadow.overlayAccepted = true;
+        ScreenshotServiceShadow.overlayRequests = 0;
+        ScreenshotServiceShadow.restores = 0;
     }
 
     @Test
@@ -164,7 +168,7 @@ public class CaptureTileFlowTest {
     }
 
     @Test
-    public void editorStartsOnlyAfterScreenshotArrives() throws Exception {
+    public void overlayStartsOnlyAfterScreenshotArrivesWithoutOpeningAnEditorActivity() throws Exception {
         try (ActivityController<CaptureTriggerActivity> controller = resumedTrigger()) {
             CaptureTriggerActivity activity = controller.get();
             activity.onWindowFocusChanged(true);
@@ -172,10 +176,37 @@ public class CaptureTileFlowTest {
             assertNull(shadowOf(activity).getNextStartedActivity());
             File draft = File.createTempFile("tile-test", ".png", activity.getCacheDir());
             ScreenshotServiceShadow.callback.onCaptured(draft);
-            Intent editor = shadowOf(activity).getNextStartedActivity();
-            assertEquals(new ComponentName(activity, CaptureEditorActivity.class), editor.getComponent());
-            assertEquals(0, editor.getFlags() & Intent.FLAG_ACTIVITY_NEW_TASK);
+            assertEquals(1, ScreenshotServiceShadow.overlayRequests);
+            assertNull(shadowOf(activity).getNextStartedActivity());
             assertTrue(activity.isFinishing());
+            Files.deleteIfExists(draft.toPath());
+        }
+    }
+
+    @Test
+    public void minimizedOverlayResumesWithoutTakingAnotherScreenshot() {
+        ScreenshotServiceShadow.overlayPresent = true;
+        try (ActivityController<CaptureTriggerActivity> controller = resumedTrigger()) {
+            idle(1_000);
+            assertEquals(1, ScreenshotServiceShadow.restores);
+            assertEquals(0, ScreenshotServiceShadow.requests);
+            assertTrue(controller.get().isFinishing());
+            assertNull(shadowOf(controller.get()).getNextStartedActivity());
+        }
+    }
+
+    @Test
+    public void rejectedOverlayFallsBackToEditorWithTheSameDraft() throws Exception {
+        ScreenshotServiceShadow.overlayAccepted = false;
+        try (ActivityController<CaptureTriggerActivity> controller = resumedTrigger()) {
+            controller.get().onWindowFocusChanged(true);
+            idle(350);
+            File draft = File.createTempFile("overlay-fallback", ".png", controller.get().getCacheDir());
+            ScreenshotServiceShadow.callback.onCaptured(draft);
+            Intent fallback = shadowOf(controller.get()).getNextStartedActivity();
+            assertEquals(new ComponentName(controller.get(), CaptureEditorActivity.class), fallback.getComponent());
+            assertEquals(draft.getAbsolutePath(), fallback.getStringExtra("com.codex.mnote.extra.CAPTURE_DRAFT_PATH"));
+            assertTrue(draft.exists());
             Files.deleteIfExists(draft.toPath());
         }
     }
@@ -212,6 +243,17 @@ public class CaptureTileFlowTest {
         static boolean configured;
         static int requests;
         static CaptureAccessibilityService.CaptureCallback callback;
+        static boolean overlayPresent;
+        static boolean overlayAccepted;
+        static int overlayRequests;
+        static int restores;
+
+        @Implementation protected static boolean hasOverlay() { return overlayPresent; }
+        @Implementation protected static boolean restoreOverlay() { restores++; return true; }
+        @Implementation protected static boolean showOverlay(File draft) {
+            overlayRequests++;
+            return overlayAccepted;
+        }
 
         @Implementation
         protected static boolean isReady() {

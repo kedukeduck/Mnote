@@ -37,6 +37,7 @@ public final class QuickNoteTileService extends TileService {
     @SuppressWarnings("deprecation")
     @SuppressLint("StartActivityAndCollapseDeprecated")
     private void launchEditor() {
+        CaptureAccessibilityService.minimizeOverlay();
         if (Build.VERSION.SDK_INT >= 34) {
             startActivityAndCollapse(notePendingIntent(this));
         } else {

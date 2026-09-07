@@ -12,6 +12,7 @@ import android.graphics.Bitmap;
 import android.graphics.drawable.Icon;
 import android.os.Build;
 import android.os.Bundle;
+import android.net.Uri;
 import android.provider.Settings;
 import android.text.format.DateFormat;
 import android.graphics.Typeface;
@@ -160,7 +161,8 @@ public final class CaptureInboxActivity extends Activity {
         if (ready) {
             accessStatus.setText(R.string.capture_access_ready_detail);
             accessStatus.setTextColor(getColor(R.color.success));
-            captureButton.setText(R.string.capture_test_capture_button);
+            captureButton.setText(CaptureAccessibilityService.hasOverlay()
+                    ? R.string.capture_tile_resume : R.string.capture_test_capture_button);
         } else if (configured) {
             accessStatus.setText(R.string.capture_access_connecting_detail);
             accessStatus.setTextColor(getColor(R.color.ink_muted));
@@ -316,6 +318,9 @@ public final class CaptureInboxActivity extends Activity {
         ));
         setOptionalText(comment, record.comment);
         source.setText(sourceTypeLabel(record.sourceType));
+        if (!record.sourceUrl.isEmpty()) {
+            source.append(" · " + getString(R.string.capture_url_saved_badge));
+        }
         sync.setText(syncStateLabel(record.syncState));
         if (CaptureStore.SYNC_SYNCED.equals(record.syncState)) {
             sync.setTextColor(getColor(R.color.success));
@@ -434,6 +439,14 @@ public final class CaptureInboxActivity extends Activity {
                 record.aiAccess,
                 getString(syncStateLabel(record.syncState))
         );
+        if (!record.sourceUrl.isEmpty()) {
+            addDetailBlock(content, R.string.capture_url_detail, record.sourceUrl, true);
+            Button openSource = new Button(this);
+            openSource.setText(R.string.capture_url_open);
+            openSource.setOnClickListener(view -> openSourceUrl(record.sourceUrl));
+            content.addView(openSource, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
         addDetailBlock(
                 content,
                 R.string.capture_detail_metadata_label,
@@ -494,6 +507,17 @@ public final class CaptureInboxActivity extends Activity {
         textParams.topMargin = dp(4);
         textParams.bottomMargin = dp(8);
         content.addView(text, textParams);
+    }
+
+    private void openSourceUrl(String supplied) {
+        String url = CaptureSourceUrl.clean(supplied);
+        if (url.isEmpty()) return;
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    .addCategory(Intent.CATEGORY_BROWSABLE));
+        } catch (RuntimeException error) {
+            Toast.makeText(this, R.string.capture_url_open_failed, Toast.LENGTH_LONG).show();
+        }
     }
 
     private void openSyncSettings() {

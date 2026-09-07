@@ -10,6 +10,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.view.WindowManager;
+import android.widget.Toast;
 
 import java.io.File;
 
@@ -39,6 +40,15 @@ public final class CaptureTriggerActivity extends Activity {
     protected void onResume() {
         super.onResume();
         resumed = true;
+        if (CaptureAccessibilityService.hasOverlay()) {
+            if (!CaptureAccessibilityService.restoreOverlay()) {
+                Toast.makeText(this, R.string.capture_overlay_restore_error, Toast.LENGTH_LONG).show();
+            }
+            // A second tile click resumes the same session, never screenshots
+            // the existing overlay or discards its unsaved text/markup.
+            finish();
+            return;
+        }
         resumeTime = SystemClock.uptimeMillis();
         scheduleCapture();
     }
@@ -117,11 +127,17 @@ public final class CaptureTriggerActivity extends Activity {
                             }
                             return;
                         }
-                        Intent editor = CaptureEditorActivity.forScreenshot(
-                                CaptureTriggerActivity.this,
-                                draft
-                        );
-                        startActivity(editor);
+                        boolean overlaid = false;
+                        try {
+                            overlaid = CaptureAccessibilityService.showOverlay(draft);
+                        } catch (RuntimeException error) {
+                            // Preserve the screenshot if a device rejects the overlay.
+                        }
+                        if (!overlaid) {
+                            Toast.makeText(CaptureTriggerActivity.this,
+                                    R.string.capture_overlay_fallback, Toast.LENGTH_LONG).show();
+                            startActivity(CaptureEditorActivity.forScreenshot(CaptureTriggerActivity.this, draft));
+                        }
                         finish();
                         overridePendingTransition(0, 0);
                     }

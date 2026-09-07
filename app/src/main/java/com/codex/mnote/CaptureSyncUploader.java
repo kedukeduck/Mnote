@@ -115,6 +115,8 @@ final class CaptureSyncUploader {
                 .put("type", acquisition(record.sourceType))
                 .put("text", record.sourceText)
                 .put("app_id", record.sourcePackage)
+                .put("url", record.sourceUrl)
+                .put("url_origin", record.sourceUrlOrigin)
                 .put("fidelity_level", record.fidelityLevel);
         JSONArray ocr = new JSONArray();
         JSONObject origin = new JSONObject()

@@ -38,7 +38,9 @@ public final class CaptureQuickSettingsTileService extends TileService {
         );
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             tile.setSubtitle(getString(
-                    CaptureAccessibilityService.isReady()
+                    CaptureAccessibilityService.hasOverlay()
+                            ? R.string.capture_tile_resume
+                            : CaptureAccessibilityService.isReady()
                             ? R.string.capture_tile_ready
                             : R.string.capture_tile_setup_needed
             ));

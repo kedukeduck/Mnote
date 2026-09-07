@@ -1,7 +1,7 @@
 # 全局摘录 V1 权限与隐私说明
 
 - 文档状态：V1 设计与验收基线
-- 更新日期：2026-08-31
+- 更新日期：2026-09-07（补充 Android 1.0.3 悬浮批注与来源链接）
 - 适用范围：Windows 11、Android 11+、Chrome/Edge 扩展、同步与 AI 只读服务
 - 相关文档：[产品规格](universal-capture-v1-product-spec.md)、[记录结构](capture-record-schema.md)、[同步 API](sync-api.md)、[验收清单](acceptance-checklist.md)
 
@@ -68,6 +68,8 @@
 | 普通网络同步 | `INTERNET`、`ACCESS_NETWORK_STATE` | 同步时需要 | 安装时声明；离线采集不依赖网络 |
 | 一次性全局截图 | 用户启用的 `AccessibilityService`，服务元数据声明 `canTakeScreenshot=true` | 全局截图路径需要 | 用户主动开启功能时跳转系统设置，先显示独立披露与用途 |
 | 快捷设置入口 | 受系统绑定保护的 `TileService` | 推荐入口需要 | 用户主动把磁贴加入快捷设置；不读取屏幕 |
+| 原地悬浮批注 | 已连接无障碍服务的 `TYPE_ACCESSIBILITY_OVERLAY` | Android 1.0.3 截图批注使用 | 仅主动截图后显示或用户主动恢复会话，不额外申请 `SYSTEM_ALERT_WINDOW`，不读取其他 App 节点 |
+| 来源页面链接 | 来源应用主动交付的分享文字，或用户点击粘贴 / 手动输入 | 可选 | 不后台读取剪贴板或页面地址；仅保存用户提供的网页链接，随记录原有隐私策略同步 |
 | 悬浮按钮 | 特殊应用访问 `SYSTEM_ALERT_WINDOW` | 可选，默认关闭 | 仅用户开启悬浮入口时申请；拒绝后磁贴和应用内入口仍可用 |
 | 前台状态通知 | `POST_NOTIFICATIONS`（Android 13+）及适用的前台服务声明 | 仅实际启用常驻入口时需要 | 解释常驻状态，不把拒绝通知等同于拒绝采集 |
 | 接收精确文字 | `ACTION_PROCESS_TEXT` Activity/系统分享 Intent | 条件能力 | 用户从来源应用主动分享，无需读取其他应用无障碍节点 |
@@ -84,7 +86,9 @@
 
 ### 4.2 当前仓库与发布声明的区别
 
-独立 Mnote Manifest 只显式声明联网所需的 `INTERNET` 和 `ACCESS_NETWORK_STATE`；WorkManager 依赖会在 merged manifest 中加入后台任务所需的系统权限。无障碍服务、快捷磁贴以及分享/处理文字 Activity 均已注册，但悬浮窗、常驻前台服务和开机自动采集没有进入 V1。每个发布包仍必须从最终 APK 的 merged manifest 重新生成权限清单并逐项解释。
+独立 Mnote Manifest 只显式声明联网所需的 `INTERNET` 和 `ACCESS_NETWORK_STATE`；WorkManager 依赖会在 merged manifest 中加入后台任务所需的系统权限。Android 1.0.3 在已注册的无障碍服务内增加悬浮批注，不使用普通 `SYSTEM_ALERT_WINDOW` 悬浮窗权限，也未新增常驻前台服务或开机自动采集。无障碍内容读取仍关闭。每个发布包仍必须从最终 APK 的 merged manifest 重新生成权限清单并逐项解释。
+
+悬浮会话在收起或屏幕关闭时留在当前进程内，只有点击保存才成为正式本地记录；服务销毁或进程回收后未保存会话不承诺恢复。来源 URL 不是页面历史快照，也不保证原 App 支持回跳；查询参数可能含敏感信息，用户应在保存前检查链接，并沿用记录级 AI 可见性策略。
 
 ### 4.3 Android 拒绝与撤销
 

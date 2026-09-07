@@ -66,6 +66,7 @@ public final class CaptureEditorActivity extends Activity {
     private boolean saved;
     private boolean destroyed;
     private boolean requestNoteKeyboard;
+    private SourceLinkField sourceLink;
 
     static Intent forScreenshot(Activity activity, File draft) {
         return new Intent(activity, CaptureEditorActivity.class)
@@ -137,6 +138,7 @@ public final class CaptureEditorActivity extends Activity {
         saveButton = findViewById(R.id.capture_editor_save);
         commentInput = findViewById(R.id.capture_comment_input);
         kindGroup = findViewById(R.id.capture_kind_group);
+        sourceLink = new SourceLinkField(findViewById(android.R.id.content));
     }
 
     private void bindActions() {
@@ -188,6 +190,7 @@ public final class CaptureEditorActivity extends Activity {
                     Intent.EXTRA_PROCESS_TEXT
             );
             sourceText = cleanText(supplied, 100_000);
+            sourceLink.acceptSharedText(supplied);
             if (sourceText.isEmpty()) {
                 showBlockingError(R.string.capture_error_empty_shared_text);
                 return;
@@ -202,6 +205,7 @@ public final class CaptureEditorActivity extends Activity {
                     100_000
             );
             Uri image = sharedImageUri(intent);
+            sourceLink.acceptSharedText(intent.getCharSequenceExtra(Intent.EXTRA_TEXT));
             if (image != null) {
                 sourceType = sourceText.isEmpty() ? "share_image" : "share_text";
                 importSharedImage(image);
@@ -368,7 +372,10 @@ public final class CaptureEditorActivity extends Activity {
             return;
         }
         String comment = commentInput.getText().toString().trim();
-        if (sourceBitmap == null && sourceText.isEmpty() && comment.isEmpty()) {
+        String url = sourceLink.validated();
+        if (url == null) return;
+        String urlOrigin = sourceLink.origin(url);
+        if (sourceBitmap == null && sourceText.isEmpty() && comment.isEmpty() && url.isEmpty()) {
             commentInput.setError(getString(R.string.capture_comment_required));
             commentInput.requestFocus();
             return;
@@ -416,7 +423,9 @@ public final class CaptureEditorActivity extends Activity {
                         comment,
                         sourceType,
                         sourceText,
-                        sourcePackage
+                        sourcePackage,
+                        url,
+                        urlOrigin
                 );
                 if (CaptureStore.SYNC_PENDING.equals(record.syncState)) {
                     CaptureSyncWorker.enqueue(this);
@@ -469,7 +478,7 @@ public final class CaptureEditorActivity extends Activity {
             return;
         }
         if (!loading && sourceBitmap == null && sourceText.isEmpty()
-                && commentInput.getText().toString().trim().isEmpty()) {
+                && commentInput.getText().toString().trim().isEmpty() && !sourceLink.hasInput()) {
             setResult(RESULT_CANCELED);
             finish();
             return;

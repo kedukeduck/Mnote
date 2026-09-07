@@ -42,6 +42,27 @@ class ClientContractTest(unittest.TestCase):
             record["id"], self.store.search("来源直接交付")[0]["id"]
         )
 
+    def test_android_source_link_survives_sync_and_privacy_filter(self) -> None:
+        source_url = "https://m.weibo.cn/detail/123456789?from=share#comments"
+        record = self.store.put("android-overlay-url", {
+            "schema_version": 1, "id": "android-overlay-url",
+            "kind": "thought", "comment": "原帖让我想到的一件事",
+            "source": {"type": "screen_capture", "url": source_url,
+                       "url_origin": "user_entered", "text": "", "app_id": ""},
+            "ai_access": "local_only",
+            "assets": {
+                "original": {"content_type": "image/png", "data_base64": self.png},
+                "annotated": {"content_type": "image/png", "data_base64": self.png},
+            },
+        })
+        self.assertEqual(source_url, record["source"]["url"])
+        loaded = self.store.get(record["id"])
+        self.assertEqual(source_url, loaded["source"]["url"])
+        self.assertEqual("user_entered", loaded["source"]["url_origin"])
+        self.assertEqual({"original", "annotated"}, set(loaded["assets"]))
+        self.assertEqual(record["id"], self.store.search("123456789")[0]["id"])
+        self.assertEqual([], self.store.search("123456789", ai_only=True))
+
     def test_windows_and_browser_records_share_one_search_index(self) -> None:
         windows = {
             "schema_version": 1,

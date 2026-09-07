@@ -4,6 +4,9 @@ import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.BroadcastReceiver;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.hardware.HardwareBuffer;
 import android.os.Build;
@@ -12,6 +15,7 @@ import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityManager;
 
 import androidx.annotation.RequiresApi;
+import androidx.core.content.ContextCompat;
 
 import java.io.File;
 import java.io.IOException;
@@ -51,6 +55,49 @@ public final class CaptureAccessibilityService extends AccessibilityService {
     private final ExecutorService storageExecutor =
             Executors.newSingleThreadExecutor(new CaptureThreadFactory());
     private boolean captureInProgress;
+    private CaptureOverlayEditor overlay;
+    private boolean screenReceiverRegistered;
+    private final BroadcastReceiver screenOffReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction()) && overlay != null) overlay.suspend();
+        }
+    };
+
+    static boolean hasOverlay() {
+        synchronized (INSTANCE_LOCK) {
+            CaptureAccessibilityService service = activeService.get();
+            return service != null && service.overlay != null;
+        }
+    }
+
+    static void minimizeOverlay() {
+        synchronized (INSTANCE_LOCK) {
+            CaptureAccessibilityService service = activeService.get();
+            if (service != null && service.overlay != null) service.overlay.suspend();
+        }
+    }
+
+    static boolean restoreOverlay() {
+        synchronized (INSTANCE_LOCK) {
+            CaptureAccessibilityService service = activeService.get();
+            return service != null && service.overlay != null && service.overlay.restore();
+        }
+    }
+
+    static boolean showOverlay(File draft) {
+        CaptureAccessibilityService service;
+        synchronized (INSTANCE_LOCK) { service = activeService.get(); }
+        if (service == null || service.overlay != null) return false;
+        CaptureOverlayEditor editor = new CaptureOverlayEditor(service, draft, () -> service.overlay = null);
+        service.overlay = editor;
+        if (!editor.open()) {
+            // Failed attachment never takes ownership of the draft: the
+            // trigger may hand the same screenshot to the fallback editor.
+            editor.close();
+            return false;
+        }
+        return true;
+    }
 
     static boolean isReady() {
         synchronized (INSTANCE_LOCK) {
@@ -125,6 +172,11 @@ public final class CaptureAccessibilityService extends AccessibilityService {
             activeService = new WeakReference<>(this);
         }
         CaptureQuickSettingsTileService.requestRefresh(this);
+        if (!screenReceiverRegistered) {
+            ContextCompat.registerReceiver(this, screenOffReceiver,
+                    new IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED);
+            screenReceiverRegistered = true;
+        }
     }
 
     @Override
@@ -134,11 +186,16 @@ public final class CaptureAccessibilityService extends AccessibilityService {
 
     @Override
     public void onInterrupt() {
-        // No ongoing accessibility interaction to interrupt.
+        if (overlay != null) overlay.suspend();
     }
 
     @Override
     public void onDestroy() {
+        if (overlay != null) overlay.close();
+        if (screenReceiverRegistered) {
+            unregisterReceiver(screenOffReceiver);
+            screenReceiverRegistered = false;
+        }
         synchronized (INSTANCE_LOCK) {
             if (activeService.get() == this) {
                 activeService.clear();

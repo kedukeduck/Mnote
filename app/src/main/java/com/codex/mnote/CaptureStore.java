@@ -190,6 +190,19 @@ final class CaptureStore {
             String sourceText,
             String sourcePackage
     ) throws IOException {
+        return save(context, sourceDraft, originalCrop, annotatedCrop, annotationLayer,
+                kind, comment, sourceType, sourceText, sourcePackage, "", "");
+    }
+
+    static CaptureRecord save(
+            Context context, File sourceDraft, Bitmap originalCrop, Bitmap annotatedCrop,
+            JSONObject annotationLayer, String kind, String comment, String sourceType,
+            String sourceText, String sourcePackage, String sourceUrl, String sourceUrlOrigin
+    ) throws IOException {
+        String safeUrl = CaptureSourceUrl.clean(sourceUrl);
+        if (sourceUrl != null && !sourceUrl.trim().isEmpty() && safeUrl.isEmpty()) {
+            throw new IOException("Invalid source URL");
+        }
         File safeDraft = null;
         if (sourceDraft != null) {
             safeDraft = safeDraftFile(context, sourceDraft.getAbsolutePath());
@@ -202,7 +215,7 @@ final class CaptureStore {
             throw new IOException("Incomplete capture image pair");
         }
         if (!hasImage && safeText(sourceText, 100_000).isEmpty()
-                && safeText(comment, 20_000).isEmpty()) {
+                && safeText(comment, 20_000).isEmpty() && safeUrl.isEmpty()) {
             throw new IOException("Capture record has no content");
         }
 
@@ -233,6 +246,9 @@ final class CaptureStore {
                     .put("sourceType", safeText(sourceType, 80))
                     .put("sourceText", safeText(sourceText, 100_000))
                     .put("sourcePackage", safeText(sourcePackage, 255))
+                    .put("sourceUrl", safeUrl)
+                    .put("sourceUrlOrigin", safeUrl.isEmpty() ? ""
+                            : "shared_text".equals(sourceUrlOrigin) ? "shared_text" : "user_entered")
                     .put("fidelityLevel", fidelityLevel(sourceType, hasImage))
                     .put("hasImage", hasImage)
                     .put("originalFile", hasImage ? ORIGINAL_FILENAME : JSONObject.NULL)
@@ -444,6 +460,8 @@ final class CaptureStore {
                 object.optString("sourceType", "screen"),
                 object.optString("sourceText", ""),
                 object.optString("sourcePackage", ""),
+                CaptureSourceUrl.clean(object.optString("sourceUrl", "")),
+                object.optString("sourceUrlOrigin", ""),
                 object.optString("fidelityLevel", hasImage ? "L2" : "user"),
                 CaptureSyncPreferences.cleanAiAccess(
                         object.optString("aiAccess", CaptureSyncPreferences.AI_LOCAL_ONLY)
@@ -634,6 +652,8 @@ final class CaptureStore {
         final String sourceType;
         final String sourceText;
         final String sourcePackage;
+        final String sourceUrl;
+        final String sourceUrlOrigin;
         final String fidelityLevel;
         final String aiAccess;
         final String syncState;
@@ -652,6 +672,8 @@ final class CaptureStore {
                 String sourceType,
                 String sourceText,
                 String sourcePackage,
+                String sourceUrl,
+                String sourceUrlOrigin,
                 String fidelityLevel,
                 String aiAccess,
                 String syncState,
@@ -669,6 +691,8 @@ final class CaptureStore {
             this.sourceType = sourceType;
             this.sourceText = sourceText;
             this.sourcePackage = sourcePackage;
+            this.sourceUrl = sourceUrl;
+            this.sourceUrlOrigin = sourceUrlOrigin;
             this.fidelityLevel = fidelityLevel;
             this.aiAccess = aiAccess;
             this.syncState = syncState;

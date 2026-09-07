@@ -19,7 +19,7 @@
     <string name="capture_quick_note_button">随手记</string>
     <string name="capture_setup_expand">快捷按钮与截图设置  ＋</string>
     <string name="capture_setup_collapse">快捷按钮与截图设置  −</string>
-    <string name="capture_shortcuts_intro">在其他 App 中下拉快捷设置：\n“随手记”直接写字，不保存截图。\n“单次摘录”截取当前画面，再圈选批注。</string>
+    <string name="capture_shortcuts_intro">在其他 App 中下拉快捷设置：\n“随手记”直接写字，不保存截图。\n“单次摘录”截图并打开原地悬浮批注。\n收起批注后，再点“单次摘录”继续。</string>
     <string name="capture_privacy_detail">隐私边界：不会持续录屏、不会监听按键或 UI 树，也不会绕过银行、密码、DRM 等安全窗口。截图先进入应用私有本地存储。</string>
     <string name="capture_sync_card_title">可选的 Capture Server 同步</string>
     <string name="capture_sync_status_disabled">仅保存在此设备\n连接同步服务后可上传</string>
@@ -51,7 +51,7 @@
 
     <string name="capture_accessibility_service_label">Mnote 单次摘录</string>
     <string name="capture_accessibility_service_summary">仅在你主动点击时进行一次截图</string>
-    <string name="capture_accessibility_service_description">用于在任意系统允许截图的普通应用中，响应用户点击并截取一次当前画面。此服务不读取界面控件、不监听输入、不自动截图、不持续录屏，也不绕过安全窗口。</string>
+    <string name="capture_accessibility_service_description">响应用户点击截取一次当前画面，并在原应用上方显示悬浮批注。此服务不读取其他应用的界面控件、不监听输入、不自动截图、不持续录屏，也不绕过安全窗口。来源链接由用户分享或主动粘贴提供，不会自动读取其他应用的页面地址。</string>
     <string name="capture_accessibility_dialog_title">启用单次截图</string>
     <string name="capture_accessibility_dialog_detail">请在系统辅助功能列表中启用“Mnote 单次摘录”。它只会响应你点击磁贴或应用按钮后的单次截图，不读取 UI 树，也不会自动运行。</string>
     <string name="capture_accessibility_connecting_detail">系统显示服务已启用，但它尚未连接。可以稍等后重试；如果一直未连接，请进入辅助功能设置重新启用。</string>
@@ -158,4 +158,25 @@
     <string name="capture_detail_source_text_label">来源直接交付的文字</string>
     <string name="capture_detail_metadata_label">来源与隐私状态</string>
     <string name="capture_detail_metadata_format">%1$s · %2$s\n保真度：%3$s\nAI 可见性：%4$s\n同步：%5$s</string>
+    <string name="capture_url_add">来源链接（可选）  ＋</string>
+    <string name="capture_url_hide">收起来源链接  −</string>
+    <string name="capture_url_attached">已附来源链接 · 点按展开或收起</string>
+    <string name="capture_url_hint">粘贴原帖或网页的分享链接</string>
+    <string name="capture_url_paste">粘贴</string>
+    <string name="capture_url_help">只保存你提供的网页链接，不猜测当前页面地址。多个链接时请选出原页面链接。</string>
+    <string name="capture_url_invalid">请输入完整的 http:// 或 https:// 网页链接，不支持脚本、文件和 intent 链接。</string>
+    <string name="capture_url_clipboard_empty">未找到唯一可用的网页链接，请先复制原页面的分享链接，或手动粘贴并编辑。</string>
+    <string name="capture_url_detail">来源页面链接</string>
+    <string name="capture_url_open">打开来源页面</string>
+    <string name="capture_url_saved_badge">含来源链接</string>
+    <string name="capture_url_open_failed">没有应用可以打开该链接。可长按链接复制后在浏览器中打开。</string>
+    <string name="capture_overlay_title">原地批注</string>
+    <string name="capture_tile_resume">继续批注</string>
+    <string name="capture_overlay_minimize">收起</string>
+    <string name="capture_overlay_minimized">批注已暂存于悬浮会话。再次点“单次摘录”继续；可先到原 App 复制分享链接。</string>
+    <string name="capture_overlay_fallback">悬浮批注无法打开，已改用编辑页；这次截图仍保留。</string>
+    <string name="capture_overlay_help">在当前应用上方批注；收起后可复制原页面链接，再点“单次摘录”继续。</string>
+    <string name="capture_overlay_error">无法读取这次截图，请关闭后重新截取。</string>
+    <string name="capture_overlay_restore_error">系统暂时无法恢复悬浮层。会话仍保留，请再次点击“单次摘录”重试；请勿关闭无障碍服务。</string>
+    <string name="capture_overlay_discard">未保存的批注、想法和链接将被放弃，临时截图也会删除。</string>
 </resources>

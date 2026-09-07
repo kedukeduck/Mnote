@@ -1,0 +1,24 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+    <TextView android:id="@+id/capture_url_toggle" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:minHeight="48dp" android:gravity="center_vertical"
+        android:text="@string/capture_url_add" android:textColor="@color/coral" android:textSize="13sp"
+        android:clickable="true" android:focusable="true" android:background="?android:attr/selectableItemBackground" />
+    <LinearLayout android:id="@+id/capture_url_panel" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:gravity="center_vertical" android:orientation="horizontal">
+            <EditText android:id="@+id/capture_source_url" android:layout_width="0dp"
+                android:layout_height="wrap_content" android:layout_weight="1" android:minHeight="48dp"
+                android:background="@drawable/bg_input" android:hint="@string/capture_url_hint"
+                android:inputType="textUri" android:singleLine="true" android:maxLength="8192"
+                android:importantForAutofill="no" android:textSize="14sp"
+                android:textColor="@color/ink" android:textColorHint="@color/ink_muted" />
+            <Button android:id="@+id/capture_url_paste" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:minWidth="56dp" android:text="@string/capture_url_paste" />
+        </LinearLayout>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="6dp" android:text="@string/capture_url_help"
+            android:textColor="@color/ink_muted" android:textSize="12sp" />
+    </LinearLayout>
+</LinearLayout>

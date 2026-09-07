@@ -22,6 +22,11 @@ Mnote 是一个独立的本地优先个人知识捕获项目，用于在 Android
 
 ## Android 构建
 
+当前 Android 增量测试版：[1.0.3-test APK](https://github.com/kedukeduck/Mnote/releases/download/mnote-android-v1.0.3-test/Mnote-Android-1.0.3-test.apk)。
+支持原地悬浮批注、独立随手记，以及从分享文字提取或主动粘贴来源页面链接。
+微博等原生 App 的当前页面地址不会在截图时自动取得；可收起批注、复制原帖链接，再恢复并粘贴。
+详见[本版说明与验收边界](docs/android-1.0.3-overlay-source-links.md)。
+
 ```bash
 ./gradlew --no-daemon testDebugUnitTest assembleDebug lintDebug
 ```
@@ -34,5 +39,7 @@ Mnote 是一个独立的本地优先个人知识捕获项目，用于在 Android
 bash scripts/verify-mnote-v1.sh
 bash scripts/package-mnote-v1.sh v1.0.0-core
 ```
+
+上面的整套打包脚本对应 V1 Core 归档交付；Android 增量版本以各自 Release 的独立 APK 和校验清单为准。
 
 同步协议继续兼容已经部署的 `https://chenyu.online/heartnote-capture`，因此拆分仓库和应用身份不会迁移、覆盖或清空服务器现有数据。
