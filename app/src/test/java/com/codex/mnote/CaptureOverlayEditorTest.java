@@ -361,7 +361,7 @@ public class CaptureOverlayEditorTest {
 
     private View root() { return ReflectionHelpers.getField(editor, "root"); }
 
-    @Test public void selectionControlsHaveNoOpaquePanelOrButtonBackground() throws Exception {
+    @Test public void selectionControlsUseSmallTranslucentSurfacesWithoutPanel() throws Exception {
         open();
         View dock = ReflectionHelpers.getField(editor, "column");
         assertEquals(0, ((android.graphics.drawable.ColorDrawable) dock.getBackground()).getColor());
@@ -369,8 +369,19 @@ public class CaptureOverlayEditorTest {
         assertTrue(dock.getHeight() <= 132);
         for (int id : new int[]{R.id.capture_editor_save, R.id.capture_overlay_minimize,
                 R.id.capture_editor_cancel, R.id.capture_tool_select, R.id.capture_tool_pen, R.id.capture_tool_move}) {
-            assertNull(root().findViewById(id).getBackground());
+            View control = root().findViewById(id);
+            assertTrue(control.getBackground() instanceof android.graphics.drawable.RippleDrawable);
+            android.graphics.drawable.RippleDrawable ripple = (android.graphics.drawable.RippleDrawable) control.getBackground();
+            android.graphics.drawable.GradientDrawable fill = (android.graphics.drawable.GradientDrawable) ripple.getDrawable(0);
+            assertTrue(Color.alpha(fill.getColor().getDefaultColor()) < 255);
+            assertTrue(control.getWidth() >= 48);
+            assertTrue(control.getHeight() >= 48);
         }
+        android.widget.TextView pen = root().findViewById(R.id.capture_tool_pen);
+        assertNotNull(pen.getCompoundDrawables()[1]);
+        pen.performClick();
+        assertTrue(pen.isSelected());
+        assertFalse(root().findViewById(R.id.capture_tool_select).isSelected());
     }
 
     @Test public void imeInsetsLiftInputEvenWhenOverlayIsNotResizedAndDoNotDoubleLiftWhenResized() throws Exception {
@@ -391,6 +402,22 @@ public class CaptureOverlayEditorTest {
                 .setVisible(android.view.WindowInsets.Type.ime(), false).build());
         layout(390, 844);
         assertTrue(dock.getHeight() > 500);
+    }
+
+    @Test public void compactToolbarKeepsActionsAccessibleOnSmallScreen() throws Exception {
+        open(); layout(320,640);
+        for (int id : new int[]{R.id.capture_editor_cancel,R.id.capture_overlay_minimize,R.id.capture_editor_save}) {
+            Rect rect = new Rect(); View action = root().findViewById(id);
+            assertTrue(action.getGlobalVisibleRect(rect));
+            assertTrue(rect.width() >= 48); assertTrue(rect.height() >= 48);
+            assertTrue(rect.right <= 320);
+        }
+        android.widget.HorizontalScrollView tools = root().findViewById(R.id.capture_tool_row);
+        tools.scrollTo(1000,0);
+        Rect moved = new Rect();
+        assertTrue(root().findViewById(R.id.capture_tool_move).getGlobalVisibleRect(moved));
+        assertTrue(moved.width() >= 48);
+        render("overlay-small-screen.png");
     }
 
     @Test public void visibleFrameFallbackAlsoProtectsInputWithoutImeInsets() throws Exception {

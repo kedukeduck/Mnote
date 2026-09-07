@@ -314,20 +314,26 @@ final class CaptureOverlayEditor {
     private void styleControls() {
         column.setBackgroundResource(composing ? R.drawable.bg_overlay_panel : android.R.color.transparent);
         column.setElevation(composing ? dp(12) : 0);
-        int[] ids = {R.id.capture_editor_cancel, R.id.capture_editor_title, R.id.capture_overlay_minimize,
-                R.id.capture_editor_save, R.id.capture_tool_select, R.id.capture_tool_pen,
-                R.id.capture_tool_highlighter, R.id.capture_tool_undo, R.id.capture_tool_whole, R.id.capture_tool_move};
-        for (int id : ids) {
-            TextView control = root.findViewById(id);
-            control.setBackground(null);
-            control.setTextColor(composing ? context.getColor(R.color.coral)
-                    : control.isSelected() ? 0xFF67E8F9 : 0xFFFFFFFF);
-            control.setShadowLayer(composing ? 0 : dp(3), 0, dp(1), 0xFF000000);
-        }
-        if (composing) {
-            save.setBackgroundResource(R.drawable.bg_button_primary);
-            save.setTextColor(0xFFFFFFFF);
-        }
+        TextView cancel = root.findViewById(R.id.capture_editor_cancel);
+        cancel.setContentDescription(context.getString(composing ? R.string.capture_reselect : R.string.capture_cancel));
+        CaptureToolStyle.action(cancel, composing ? 8 : 6, false, composing);
+        TextView minimize = root.findViewById(R.id.capture_overlay_minimize);
+        minimize.setContentDescription(context.getString(R.string.capture_overlay_minimize));
+        CaptureToolStyle.action(minimize, 7, false, composing);
+        CaptureToolStyle.action(save, -1, true, composing);
+        LinearLayout header = (LinearLayout) save.getParent();
+        header.setPadding(dp(4), 0, dp(4), 0);
+        TextView title = root.findViewById(R.id.capture_editor_title);
+        title.setVisibility(composing ? View.VISIBLE : View.INVISIBLE);
+        title.setTextSize(13);
+        title.setTextColor(context.getColor(R.color.ink));
+        title.setShadowLayer(0, 0, 0, 0);
+        int[] ids = {R.id.capture_tool_select, R.id.capture_tool_pen, R.id.capture_tool_highlighter,
+                R.id.capture_tool_undo, R.id.capture_tool_whole, R.id.capture_tool_move};
+        LinearLayout tools = (LinearLayout) root.findViewById(R.id.capture_tool_whole).getParent();
+        tools.setGravity(Gravity.CENTER);
+        ((android.widget.HorizontalScrollView) tools.getParent()).setFillViewport(true);
+        for (int i = 0; i < ids.length; i++) CaptureToolStyle.tool(root.findViewById(ids[i]), i);
     }
 
     private void back() {
