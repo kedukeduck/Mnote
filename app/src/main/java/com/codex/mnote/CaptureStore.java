@@ -413,7 +413,7 @@ final class CaptureStore {
         return strokes == null ? new JSONArray() : strokes;
     }
 
-    private static CaptureRecord readRecord(File directory) {
+    static CaptureRecord readRecord(File directory) {
         File metadata = new File(directory, RECORD_FILENAME);
         JSONObject object = readRecordObject(metadata);
         if (object == null) {

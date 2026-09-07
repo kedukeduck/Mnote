@@ -84,7 +84,16 @@
                 <TextView android:id="@+id/capture_record_count" android:layout_width="wrap_content"
                     android:layout_height="wrap_content" android:text="@string/capture_inbox_count_zero"
                     android:textColor="@color/ink_muted" android:textSize="12sp" />
+                <Button android:id="@+id/capture_refresh_button" android:layout_width="wrap_content"
+                    android:layout_height="48dp" android:layout_marginStart="12dp" android:minWidth="64dp"
+                    android:background="@drawable/bg_button_secondary" android:text="@string/capture_refresh"
+                    android:textSize="14sp" android:textColor="@color/coral" />
             </LinearLayout>
+
+            <TextView android:id="@+id/capture_refresh_status" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="6dp"
+                android:accessibilityLiveRegion="polite" android:text="@string/capture_refresh_hint"
+                android:textColor="@color/ink_muted" android:textSize="12sp" />
 
             <LinearLayout android:id="@+id/capture_empty" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:layout_marginTop="16dp"

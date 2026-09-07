@@ -1,5 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="capture_refresh">刷新</string>
+    <string name="capture_refresh_busy">拉取中…</string>
+    <string name="capture_refresh_hint">点刷新拉取其他设备的记录 · 本机记录不会被覆盖</string>
+    <string name="capture_refresh_setup">先在同步设置中填写服务地址和写入 Token</string>
+    <string name="capture_refresh_downloading">正在拉取云端记录和截图…</string>
+    <string name="capture_refresh_current">已刷新，云端记录已是最新</string>
+    <string name="capture_refresh_success">刷新完成，已拉取 %1$d 项记录更新</string>
+    <string name="capture_refresh_auth_error">拉取失败：请检查同步设置中的写入 Token</string>
+    <string name="capture_refresh_failed">拉取失败，请检查网络或服务地址；已有记录已保留</string>
+    <string name="capture_refresh_more">已拉取部分记录，请再次刷新继续</string>
+    <string name="capture_refresh_changed">同步配置已改变，请重新刷新</string>
     <string name="app_name">Mnote</string>
     <string name="capture_inbox_title">记录</string>
     <string name="capture_inbox_subtitle">留住看到的，也留住想到的。</string>
@@ -25,7 +36,7 @@
     <string name="capture_sync_status_disabled">仅保存在此设备\n连接同步服务后可上传</string>
     <string name="capture_sync_status_format">%1$d 待上传 · %2$d 失败 · %3$d 已同步</string>
     <string name="capture_sync_settings_button">同步设置</string>
-    <string name="capture_sync_all_button">同步全部</string>
+    <string name="capture_sync_all_button">上传本机</string>
     <string name="capture_sync_queued">已把本机记录加入唯一同步队列；失败不会删除本地内容。</string>
     <string name="capture_sync_open_settings_first">请先保存 Capture Server URL 和写 Token。</string>
     <string name="capture_recent_title">最近记录</string>

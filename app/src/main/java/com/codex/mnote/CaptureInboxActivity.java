@@ -41,6 +41,10 @@ public final class CaptureInboxActivity extends Activity {
     private final ExecutorService thumbnailExecutor =
             Executors.newSingleThreadExecutor(new ThumbnailThreadFactory());
     private final List<Bitmap> thumbnails = new ArrayList<>();
+    private final ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+    private Button refreshButton;
+    private TextView refreshStatus;
+    private boolean refreshing;
     private final BroadcastReceiver syncChangedReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -60,7 +64,7 @@ public final class CaptureInboxActivity extends Activity {
     private LinearLayout recordsContainer;
     private View emptyState;
     private int renderGeneration;
-    private boolean destroyed;
+    private volatile boolean destroyed;
     private boolean syncReceiverRegistered;
 
     @Override
@@ -107,6 +111,7 @@ public final class CaptureInboxActivity extends Activity {
         destroyed = true;
         renderGeneration++;
         thumbnailExecutor.shutdownNow();
+        refreshExecutor.shutdownNow();
         clearThumbnails();
         super.onDestroy();
     }
@@ -119,6 +124,8 @@ public final class CaptureInboxActivity extends Activity {
         recordCount = findViewById(R.id.capture_record_count);
         syncStatus = findViewById(R.id.capture_sync_status);
         syncAllButton = findViewById(R.id.capture_sync_all_button);
+        refreshButton = findViewById(R.id.capture_refresh_button);
+        refreshStatus = findViewById(R.id.capture_refresh_status);
         recordsContainer = findViewById(R.id.capture_records);
         emptyState = findViewById(R.id.capture_empty);
     }
@@ -143,6 +150,52 @@ public final class CaptureInboxActivity extends Activity {
                 view -> openSyncSettings()
         );
         syncAllButton.setOnClickListener(view -> syncAll());
+        refreshButton.setOnClickListener(view -> refreshRecords());
+    }
+
+    private void refreshRecords() {
+        if (refreshing) return;
+        final CaptureSyncPreferences.Config config;
+        try { config = CaptureSyncPreferences.load(this); }
+        catch (Exception error) {
+            refreshStatus.setText(R.string.capture_refresh_setup);
+            openSyncSettings();
+            return;
+        }
+        refreshing = true;
+        refreshButton.setEnabled(false);
+        refreshButton.setText(R.string.capture_refresh_busy);
+        refreshStatus.setText(R.string.capture_refresh_downloading);
+        String vault = CaptureRemoteCache.vault(config);
+        refreshExecutor.execute(() -> {
+            String message;
+            try {
+                int count = CaptureRemoteCache.pull(getApplicationContext(), vault,
+                        CaptureSyncReader.forConfig(config), () -> {
+                            if (destroyed) return false;
+                            try { return vault.equals(CaptureRemoteCache.vault(CaptureSyncPreferences.load(this))); }
+                            catch (Exception ignored) { return false; }
+                        });
+                message = count == 0 ? getString(R.string.capture_refresh_current)
+                        : getString(R.string.capture_refresh_success, count);
+            } catch (Exception error) {
+                String reason = error.getMessage();
+                message = getString("http_401".equals(reason) || "http_403".equals(reason)
+                        ? R.string.capture_refresh_auth_error : "more_records_pending".equals(reason)
+                        ? R.string.capture_refresh_more : "configuration_changed".equals(reason)
+                        ? R.string.capture_refresh_changed : R.string.capture_refresh_failed);
+            }
+            String result = message;
+            runOnUiThread(() -> {
+                if (destroyed) return;
+                refreshing = false;
+                refreshButton.setEnabled(true);
+                refreshButton.setText(R.string.capture_refresh);
+                refreshStatus.setText(result);
+                renderRecords();
+                Toast.makeText(this, result, Toast.LENGTH_SHORT).show();
+            });
+        });
     }
 
     private void renderAccessStatus() {
@@ -276,6 +329,7 @@ public final class CaptureInboxActivity extends Activity {
                 Integer.MAX_VALUE
         );
         renderSyncStatus(allRecords);
+        allRecords = CaptureRemoteCache.merged(this, allRecords);
         List<CaptureStore.CaptureRecord> records = allRecords.size() <= RECORD_LIMIT
                 ? allRecords
                 : new ArrayList<>(allRecords.subList(0, RECORD_LIMIT));
