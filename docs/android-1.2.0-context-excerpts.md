@@ -49,4 +49,6 @@ MCP `get_capture` 对 AI 可读记录返回规范元数据，并按 **上下文�
 
 自动化覆盖完整图 / 选区坐标、缩放映射、未勾选不落盘、上传及回读完整性、原文可选、文字偏移与来源、原应用文字不被改写，以及 MCP 图片顺序和 AI 隐私过滤。发布时同时执行完整跨端验证脚本和公网独立测试账号验证；具体结果见发布附件。
 
+发布验证结果：完整 `scripts/verify-mnote-v1.sh` 通过；Android 225 项测试通过，lint 0 errors / 32 warnings；服务端含 MCP 的 20 项测试通过；Windows 构建 / GUI / 同步冒烟及浏览器扩展测试通过。Server 0.2.1 已部署并备份，公网独立测试账号验证包含完整截图下载和 context 元数据回读；原知识库记录及附件数据库行与部署前一致。测试凭证已撤销，测试库移入私有备份。没有进行手机实机验收。
+
 系统传参边界参考：[Android 源码中的文字处理入口](https://android.googlesource.com/platform/frameworks/base/+/e0938b8/core/java/android/widget/Editor.java)。
