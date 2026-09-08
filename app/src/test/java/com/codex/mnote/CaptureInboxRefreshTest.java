@@ -65,6 +65,63 @@ public class CaptureInboxRefreshTest {
             assertTrue(activity.findViewById(R.id.capture_refresh_button).isEnabled());
         }
     }
+    @Test public void localSaveUpdatesAlreadyResumedInboxWithoutNetworkOrRestart() throws Exception {
+        configured = false;
+        transport = (path,limit) -> { throw new AssertionError("Local save must not pull"); };
+        try (ActivityController<CaptureInboxActivity> controller = Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
+            CaptureInboxActivity activity = controller.get();
+            android.widget.LinearLayout list = activity.findViewById(R.id.capture_records);
+            assertEquals(0,list.getChildCount());
+            CaptureStore.save(activity,null,null,null,null,"thought","悬浮层保存的想法","quick_note","","");
+            shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(1,list.getChildCount());
+            assertEquals("悬浮层保存的想法",((TextView)list.getChildAt(0).findViewById(R.id.capture_item_comment)).getText());
+        }
+    }
+
+    @Test public void refreshReloadsLocalDataEvenWhenBroadcastWasMissedAndNoTokenExists() throws Exception {
+        configured = false;
+        try (ActivityController<CaptureInboxActivity> controller = Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
+            CaptureInboxActivity activity = controller.get();
+            Context noBroadcast = new android.content.ContextWrapper(activity) {
+                @Override public void sendBroadcast(android.content.Intent intent) { }
+            };
+            CaptureStore.save(noBroadcast,null,null,null,null,"thought","离线也能刷新","quick_note","","");
+            android.widget.LinearLayout list = activity.findViewById(R.id.capture_records);
+            assertEquals(0,list.getChildCount());
+            activity.findViewById(R.id.capture_refresh_button).performClick();
+            assertEquals(1,list.getChildCount());
+        }
+    }
+
+    @Test public void onlyCommittedLocalWritesNotifyAndBroadcastFailureCannotUndoSave() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger notifications = new java.util.concurrent.atomic.AtomicInteger();
+        Context failingBroadcast = new android.content.ContextWrapper(RuntimeEnvironment.getApplication()) {
+            @Override public void sendBroadcast(android.content.Intent intent) {
+                assertEquals(CaptureStore.ACTION_RECORDS_CHANGED,intent.getAction());
+                assertEquals(getPackageName(),intent.getPackage());
+                assertFalse(CaptureStore.list(this,10).isEmpty());
+                notifications.incrementAndGet();
+                throw new IllegalStateException("delivery unavailable");
+            }
+        };
+        assertThrows(IOException.class,() -> CaptureStore.save(failingBroadcast,null,null,null,null,"thought","","quick_note","",""));
+        assertEquals(0,notifications.get());
+        CaptureStore.save(failingBroadcast,null,null,null,null,"thought","持久化先于通知","quick_note","","");
+        assertEquals(1,notifications.get());
+        assertEquals(1,CaptureStore.list(failingBroadcast,10).size());
+    }
+
+    @Test public void sourceSettingsEntryIsVisibleWithoutExpandingSetup() {
+        try (ActivityController<CaptureInboxActivity> controller = Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
+            CaptureInboxActivity activity = controller.get();
+            assertEquals(android.view.View.GONE,activity.findViewById(R.id.capture_setup_panel).getVisibility());
+            assertTrue(activity.findViewById(R.id.capture_source_settings_button).isShown());
+            activity.findViewById(R.id.capture_source_settings_button).performClick();
+            assertNotNull(org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog());
+        }
+    }
+
     private void await(CaptureInboxActivity activity) throws Exception {
         ExecutorService executor = ReflectionHelpers.getField(activity,"refreshExecutor");
         executor.submit(() -> {}).get(10,TimeUnit.SECONDS); shadowOf(Looper.getMainLooper()).idle();

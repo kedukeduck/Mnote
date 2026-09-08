@@ -48,7 +48,8 @@ public final class CaptureInboxActivity extends Activity {
     private final BroadcastReceiver syncChangedReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if (CaptureSyncWorker.ACTION_SYNC_CHANGED.equals(intent.getAction())) {
+            if (CaptureSyncWorker.ACTION_SYNC_CHANGED.equals(intent.getAction())
+                    || CaptureStore.ACTION_RECORDS_CHANGED.equals(intent.getAction())) {
                 renderRecords();
             }
         }
@@ -87,10 +88,12 @@ public final class CaptureInboxActivity extends Activity {
     protected void onStart() {
         super.onStart();
         if (!syncReceiverRegistered) {
+            IntentFilter changes = new IntentFilter(CaptureSyncWorker.ACTION_SYNC_CHANGED);
+            changes.addAction(CaptureStore.ACTION_RECORDS_CHANGED);
             ContextCompat.registerReceiver(
                     this,
                     syncChangedReceiver,
-                    new IntentFilter(CaptureSyncWorker.ACTION_SYNC_CHANGED),
+                    changes,
                     ContextCompat.RECEIVER_NOT_EXPORTED
             );
             syncReceiverRegistered = true;
@@ -150,10 +153,18 @@ public final class CaptureInboxActivity extends Activity {
                 view -> openSyncSettings()
         );
         syncAllButton.setOnClickListener(view -> syncAll());
+        findViewById(R.id.capture_source_settings_button).setOnClickListener(view ->
+                new AlertDialog.Builder(this).setTitle(R.string.capture_source_settings)
+                        .setMessage(CaptureAccessibilitySettings.diagnostic(this))
+                        .setPositiveButton(R.string.capture_open_accessibility_settings,
+                                (dialog, which) -> openAccessibilitySettings())
+                        .setNegativeButton(R.string.capture_cancel, null).show());
         refreshButton.setOnClickListener(view -> refreshRecords());
     }
 
     private void refreshRecords() {
+        // Local refresh must work even offline, without a token, or during a remote pull.
+        renderRecords();
         if (refreshing) return;
         final CaptureSyncPreferences.Config config;
         try { config = CaptureSyncPreferences.load(this); }
@@ -258,7 +269,7 @@ public final class CaptureInboxActivity extends Activity {
 
     private void openAccessibilitySettings() {
         try {
-            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+            CaptureAccessibilitySettings.open(this);
         } catch (RuntimeException error) {
             Toast.makeText(
                     this,

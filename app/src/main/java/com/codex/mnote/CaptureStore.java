@@ -32,6 +32,7 @@ import java.util.UUID;
 
 /** App-private, offline persistence for user-triggered captures. */
 final class CaptureStore {
+    static final String ACTION_RECORDS_CHANGED = "com.codex.mnote.LOCAL_RECORDS_CHANGED";
     static final String ORIGINAL_FILENAME = "original.png";
     static final String ANNOTATED_FILENAME = "annotated.png";
     static final String RECORD_FILENAME = "record.json";
@@ -284,6 +285,11 @@ final class CaptureStore {
             if (safeDraft != null) {
                 safeDraft.delete();
             }
+            // Persist first; UI notification must never turn a successful write into a failure.
+            try {
+                context.sendBroadcast(new android.content.Intent(ACTION_RECORDS_CHANGED)
+                        .setPackage(context.getPackageName()));
+            } catch (RuntimeException ignored) { }
             return result;
         } catch (JSONException error) {
             throw new IOException("Cannot encode capture metadata", error);

@@ -54,6 +54,14 @@
                 android:text="@string/capture_setup_expand" android:textColor="@color/coral"
                 android:textSize="13sp" />
 
+            <TextView android:id="@+id/capture_source_settings_button"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:minHeight="48dp" android:gravity="center_vertical"
+                android:clickable="true" android:focusable="true"
+                android:background="?android:attr/selectableItemBackground"
+                android:text="@string/capture_source_settings" android:textColor="@color/coral"
+                android:textSize="13sp" />
+
             <LinearLayout android:id="@+id/capture_setup_panel"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginBottom="18dp" android:background="@drawable/bg_card"

@@ -57,10 +57,32 @@ public final class CaptureAccessibilityService extends AccessibilityService {
             Executors.newSingleThreadExecutor(new CaptureThreadFactory());
     private boolean captureInProgress;
     private CaptureOverlayEditor overlay;
+    private CaptureFeedback feedback;
+
+    static void showFeedback(Context context, int message) {
+        android.widget.Toast.makeText(context.getApplicationContext(), message,
+                android.widget.Toast.LENGTH_LONG).show();
+        CaptureAccessibilityService service;
+        synchronized (INSTANCE_LOCK) { service = activeService.get(); }
+        if (service != null) {
+            if (service.feedback == null) service.feedback = new CaptureFeedback(service);
+            service.feedback.show(message);
+        }
+    }
+
+    static AccessibilityServiceInfo connectedInfo() {
+        synchronized (INSTANCE_LOCK) {
+            CaptureAccessibilityService service = activeService.get();
+            return service == null ? null : service.getServiceInfo();
+        }
+    }
     private boolean screenReceiverRegistered;
     private final BroadcastReceiver screenOffReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
-            if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction()) && overlay != null) overlay.suspend();
+            if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
+                if (overlay != null) overlay.suspend();
+                if (feedback != null) feedback.hide();
+            }
         }
     };
 
@@ -92,6 +114,7 @@ public final class CaptureAccessibilityService extends AccessibilityService {
     static CaptureSourceContext readSourceOnce() {
         CaptureAccessibilityService service;
         synchronized (INSTANCE_LOCK) { service = activeService.get(); }
+        if (service != null && service.feedback != null) service.feedback.hide();
         return service == null ? CaptureSourceContext.EMPTY : CaptureSourceContext.read(service);
     }
 
@@ -172,8 +195,11 @@ public final class CaptureAccessibilityService extends AccessibilityService {
         super.onServiceConnected();
         AccessibilityServiceInfo info = getServiceInfo();
         if (info != null) {
-            // No event subscription: query known address fields only on an explicit capture.
-            info.eventTypes = 0;
+            // Keep the framework's window/cache updates active. Discard event
+            // payloads below; source nodes are still queried only on an explicit capture.
+            info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+                    | AccessibilityEvent.TYPE_WINDOWS_CHANGED;
+            info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC;
             info.flags |= AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
             info.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
             info.flags &= ~AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS;
@@ -198,11 +224,13 @@ public final class CaptureAccessibilityService extends AccessibilityService {
     @Override
     public void onInterrupt() {
         if (overlay != null) overlay.suspend();
+        if (feedback != null) feedback.hide();
     }
 
     @Override
     public void onDestroy() {
         if (overlay != null) overlay.close();
+        if (feedback != null) feedback.hide();
         if (screenReceiverRegistered) {
             unregisterReceiver(screenOffReceiver);
             screenReceiverRegistered = false;
@@ -219,6 +247,7 @@ public final class CaptureAccessibilityService extends AccessibilityService {
 
     @RequiresApi(Build.VERSION_CODES.R)
     private void capture(CaptureCallback callback) {
+        if (feedback != null) feedback.hide(); // Never capture our previous success chip.
         synchronized (this) {
             if (captureInProgress) {
                 callback.onFailure(Failure.IN_PROGRESS);

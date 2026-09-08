@@ -182,6 +182,8 @@ public class CaptureTileFlowTest {
             ScreenshotServiceShadow.callback.onCaptured(draft);
             assertEquals(1, ScreenshotServiceShadow.overlayRequests);
             assertEquals("https://example.com/post", ScreenshotServiceShadow.overlaidSource.url);
+            assertEquals(activity.getString(R.string.capture_screenshot_ready),
+                    org.robolectric.shadows.ShadowToast.getTextOfLatestToast());
             assertNull(shadowOf(activity).getNextStartedActivity());
             assertTrue(activity.isFinishing());
             Files.deleteIfExists(draft.toPath());

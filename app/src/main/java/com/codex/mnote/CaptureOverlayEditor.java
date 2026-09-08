@@ -517,7 +517,7 @@ final class CaptureOverlayEditor {
         if (closed || loading || saving || !composing || sourceBitmap == null) return;
         String url = sourceLink.validated();
         if (url == null) {
-            Toast.makeText(context, R.string.capture_url_invalid, Toast.LENGTH_LONG).show();
+            CaptureAccessibilityService.showFeedback(context, R.string.capture_url_invalid);
             return;
         }
         String note = comment.getText().toString().trim();
@@ -537,7 +537,7 @@ final class CaptureOverlayEditor {
             recycle(original);
             recycle(annotated);
             status.setText(R.string.capture_error_prepare_save);
-            Toast.makeText(context, R.string.capture_error_prepare_save, Toast.LENGTH_LONG).show();
+            CaptureAccessibilityService.showFeedback(context, R.string.capture_error_prepare_save);
             return;
         }
         saving = true;
@@ -561,18 +561,17 @@ final class CaptureOverlayEditor {
             boolean saved = success;
             main.post(() -> {
                 saving = false;
-                Toast.makeText(context, saved ? R.string.capture_saved : R.string.capture_error_save_failed,
-                        Toast.LENGTH_LONG).show();
                 if (closed) {
                     if (ownsDraft) CaptureStore.discardDraft(context, draft);
-                    return;
-                }
-                if (saved) {
+                } else if (saved) {
                     close();
                 } else {
                     status.setText(R.string.capture_error_save_failed);
                     save.setEnabled(true);
                 }
+                // Service-owned feedback survives a successful editor teardown.
+                CaptureAccessibilityService.showFeedback(context,
+                        saved ? R.string.capture_saved : R.string.capture_error_save_failed);
             });
         });
     }

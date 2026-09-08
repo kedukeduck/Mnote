@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="capture_screenshot_ready">截图已就绪，圈选后点下一步保存</string>
+    <string name="capture_source_settings">来源识别与无障碍设置 ›</string>
+    <string name="capture_source_service_disconnected">状态：Mnote 无障碍服务未连接</string>
+    <string name="capture_source_service_pending">状态：窗口读取配置尚未就绪，请关闭并重新启用 Mnote 服务</string>
+    <string name="capture_source_capability_missing">状态：系统未授予当前服务窗口内容读取能力，请关闭并重新启用 Mnote 服务</string>
+    <string name="capture_source_capability_ready">状态：窗口读取能力已启用；具体来源仍取决于当前应用是否提供可读窗口</string>
+    <string name="capture_source_settings_help">没有单独的“来源识别”或“查看屏幕内容”开关。请点下方按钮进入“Mnote 单次摘录”，开启服务；已开启可关闭再开启一次。部分手机在“已下载的应用 / 已安装的服务”列表中。若系统提示受限设置，请先到 Mnote 应用信息按系统提示允许，再回来开启。\n\n开启后回到目标应用重新摘录，不要在设置页测试。浏览器地址栏可尝试自动获取，微博等应用内部链接仍需分享或粘贴。窗口事件仅用于系统更新窗口状态，事件内容不会被读取或保存。</string>
     <string name="capture_refresh">刷新</string>
     <string name="capture_refresh_busy">拉取中…</string>
     <string name="capture_refresh_hint">点刷新拉取其他设备的记录 · 本机记录不会被覆盖</string>
@@ -200,5 +207,5 @@
     <string name="capture_detected_url">已读取地址栏，可展开来源链接核对完整地址</string>
     <string name="capture_detected_url_https">已读取地址栏并补全 HTTPS，请核对是否为完整页面链接</string>
     <string name="capture_selection_preview">本次保存的截图选区预览</string>
-    <string name="capture_source_unavailable_help">未读取到来源窗口。可保存后重新启用无障碍服务，确认允许查看屏幕内容。</string>
+    <string name="capture_source_unavailable_help">本次未读到来源。保存后可到 Mnote 首页“来源识别与无障碍设置”检查；没有单独的来源开关。</string>
 </resources>

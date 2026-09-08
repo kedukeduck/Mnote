@@ -145,6 +145,9 @@ public final class CaptureTriggerActivity extends Activity {
                                     .putExtra("capture_source_package", source.appPackage)
                                     .putExtra("capture_source_url", source.url)
                                     .putExtra("capture_source_origin", source.origin));
+                        } else {
+                            CaptureAccessibilityService.showFeedback(CaptureTriggerActivity.this,
+                                    R.string.capture_screenshot_ready);
                         }
                         finish();
                         overridePendingTransition(0, 0);
@@ -199,7 +202,7 @@ public final class CaptureTriggerActivity extends Activity {
 
     private void openAccessibilitySettings() {
         try {
-            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+            CaptureAccessibilitySettings.open(this);
             // Setup changes the foreground source. Require a fresh user click
             // in the intended app instead of capturing Settings on return.
             finish();

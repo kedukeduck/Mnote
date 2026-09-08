@@ -139,7 +139,7 @@ public class CaptureSourceContextTest {
         } finally { controller.destroy(); }
     }
 
-    @Test public void serviceDoesNotSubscribeToNavigationOrReadOnEvents() {
+    @Test public void serviceKeepsWindowUpdatesButNeverReadsEventPayloads() {
         shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(
                 "com.codex.mnote.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION");
         var controller = Robolectric.buildService(CaptureAccessibilityService.class).create();
@@ -149,9 +149,12 @@ public class CaptureSourceContextTest {
             AccessibilityNodeInfo browser = root(CHROME, field(CHROME, "url_bar", URL));
             shadowOf(service).setWindows(Collections.singletonList(window(browser, 1)));
             service.onServiceConnected();
-            assertEquals(0, service.getServiceInfo().eventTypes);
+            assertEquals(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED | AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+                    service.getServiceInfo().eventTypes);
             assertNotEquals(0, service.getServiceInfo().flags & AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS);
             service.onAccessibilityEvent(AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED));
+            service.onAccessibilityEvent(AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED));
+            service.onAccessibilityEvent(AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOWS_CHANGED));
             assertTrue(query(browser).queries.isEmpty());
             assertEquals(URL, CaptureAccessibilityService.readSourceOnce().url);
             assertEquals(1, query(browser).queries.size());
