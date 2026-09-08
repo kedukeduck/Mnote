@@ -16,11 +16,11 @@ import static org.robolectric.Shadows.shadowOf;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk={30,35},shadows={CaptureSelectedTextTest.NodeShadow.class,
-        CaptureSourceContextTest.WindowQueryShadow.class,CaptureSourceContextTest.ServiceInfoShadow.class})
+        CaptureSourceContextTest.WindowQueryShadow.class,CaptureSelectedTextTest.QueryServiceShadow.class})
 @LooperMode(LooperMode.Mode.PAUSED)
 public class CaptureSelectedTextTest {
     static final String APP="com.example.reader";
-    @Before public void setup() { CaptureSelectionTicket.clear(); }
+    @Before public void setup() { CaptureSelectionTicket.clear(); QueryServiceShadow.clearSucceeds=false; }
     static AccessibilityNodeInfo node(String pkg,String text,int start,int end) {
         AccessibilityNodeInfo node=AccessibilityNodeInfo.obtain(); node.setPackageName(pkg); node.setVisibleToUser(true);
         node.setText(text); node.setTextSelection(start,end); return node;
@@ -97,6 +97,24 @@ public class CaptureSelectedTextTest {
             assertFalse(CaptureSelectedText.read(controller.get()).found()); assertEquals(0,info(selected).textReads);
         } finally { controller.destroy(); }
     }
+    @Test public void widePageCanReachSelectionBeyondOldEagerChildLimit() {
+        AccessibilityNodeInfo root=node(APP,"",-1,-1);
+        for(int index=0;index<300;index++) info(root).children.add(node(APP,"unselected",-1,-1));
+        info(root).children.add(node(APP,"late quote",5,10));
+        assertEquals("quote",scan(root).quote);
+    }
+    @Test public void currentMnoteWindowCanBeTheTextSourceWithoutSearchingOlderWindows() {
+        var controller=Robolectric.buildService(CaptureAccessibilityService.class).create();
+        try {
+            String own=controller.get().getPackageName();
+            shadowOf(controller.get()).setWindows(Collections.singletonList(window(node(own,"my note quote",8,13),1)));
+            assertEquals("quote",CaptureSelectedText.read(controller.get()).quote);
+            AccessibilityNodeInfo older=node(own,"older secret",0,12);
+            shadowOf(controller.get()).setWindows(Arrays.asList(window(node(own,"",-1,-1),2),window(older,1)));
+            assertFalse(CaptureSelectedText.read(controller.get()).found());
+            assertEquals(0,info(older).textReads);
+        } finally { controller.destroy(); }
+    }
     @Test public void liveWindowIdSkipsRenamedBridgeEvenWhenItsRootOrPackageIsMissing() {
         var controller=Robolectric.buildService(CaptureAccessibilityService.class).create();
         try {
@@ -123,7 +141,7 @@ public class CaptureSelectedTextTest {
                 shadowOf(controller.get()).setWindows(Arrays.asList(front,window(selected,1)));
                 assertFalse(CaptureSelectedText.read(controller.get(),2301).found());
                 assertEquals(0,info(selected).textReads);
-                assertTrue(CaptureSelectedText.diagnostic().contains(mode==0 ? "未匹配本次过渡页" : mode==1 ? "未提供应用包名" : "身份冲突"));
+                assertTrue(CaptureSelectedText.diagnostic().contains(mode==0 ? "当前 Mnote 页面未提供" : mode==1 ? "未提供应用包名" : "身份冲突"));
             }
         } finally { controller.destroy(); }
     }
@@ -160,15 +178,82 @@ public class CaptureSelectedTextTest {
             assertTrue(CaptureSelectedText.diagnostic().contains("有效范围 0"));
         } finally { controller.destroy(); }
     }
+    @Test public void accessibilityFocusFindsSelectionBeforeWalkingHugePage() {
+        AccessibilityNodeInfo root=node(APP,"",-1,-1);
+        for(int index=0;index<1500;index++) info(root).children.add(node(APP,"",-1,-1));
+        info(root).accessibilityFocus=node(APP,"focused quote",8,13);
+        assertEquals("quote",scan(root).quote);
+        assertEquals(0,info(root).childReads);
+    }
+    @Test public void nodeLimitRemainsBoundedAndDoesNotReturnPartialSelection() {
+        AccessibilityNodeInfo root=node(APP,"",-1,-1);
+        info(root).children.add(node(APP,"first quote",6,11));
+        for(int index=0;index<1500;index++) info(root).children.add(node(APP,"",-1,-1));
+        assertFalse(scan(root).found());
+        assertTrue(info(root).childReads<=CaptureSelectedText.MAX_NODES);
+    }
+    @Test public void settledReadHasMoreTimeButStillStopsOnSlowProviders() {
+        var controller=Robolectric.buildService(CaptureAccessibilityService.class).create();
+        try {
+            shadowOf(controller.get()).setWindows(Collections.singletonList(window(slowPage(60),1)));
+            assertFalse(CaptureSelectedText.read(controller.get()).found());
+            assertTrue(CaptureSelectedText.diagnostic().contains("时间上限"));
+            shadowOf(controller.get()).setWindows(Collections.singletonList(window(slowPage(60),1)));
+            assertEquals("quote",CaptureSelectedText.read(controller.get(),2301).quote);
+            shadowOf(controller.get()).setWindows(Collections.singletonList(window(slowPage(400),1)));
+            assertFalse(CaptureSelectedText.read(controller.get(),2301).found());
+            assertTrue(CaptureSelectedText.diagnostic().contains("时间上限"));
+        } finally { controller.destroy(); }
+    }
+    private AccessibilityNodeInfo slowPage(int count) {
+        AccessibilityNodeInfo root=node(APP,"",-1,-1);
+        for(int index=0;index<count;index++) {
+            AccessibilityNodeInfo child=node(APP,"",-1,-1); info(child).refreshDelay=4;
+            info(root).children.add(child);
+        }
+        info(root).children.add(node(APP,"quote",0,5));
+        return root;
+    }
+    @Test @Config(sdk=35)
+    public void freshCacheAvoidsDuplicateUnselectedQueriesButRevalidatesTheQuote() {
+        var controller=Robolectric.buildService(CaptureAccessibilityService.class).create();
+        try {
+            QueryServiceShadow.clearSucceeds=true;
+            AccessibilityNodeInfo root=node(APP,"",-1,-1), unselected=node(APP,"private other block",-1,-1), selected=node(APP,"quote",0,5);
+            info(root).children.add(unselected); info(root).children.add(selected);
+            shadowOf(controller.get()).setWindows(Collections.singletonList(window(root,1)));
+            assertEquals("quote",CaptureSelectedText.read(controller.get(),2301).quote);
+            assertEquals(0,info(unselected).refreshCalls); assertEquals(0,info(unselected).textReads);
+            assertEquals(1,info(selected).refreshCalls);
+            assertTrue(CaptureSelectedText.diagnostic().contains("缓存重置 成功"));
+            AccessibilityNodeInfo changed=node(APP,"stale selection",0,5);
+            info(changed).clearSelectionOnRefresh=true;
+            shadowOf(controller.get()).setWindows(Collections.singletonList(window(changed,1)));
+            assertFalse(CaptureSelectedText.read(controller.get(),2301).found());
+            assertEquals(0,info(changed).textReads);
+        } finally { controller.destroy(); }
+    }
+    @Implements(AccessibilityService.class)
+    public static class QueryServiceShadow extends CaptureSourceContextTest.ServiceInfoShadow {
+        static boolean clearSucceeds;
+        @Implementation(minSdk=33) protected boolean clearCache() { return clearSucceeds; }
+    }
     @Implements(AccessibilityNodeInfo.class) public static class NodeShadow extends ShadowAccessibilityNodeInfo {
         final List<AccessibilityNodeInfo> children=new ArrayList<>();
-        CharSequence value; int textReads; boolean refreshable=true;
-        @Implementation protected boolean refresh() { return refreshable; }
+        @org.robolectric.annotation.RealObject AccessibilityNodeInfo realNode;
+        AccessibilityNodeInfo accessibilityFocus;
+        CharSequence value; int textReads,refreshCalls,refreshDelay,childReads; boolean refreshable=true,clearSelectionOnRefresh;
+        @Implementation protected boolean refresh() {
+            refreshCalls++;
+            if(refreshDelay>0) org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(refreshDelay));
+            if(clearSelectionOnRefresh) realNode.setTextSelection(-1,-1);
+            return refreshable;
+        }
         @Implementation protected void setText(CharSequence text) { value=text; }
         @Implementation protected CharSequence getText() { textReads++; return value; }
         @Implementation protected int getChildCount() { return children.size(); }
-        @Implementation protected AccessibilityNodeInfo getChild(int index) { return children.get(index); }
-        @Implementation protected AccessibilityNodeInfo findFocus(int focus) { return null; }
+        @Implementation protected AccessibilityNodeInfo getChild(int index) { childReads++; return children.get(index); }
+        @Implementation protected AccessibilityNodeInfo findFocus(int focus) { return focus==AccessibilityNodeInfo.FOCUS_ACCESSIBILITY ? accessibilityFocus : null; }
         @Implementation protected int getWindowId() { return 17; }
     }
 }
