@@ -9,6 +9,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.Toast;
 
@@ -35,6 +36,13 @@ public final class CaptureTriggerActivity extends Activity {
         getWindow().setDimAmount(0f);
         getWindow().setTitle(SOURCE_BRIDGE_TITLE);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+        // Transparency alone is not enough: a full-screen modal activity removes
+        // the source window from AccessibilityService.getWindows(). Keep this
+        // focusable (to wait for SystemUI to collapse), but never touch-modal.
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL);
+        getWindow().setLayout(1, 1);
+        getWindow().setGravity(Gravity.TOP | Gravity.START);
         CaptureStore.cleanupStaleDrafts(this);
     }
 

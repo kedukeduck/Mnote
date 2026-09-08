@@ -55,6 +55,7 @@ public class CaptureTileFlowTest {
         ScreenshotServiceShadow.source = new CaptureSourceContext("com.android.chrome", "https://example.com/post", "browser_address_bar");
         ScreenshotServiceShadow.overlaidSource = null;
         ScreenshotServiceShadow.selection=CaptureSelectedText.EMPTY;
+        ScreenshotServiceShadow.readerWindow=null;
         CaptureSelectionTicket.clear();
     }
 
@@ -334,6 +335,36 @@ public class CaptureTileFlowTest {
         }
     }
 
+    @Test public void bridgeExposesUnderlyingWindowAfterShadeClosesInsteadOfRemainingFullScreenModal() {
+        Context context=RuntimeEnvironment.getApplication();
+        // Model the system boundary: while Quick Settings is open there is no source selection.
+        Intent intent=CaptureQuickSettingsTileService.prepareCaptureIntent(context);
+        assertEquals(new ComponentName(context,CaptureTriggerActivity.class),intent.getComponent());
+        try(ActivityController<CaptureTriggerActivity> bridge=Robolectric.buildActivity(CaptureTriggerActivity.class,intent).create().start().resume()) {
+            android.view.WindowManager.LayoutParams params=bridge.get().getWindow().getAttributes();
+            assertEquals(1,params.width); assertEquals(1,params.height);
+            assertTrue((params.flags & android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)!=0);
+            assertTrue((params.flags & android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)!=0);
+            assertEquals(0,params.flags & android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+            ScreenshotServiceShadow.readerWindow=bridge.get().getWindow();
+            ScreenshotServiceShadow.selection=new CaptureSelectedText("reader.app",17,"quote","quote",0);
+            bridge.get().onWindowFocusChanged(true); idle(350);
+            assertEquals(0,ScreenshotServiceShadow.requests);
+            assertEquals(new ComponentName(context,CaptureEditorActivity.class),shadowOf(bridge.get()).getNextStartedActivity().getComponent());
+        }
+    }
+
+    @Test public void smallPassThroughBridgeDoesNotMakeSetupDialogUntouchable() {
+        ScreenshotServiceShadow.ready=false; ScreenshotServiceShadow.configured=false;
+        try(ActivityController<CaptureTriggerActivity> bridge=resumedTrigger()) {
+            bridge.get().onWindowFocusChanged(true); idle(350);
+            android.app.AlertDialog dialog=ShadowAlertDialog.getLatestAlertDialog();
+            assertNotNull(dialog);
+            assertEquals(0,dialog.getWindow().getAttributes().flags & android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
+            assertTrue(dialog.getWindow().getAttributes().width!=1);
+        }
+    }
+
     @Implements(value = CaptureAccessibilityService.class, isInAndroidSdk = false)
     public static class ScreenshotServiceShadow {
         static boolean ready;
@@ -348,7 +379,16 @@ public class CaptureTileFlowTest {
         static CaptureSourceContext source;
         static CaptureSourceContext overlaidSource;
         static CaptureSelectedText selection;
-        @Implementation protected static CaptureSelectedText readSelectionOnce() { return selection==null?CaptureSelectedText.EMPTY:selection; }
+        static android.view.Window readerWindow;
+        @Implementation protected static CaptureSelectedText readSelectionOnce() {
+            if(readerWindow!=null) {
+                android.view.WindowManager.LayoutParams params=readerWindow.getAttributes();
+                if(params.width!=1 || params.height!=1
+                        || (params.flags & android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)==0)
+                    return CaptureSelectedText.EMPTY;
+            }
+            return selection==null?CaptureSelectedText.EMPTY:selection;
+        }
 
         @Implementation protected static CaptureSourceContext readSourceOnce() { sourceReads++; return source; }
 

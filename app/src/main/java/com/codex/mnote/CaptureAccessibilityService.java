@@ -121,7 +121,9 @@ public final class CaptureAccessibilityService extends AccessibilityService {
     static CaptureSelectedText readSelectionOnce() {
         CaptureAccessibilityService service;
         synchronized(INSTANCE_LOCK) { service=activeService.get(); }
-        return service==null || service.overlay!=null ? CaptureSelectedText.EMPTY : CaptureSelectedText.read(service);
+        if(service==null) return CaptureSelectedText.unavailable("无障碍服务未连接，无法读取选区");
+        if(service.overlay!=null) return CaptureSelectedText.unavailable("正在恢复已有截图草稿，未读取新选区");
+        return CaptureSelectedText.read(service);
     }
 
     static boolean showOverlay(File draft, CaptureSourceContext source) {

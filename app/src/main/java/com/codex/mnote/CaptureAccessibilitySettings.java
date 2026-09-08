@@ -33,6 +33,7 @@ final class CaptureAccessibilitySettings {
         else if ((info.flags & AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS) == 0 || info.eventTypes == 0)
             state = context.getString(R.string.capture_source_service_pending);
         else state = context.getString(R.string.capture_source_capability_ready);
-        return state + "\n\n" + context.getString(R.string.capture_source_settings_help);
+        return state + "\n\n最近一次文字摘录诊断（仅本机内存）\n" + CaptureSelectedText.diagnostic()
+                + "\n\n" + context.getString(R.string.capture_source_settings_help);
     }
 }

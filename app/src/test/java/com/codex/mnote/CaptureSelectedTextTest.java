@@ -110,6 +110,26 @@ public class CaptureSelectedTextTest {
         CaptureAccountSession.preferences(context).edit().putString("scope","a".repeat(64)).commit();
         assertFalse(CaptureSelectionTicket.take(context,ticket).found());
     }
+    @Test public void diagnosticDistinguishesMissingWindowFromMissingSelectionWithoutStoringContent() {
+        var controller=Robolectric.buildService(CaptureAccessibilityService.class).create();
+        try {
+            shadowOf(controller.get()).setWindows(Collections.emptyList());
+            assertFalse(CaptureSelectedText.read(controller.get()).found());
+            assertTrue(CaptureSelectedText.diagnostic().contains("没有可读的来源窗口"));
+            AccessibilityNodeInfo selected=node(APP,"private article selected",16,24);
+            shadowOf(controller.get()).setWindows(Collections.singletonList(window(selected,1)));
+            assertEquals("selected",CaptureSelectedText.read(controller.get()).quote);
+            String diagnostic=CaptureSelectedText.diagnostic();
+            assertTrue(diagnostic.contains("已读取选中文字"));
+            assertTrue(diagnostic.contains("来源根节点 1"));
+            assertFalse(diagnostic.contains("private")); assertFalse(diagnostic.contains(APP));
+            // Framework queries hand out fresh window handles; do not reuse the recycled one.
+            shadowOf(controller.get()).setWindows(Collections.singletonList(window(node(APP,"private article selected",-1,-1),1)));
+            assertFalse(CaptureSelectedText.read(controller.get()).found());
+            assertTrue(CaptureSelectedText.diagnostic().contains("未找到可用文字选区"));
+            assertTrue(CaptureSelectedText.diagnostic().contains("有效范围 0"));
+        } finally { controller.destroy(); }
+    }
     @Implements(AccessibilityNodeInfo.class) public static class NodeShadow extends ShadowAccessibilityNodeInfo {
         final List<AccessibilityNodeInfo> children=new ArrayList<>();
         CharSequence value; int textReads; boolean refreshable=true;
