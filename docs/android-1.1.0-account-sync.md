@@ -42,4 +42,6 @@ PYTHONPATH=capture-server/src python3 -m unittest discover -s capture-server/tes
 
 准确测试数量、SHA-256 和提交见发布附件。Robolectric 原生 View 预览不是手机实拍；真实手机后台同步时机仍需验收。
 
+本版发布验证：完整 `scripts/verify-mnote-v1.sh` 通过；Android 204 项测试全部通过，lint 0 errors / 29 warnings（包括现有警告与新增文案国际化警告）；服务端含 MCP 的 19 项测试通过；Windows 构建、GUI / 同步冒烟与浏览器扩展测试通过。公网 HTTPS 使用独立临时账号验证激活、登录、上传、PNG 下载、变更流、删除、退出；测试凭证已撤销，测试数据已隔离到私有备份。对比部署前后原知识库的记录和附件数据库行完全一致。未进行多台真实手机测试。
+
 参考：[Android PeriodicWorkRequest](https://developer.android.com/reference/androidx/work/PeriodicWorkRequest)、[OWASP Password Storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)。
