@@ -58,6 +58,9 @@ final class CaptureTextExcerpt {
         selected.accept(excerpt); text.setText(excerpt);
         Toast.makeText(activity,R.string.capture_excerpt_chosen,Toast.LENGTH_SHORT).show();
     }
+    void detectedOriginal(String value,int start) {
+        original=value; origin="accessibility_node"; selectedStart=start;
+    }
     private void editOriginal() {
         EditText input=new EditText(activity); input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         input.setMinLines(5); input.setMaxLines(10); input.setGravity(Gravity.TOP);
@@ -77,6 +80,7 @@ final class CaptureTextExcerpt {
     JSONObject context(String quote) throws org.json.JSONException {
         if(!retain.isChecked() || original.isEmpty()) return null;
         JSONObject value=CaptureContext.text(original,origin,quote);
+        if("accessibility_node".equals(origin)) value.put("extent","source_text_node");
         if(selectedStart>=0 && original.startsWith(quote,selectedStart)) value.put("match","user_selected")
                 .put("start",selectedStart).put("end",selectedStart+quote.length());
         return value;

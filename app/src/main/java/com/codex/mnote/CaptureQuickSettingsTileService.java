@@ -10,7 +10,7 @@ import android.os.Build;
 import android.service.quicksettings.Tile;
 import android.service.quicksettings.TileService;
 
-/** Quick Settings entry; each click can request exactly one screenshot. */
+/** Quick Settings entry: selected text first, otherwise one screenshot. */
 public final class CaptureQuickSettingsTileService extends TileService {
     static void requestRefresh(Context context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -62,10 +62,7 @@ public final class CaptureQuickSettingsTileService extends TileService {
     @SuppressWarnings("deprecation")
     @SuppressLint("StartActivityAndCollapseDeprecated")
     private void launchTrigger() {
-        Intent intent = captureIntent(this);
-        // Read before the transparent Activity becomes the active window. No
-        // background cache: this snapshot belongs only to this explicit click.
-        if (!CaptureAccessibilityService.hasOverlay()) CaptureAccessibilityService.readSourceOnce().attachTo(intent);
+        Intent intent = prepareCaptureIntent(this);
         if (Build.VERSION.SDK_INT >= 34) {
             startActivityAndCollapse(capturePendingIntent(this, intent));
         } else {
@@ -81,6 +78,18 @@ public final class CaptureQuickSettingsTileService extends TileService {
                         | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
                         | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
                         | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+    }
+    static Intent prepareCaptureIntent(Context context) {
+        Intent intent=captureIntent(context);
+        if(!CaptureAccessibilityService.hasOverlay()) {
+            CaptureSelectedText selected=CaptureAccessibilityService.readSelectionOnce();
+            // A selection available at click time goes straight to the text editor;
+            // it must not lose focus to a screenshot bridge before being handed off.
+            if(selected.found()) return CaptureEditorActivity.forSelectedText(context,selected);
+            CaptureSelectionTicket.clear();
+            CaptureAccessibilityService.readSourceOnce().attachTo(intent);
+        }
+        return intent;
     }
 
     static PendingIntent capturePendingIntent(Context context) {

@@ -664,7 +664,7 @@ final class CaptureStore {
     }
 
     private static String fidelityLevel(String sourceType, boolean hasImage) {
-        if ("process_text".equals(sourceType) || "share_text".equals(sourceType)) {
+        if ("process_text".equals(sourceType) || "share_text".equals(sourceType) || "accessibility_selection".equals(sourceType)) {
             return "L3";
         }
         return hasImage ? "L2" : "user";

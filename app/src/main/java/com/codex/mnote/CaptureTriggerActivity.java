@@ -115,6 +115,16 @@ public final class CaptureTriggerActivity extends Activity {
             return;
         }
         captureRequested = true;
+        CaptureSelectedText selected=CaptureAccessibilityService.readSelectionOnce();
+        if(selected.found()) {
+            try {
+                startActivity(CaptureEditorActivity.forSelectedText(this,selected));
+                finish(); overridePendingTransition(0,0); return;
+            } catch(RuntimeException error) {
+                CaptureSelectionTicket.clear(); captureRequested=false;
+                showBlockingMessage(R.string.capture_selection_launch_failed,false); return;
+            }
+        }
         CaptureSourceContext currentSource = CaptureAccessibilityService.readSourceOnce();
         CaptureSourceContext source = currentSource.appPackage.isEmpty() && currentSource.allowClickFallback
                 ? CaptureSourceContext.fromClick(getIntent()) : currentSource;

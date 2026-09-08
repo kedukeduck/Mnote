@@ -699,7 +699,7 @@ public final class CaptureInboxActivity extends Activity {
     }
 
     private int sourceTypeLabel(String type) {
-        if ("process_text".equals(type)) {
+        if ("process_text".equals(type) || "accessibility_selection".equals(type)) {
             return R.string.capture_source_process_text;
         }
         if ("share_text".equals(type)) {

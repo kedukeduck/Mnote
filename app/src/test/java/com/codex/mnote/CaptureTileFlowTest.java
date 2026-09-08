@@ -54,6 +54,8 @@ public class CaptureTileFlowTest {
         ScreenshotServiceShadow.sourceReads = 0;
         ScreenshotServiceShadow.source = new CaptureSourceContext("com.android.chrome", "https://example.com/post", "browser_address_bar");
         ScreenshotServiceShadow.overlaidSource = null;
+        ScreenshotServiceShadow.selection=CaptureSelectedText.EMPTY;
+        CaptureSelectionTicket.clear();
     }
 
     @Test
@@ -273,6 +275,64 @@ public class CaptureTileFlowTest {
     private static void idle(long millis) {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(millis));
     }
+    @Test public void selectedTextOpensEditorWithoutTakingScreenshotAndCanRetainOriginal() throws Exception {
+        ScreenshotServiceShadow.selection=new CaptureSelectedText("com.example.reader",17,"选中文字","前文选中文字后文",2);
+        try(ActivityController<CaptureTriggerActivity> bridge=Robolectric.buildActivity(CaptureTriggerActivity.class).create().start().resume()) {
+            bridge.get().onWindowFocusChanged(true); idle(350);
+            assertEquals(0,ScreenshotServiceShadow.requests);
+            Intent editorIntent=shadowOf(bridge.get()).getNextStartedActivity(); assertNotNull(editorIntent);
+            assertNull(editorIntent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT));
+            try(ActivityController<CaptureEditorActivity> editor=Robolectric.buildActivity(CaptureEditorActivity.class,editorIntent).setup()) {
+                CaptureEditorActivity activity=editor.get();
+                assertEquals("选中文字",activity.<android.widget.TextView>findViewById(R.id.capture_source_text).getText().toString());
+                activity.<android.widget.CheckBox>findViewById(R.id.capture_retain_text_context).setChecked(true);
+                activity.<android.widget.EditText>findViewById(R.id.capture_comment_input).setText("我的想法");
+                activity.findViewById(R.id.capture_editor_save).performClick();
+                ReflectionHelpers.<java.util.concurrent.ExecutorService>getField(activity,"executor").submit(()->{}).get(5,java.util.concurrent.TimeUnit.SECONDS);
+                idle(0);
+                CaptureStore.CaptureRecord record=CaptureStore.list(activity,10).get(0);
+                assertEquals("accessibility_selection",record.sourceType); assertEquals("我的想法",record.comment);
+                assertEquals("前文选中文字后文",record.captureContext.getJSONObject("text").getString("full_text"));
+                assertEquals("accessibility_node",record.captureContext.getJSONObject("text").getString("origin"));
+                assertFalse(record.hasImage);
+            }
+        }
+    }
+    @Test public void tileGoesDirectlyToTextEditorWhenSelectionIsPresentAndOtherwiseKeepsScreenshotRoute() {
+        Context context=RuntimeEnvironment.getApplication();
+        ScreenshotServiceShadow.selection=new CaptureSelectedText("com.example.reader",17,"quote","quote",0);
+        Intent intent=CaptureQuickSettingsTileService.prepareCaptureIntent(context);
+        assertEquals(new ComponentName(context,CaptureEditorActivity.class),intent.getComponent());
+        assertNull(intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT));
+        try(ActivityController<CaptureEditorActivity> editor=Robolectric.buildActivity(CaptureEditorActivity.class,intent).setup()) {
+            assertEquals("quote",editor.get().<android.widget.TextView>findViewById(R.id.capture_source_text).getText().toString());
+        }
+        ScreenshotServiceShadow.selection=CaptureSelectedText.EMPTY;
+        assertEquals(new ComponentName(context,CaptureTriggerActivity.class),CaptureQuickSettingsTileService.prepareCaptureIntent(context).getComponent());
+        ScreenshotServiceShadow.selection=new CaptureSelectedText("com.example.reader",17,"quote","quote",0);
+        ScreenshotServiceShadow.overlayPresent=true;
+        assertEquals(new ComponentName(context,CaptureTriggerActivity.class),CaptureQuickSettingsTileService.prepareCaptureIntent(context).getComponent());
+    }
+
+    @Test public void selectedTextSurvivesRecreationWithoutReusingTicket() throws Exception {
+        Context context=RuntimeEnvironment.getApplication();
+        Intent intent=CaptureEditorActivity.forSelectedText(context,
+                new CaptureSelectedText("com.example.reader",17,"quote","before quote after",7));
+        try(ActivityController<CaptureEditorActivity> editor=Robolectric.buildActivity(CaptureEditorActivity.class,intent).setup()) {
+            assertFalse(editor.get().<android.widget.CheckBox>findViewById(R.id.capture_retain_text_context).isChecked());
+            editor.get().<android.widget.CheckBox>findViewById(R.id.capture_retain_text_context).setChecked(true);
+            editor.get().<android.widget.EditText>findViewById(R.id.capture_comment_input).setText("my thought");
+            editor.recreate();
+            assertEquals("quote",editor.get().<android.widget.TextView>findViewById(R.id.capture_source_text).getText().toString());
+            assertEquals("my thought",editor.get().<android.widget.EditText>findViewById(R.id.capture_comment_input).getText().toString());
+            assertEquals("com.example.reader",ReflectionHelpers.getField(editor.get(),"sourcePackage"));
+            org.json.JSONObject saved=ReflectionHelpers.<CaptureTextExcerpt>getField(editor.get(),"textExcerpt").context("quote");
+            assertEquals("before quote after",saved.getString("full_text"));
+            assertEquals(7,saved.getInt("start"));
+            assertEquals("source_text_node",saved.getString("extent"));
+            assertNull(intent.getStringExtra(CaptureSelectionTicket.EXTRA));
+        }
+    }
 
     @Implements(value = CaptureAccessibilityService.class, isInAndroidSdk = false)
     public static class ScreenshotServiceShadow {
@@ -287,6 +347,8 @@ public class CaptureTileFlowTest {
         static int sourceReads;
         static CaptureSourceContext source;
         static CaptureSourceContext overlaidSource;
+        static CaptureSelectedText selection;
+        @Implementation protected static CaptureSelectedText readSelectionOnce() { return selection==null?CaptureSelectedText.EMPTY:selection; }
 
         @Implementation protected static CaptureSourceContext readSourceOnce() { sourceReads++; return source; }
 

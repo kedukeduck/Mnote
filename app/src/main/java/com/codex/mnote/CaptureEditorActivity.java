@@ -30,6 +30,7 @@ import java.util.concurrent.ThreadFactory;
 
 /** Crop, annotate, classify and atomically save a capture. */
 public final class CaptureEditorActivity extends Activity {
+    private static final String ACTION_EDIT_SELECTION="com.codex.mnote.action.EDIT_SELECTION";
     private static final String ACTION_EDIT_SCREENSHOT =
             "com.codex.mnote.action.EDIT_SCREENSHOT";
     private static final String EXTRA_DRAFT_PATH =
@@ -75,6 +76,12 @@ public final class CaptureEditorActivity extends Activity {
                 .setAction(ACTION_EDIT_SCREENSHOT)
                 .putExtra(EXTRA_DRAFT_PATH, draft.getAbsolutePath());
     }
+    static Intent forSelectedText(android.content.Context context,CaptureSelectedText selected) {
+        return new Intent(context,CaptureEditorActivity.class).setAction(ACTION_EDIT_SELECTION)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
+                        | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS | Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                .putExtra(CaptureSelectionTicket.EXTRA,CaptureSelectionTicket.put(context,selected));
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -87,7 +94,12 @@ public final class CaptureEditorActivity extends Activity {
         textExcerpt = new CaptureTextExcerpt(this, value -> sourceText=value);
         bindActions();
         sourcePackage = resolveSourcePackage();
-        handleIntent(getIntent());
+        if(savedInstanceState!=null && ACTION_EDIT_SELECTION.equals(getIntent().getAction())) {
+            sourceType="accessibility_selection"; sourcePackage=savedInstanceState.getString("excerpt_package","");
+            sourceText=savedInstanceState.getString("excerpt_quote","");
+            title.setText(R.string.capture_editor_text_title); showTextOnly();
+            status.setText(R.string.capture_selection_detected);
+        } else handleIntent(getIntent());
         if (savedInstanceState != null) {
             sourceText=savedInstanceState.getString("excerpt_quote",sourceText);
             sourceTextView.setText(sourceText); textExcerpt.restore(savedInstanceState);
@@ -103,6 +115,7 @@ public final class CaptureEditorActivity extends Activity {
     @Override protected void onSaveInstanceState(Bundle state) {
         state.putString("capture_owner_scope", ownerScope);
         state.putString("excerpt_quote",sourceText); textExcerpt.save(state);
+        state.putString("excerpt_package",sourcePackage);
         super.onSaveInstanceState(state);
     }
 
@@ -188,6 +201,17 @@ public final class CaptureEditorActivity extends Activity {
             return;
         }
         String action = intent.getAction();
+        if(ACTION_EDIT_SELECTION.equals(action)) {
+            CaptureSelectedText selected=CaptureSelectionTicket.take(this,intent.getStringExtra(CaptureSelectionTicket.EXTRA));
+            intent.removeExtra(CaptureSelectionTicket.EXTRA);
+            if(!selected.found()) { showBlockingError(R.string.capture_selection_expired); return; }
+            sourceType="accessibility_selection"; sourcePackage=selected.appPackage; sourceText=selected.quote;
+            title.setText(R.string.capture_editor_text_title); showTextOnly();
+            textExcerpt.detectedOriginal(selected.original,selected.start);
+            sourceLink.acceptSharedText(sourceText);
+            status.setText(R.string.capture_selection_detected);
+            return;
+        }
         if (ACTION_EDIT_SCREENSHOT.equals(action)) {
             sourceType = "screen";
             title.setText(R.string.capture_editor_screen_title);
@@ -361,7 +385,7 @@ public final class CaptureEditorActivity extends Activity {
     }
 
     private void showTextOnly() {
-        textExcerpt.show(sourceText,processTextRequest);
+        textExcerpt.show(sourceText,processTextRequest || "accessibility_selection".equals(sourceType));
         markupContainer.setVisibility(View.GONE);
         toolRow.setVisibility(View.GONE);
         textContainer.setVisibility(View.VISIBLE);

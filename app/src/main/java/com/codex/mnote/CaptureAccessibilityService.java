@@ -80,6 +80,7 @@ public final class CaptureAccessibilityService extends AccessibilityService {
     private final BroadcastReceiver screenOffReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
+                CaptureSelectionTicket.clear();
                 if (overlay != null) overlay.suspend();
                 if (feedback != null) feedback.hide();
             }
@@ -116,6 +117,11 @@ public final class CaptureAccessibilityService extends AccessibilityService {
         synchronized (INSTANCE_LOCK) { service = activeService.get(); }
         if (service != null && service.feedback != null) service.feedback.hide();
         return service == null ? CaptureSourceContext.EMPTY : CaptureSourceContext.read(service);
+    }
+    static CaptureSelectedText readSelectionOnce() {
+        CaptureAccessibilityService service;
+        synchronized(INSTANCE_LOCK) { service=activeService.get(); }
+        return service==null || service.overlay!=null ? CaptureSelectedText.EMPTY : CaptureSelectedText.read(service);
     }
 
     static boolean showOverlay(File draft, CaptureSourceContext source) {
@@ -229,6 +235,7 @@ public final class CaptureAccessibilityService extends AccessibilityService {
 
     @Override
     public void onDestroy() {
+        CaptureSelectionTicket.clear();
         if (overlay != null) overlay.close();
         if (feedback != null) feedback.hide();
         if (screenReceiverRegistered) {
