@@ -97,6 +97,36 @@ public class CaptureSelectedTextTest {
             assertFalse(CaptureSelectedText.read(controller.get()).found()); assertEquals(0,info(selected).textReads);
         } finally { controller.destroy(); }
     }
+    @Test public void liveWindowIdSkipsRenamedBridgeEvenWhenItsRootOrPackageIsMissing() {
+        var controller=Robolectric.buildService(CaptureAccessibilityService.class).create();
+        try {
+            for(int mode=0;mode<3;mode++) {
+                AccessibilityNodeInfo bridgeRoot=mode==2 ? null : node(mode==0 ? controller.get().getPackageName() : "","",-1,-1);
+                AccessibilityWindowInfo bridge=window(bridgeRoot,2);
+                shadowOf(bridge).setId(2301); shadowOf(bridge).setTitle("Mnote");
+                AccessibilityWindowInfo source=window(node(APP,"quote",0,5),1); shadowOf(source).setId(27);
+                shadowOf(controller.get()).setWindows(Arrays.asList(bridge,source));
+                assertEquals("quote",CaptureSelectedText.read(controller.get(),2301).quote);
+                assertTrue(CaptureSelectedText.diagnostic().contains("跳过过渡页 1"));
+                assertTrue(CaptureSelectedText.diagnostic().contains("来源根节点 1"));
+            }
+        } finally { controller.destroy(); }
+    }
+    @Test public void unrelatedMnoteMissingPackageAndMismatchedIdentityDoNotReadBehindThem() {
+        var controller=Robolectric.buildService(CaptureAccessibilityService.class).create();
+        try {
+            for(int mode=0;mode<3;mode++) {
+                String pkg=mode==0 ? controller.get().getPackageName() : mode==1 ? "" : "another.app";
+                AccessibilityWindowInfo front=window(node(pkg,"",-1,-1),2);
+                shadowOf(front).setId(mode==2 ? 2301 : 2302); shadowOf(front).setTitle("Mnote");
+                AccessibilityNodeInfo selected=node(APP,"private quote",0,13);
+                shadowOf(controller.get()).setWindows(Arrays.asList(front,window(selected,1)));
+                assertFalse(CaptureSelectedText.read(controller.get(),2301).found());
+                assertEquals(0,info(selected).textReads);
+                assertTrue(CaptureSelectedText.diagnostic().contains(mode==0 ? "未匹配本次过渡页" : mode==1 ? "未提供应用包名" : "身份冲突"));
+            }
+        } finally { controller.destroy(); }
+    }
     @Test public void ticketIsOneUseExpiringAndAccountBound() {
         Context context=RuntimeEnvironment.getApplication();
         CaptureSelectedText selected=new CaptureSelectedText(APP,17,"quote","before quote after",7);

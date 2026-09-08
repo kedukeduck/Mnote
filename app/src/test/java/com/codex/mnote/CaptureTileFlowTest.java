@@ -56,6 +56,7 @@ public class CaptureTileFlowTest {
         ScreenshotServiceShadow.overlaidSource = null;
         ScreenshotServiceShadow.selection=CaptureSelectedText.EMPTY;
         ScreenshotServiceShadow.readerWindow=null;
+        ScreenshotServiceShadow.bridgeWindowId=-1;
         CaptureSelectionTicket.clear();
     }
 
@@ -71,6 +72,30 @@ public class CaptureTileFlowTest {
         assertTrue(info.taskAffinity == null || info.taskAffinity.isEmpty());
         assertFalse(info.exported);
         assertTrue((info.flags & ActivityInfo.FLAG_EXCLUDE_FROM_RECENTS) != 0);
+    }
+
+    @Test public void bridgeTitleSurvivesTheRealPostCreateTitleInitialization() {
+        try(ActivityController<CaptureTriggerActivity> bridge=Robolectric.buildActivity(CaptureTriggerActivity.class)
+                .create().start().postCreate(null).resume().visible()) {
+            assertEquals(CaptureTriggerActivity.SOURCE_BRIDGE_TITLE,bridge.get().getTitle().toString());
+            assertEquals(CaptureTriggerActivity.SOURCE_BRIDGE_TITLE,
+                    ReflectionHelpers.getField(bridge.get().getWindow(),"mTitle").toString());
+        }
+    }
+    @Test
+    @Config(shadows={ScreenshotServiceShadow.class,OwnNodeWindowShadow.class})
+    public void bridgePassesItsAttachedWindowIdentityToTheOneShotReader() {
+        try(ActivityController<CaptureTriggerActivity> bridge=Robolectric.buildActivity(CaptureTriggerActivity.class).setup()) {
+            ScreenshotServiceShadow.selection=new CaptureSelectedText("reader.app",27,"quote","quote",0);
+            bridge.get().onWindowFocusChanged(true); idle(350);
+            assertEquals(2301,ScreenshotServiceShadow.bridgeWindowId);
+            assertEquals(0,ScreenshotServiceShadow.requests);
+            assertNotNull(shadowOf(bridge.get()).getNextStartedActivity());
+        }
+    }
+    @Implements(android.view.accessibility.AccessibilityNodeInfo.class)
+    public static class OwnNodeWindowShadow extends org.robolectric.shadows.ShadowAccessibilityNodeInfo {
+        @Implementation protected int getWindowId() { return 2301; }
     }
 
     @Test
@@ -380,6 +405,10 @@ public class CaptureTileFlowTest {
         static CaptureSourceContext overlaidSource;
         static CaptureSelectedText selection;
         static android.view.Window readerWindow;
+        static int bridgeWindowId;
+        @Implementation protected static CaptureSelectedText readSelectionOnce(int ownBridgeWindowId) {
+            bridgeWindowId=ownBridgeWindowId; return readSelectionOnce();
+        }
         @Implementation protected static CaptureSelectedText readSelectionOnce() {
             if(readerWindow!=null) {
                 android.view.WindowManager.LayoutParams params=readerWindow.getAttributes();

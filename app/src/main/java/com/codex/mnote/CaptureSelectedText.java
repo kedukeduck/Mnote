@@ -21,34 +21,49 @@ final class CaptureSelectedText {
     static String diagnostic() { return lastDiagnostic; }
     static CaptureSelectedText unavailable(String reason) { lastDiagnostic=reason; return EMPTY; }
     static CaptureSelectedText read(AccessibilityService service) {
+        return read(service,-1);
+    }
+    static CaptureSelectedText read(AccessibilityService service,int ownBridgeWindowId) {
         Scan trace=new Scan();
         try {
-            CaptureSelectedText result=read(service,trace);
+            CaptureSelectedText result=read(service,ownBridgeWindowId,trace);
             if(result.found()) trace.reason="已读取选中文字";
             return result;
         } finally { lastDiagnostic=trace.summary(); }
     }
-    private static CaptureSelectedText read(AccessibilityService service,Scan trace) {
+    private static CaptureSelectedText read(AccessibilityService service,int ownBridgeWindowId,Scan trace) {
         KeyguardManager lock=service.getSystemService(KeyguardManager.class);
         if(lock!=null && lock.isKeyguardLocked()) { trace.reason="锁屏，已停止读取"; return EMPTY; }
         List<AccessibilityWindowInfo> windows=new ArrayList<>();
         long deadline=SystemClock.uptimeMillis()+180;
         try {
             windows.addAll(service.getWindows()); windows.sort(Comparator.comparingInt(AccessibilityWindowInfo::getLayer).reversed());
+            trace.totalWindows=windows.size();
             String source=""; CaptureSelectedText result=EMPTY;
             for(AccessibilityWindowInfo window:windows) {
                 if(SystemClock.uptimeMillis()>deadline) { trace.reason="窗口查询超时"; return EMPTY; }
                 if(window.getType()!=AccessibilityWindowInfo.TYPE_APPLICATION) continue;
                 trace.windows++;
-                // Only our specifically titled transparent bridge may be skipped, never the Inbox/editor.
-                boolean bridge=CaptureTriggerActivity.SOURCE_BRIDGE_TITLE.contentEquals(window.getTitle()==null?"":window.getTitle());
+                // The live bridge passes its own attached decor's window ID. Titles
+                // can be replaced by the framework/OEM; never skip every Mnote window.
+                boolean localBridge=ownBridgeWindowId>=0 && window.getId()==ownBridgeWindowId;
+                boolean titledBridge=CaptureTriggerActivity.SOURCE_BRIDGE_TITLE.contentEquals(window.getTitle()==null?"":window.getTitle());
                 AccessibilityNodeInfo root=window.getRoot();
-                if(root==null) { if(bridge) continue; trace.reason="来源窗口没有提供可读根节点"; return EMPTY; }
+                if(root==null) {
+                    if(localBridge || titledBridge) { trace.bridges++; continue; }
+                    trace.reason="来源窗口没有提供可读根节点"; return EMPTY;
+                }
                 try {
                     String pkg=packageName(root);
-                    if(bridge && pkg.equals(service.getPackageName())) continue;
+                    if(localBridge && !pkg.isEmpty() && !pkg.equals(service.getPackageName())) {
+                        trace.reason="过渡窗口 ID 与应用身份冲突，已停止读取"; return EMPTY;
+                    }
+                    if((localBridge && pkg.isEmpty()) || ((localBridge || titledBridge) && pkg.equals(service.getPackageName()))) {
+                        trace.bridges++; continue;
+                    }
                     if(pkg.equals("com.android.systemui")) continue;
-                    if(pkg.isEmpty() || pkg.equals(service.getPackageName())) { trace.reason="当前窗口无法确认为外部来源应用"; return EMPTY; }
+                    if(pkg.isEmpty()) { trace.reason="来源根节点未提供应用包名，未猜测来源"; return EMPTY; }
+                    if(pkg.equals(service.getPackageName())) { trace.reason="当前是 Mnote 窗口，但未匹配本次过渡页，已停止读取"; return EMPTY; }
                     if(!source.isEmpty() && !source.equals(pkg)) return result;
                     source=pkg;
                     trace.roots++;
@@ -134,8 +149,9 @@ final class CaptureSelectedText {
     }
     /** In-memory counters only; never retain text, URLs, package names or exception messages. */
     private static final class Scan {
-        int windows,roots,nodes,ranges;
+        int totalWindows,windows,bridges,roots,nodes,ranges;
         String reason="未找到可用文字选区（可能未暴露、已取消或被过滤）";
-        String summary() { return reason+"\n应用窗口 "+windows+" · 来源根节点 "+roots+" · 检查节点 "+nodes+" · 有效范围 "+ranges; }
+        String summary() { return reason+"\n返回窗口 "+totalWindows+" · 已检查应用窗口 "+windows+" · 跳过过渡页 "+bridges
+                +"\n来源根节点 "+roots+" · 检查节点 "+nodes+" · 有效范围 "+ranges; }
     }
 }

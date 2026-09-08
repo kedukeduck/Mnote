@@ -34,6 +34,9 @@ public final class CaptureTriggerActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().setDimAmount(0f);
+        // onPostCreate calls onTitleChanged(Activity.getTitle()). Setting only
+        // Window's title here lets the framework replace it with the app label.
+        setTitle(SOURCE_BRIDGE_TITLE);
         getWindow().setTitle(SOURCE_BRIDGE_TITLE);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
         // Transparency alone is not enough: a full-screen modal activity removes
@@ -123,7 +126,7 @@ public final class CaptureTriggerActivity extends Activity {
             return;
         }
         captureRequested = true;
-        CaptureSelectedText selected=CaptureAccessibilityService.readSelectionOnce();
+        CaptureSelectedText selected=CaptureAccessibilityService.readSelectionOnce(ownAccessibilityWindowId());
         if(selected.found()) {
             try {
                 startActivity(CaptureEditorActivity.forSelectedText(this,selected));
@@ -186,6 +189,16 @@ public final class CaptureTriggerActivity extends Activity {
                     }
                 }
         );
+    }
+
+    private int ownAccessibilityWindowId() {
+        android.view.accessibility.AccessibilityNodeInfo node=null;
+        try {
+            // Our own attached decor, not a query into another app or a cached ID.
+            node=getWindow().getDecorView().createAccessibilityNodeInfo();
+            return node==null ? -1 : node.getWindowId();
+        } catch(RuntimeException error) { return -1; }
+        finally { if(node!=null) node.recycle(); }
     }
 
     private void showAccessibilitySetup() {

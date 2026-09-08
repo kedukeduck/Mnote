@@ -119,11 +119,14 @@ public final class CaptureAccessibilityService extends AccessibilityService {
         return service == null ? CaptureSourceContext.EMPTY : CaptureSourceContext.read(service);
     }
     static CaptureSelectedText readSelectionOnce() {
+        return readSelectionOnce(-1);
+    }
+    static CaptureSelectedText readSelectionOnce(int ownBridgeWindowId) {
         CaptureAccessibilityService service;
         synchronized(INSTANCE_LOCK) { service=activeService.get(); }
         if(service==null) return CaptureSelectedText.unavailable("无障碍服务未连接，无法读取选区");
         if(service.overlay!=null) return CaptureSelectedText.unavailable("正在恢复已有截图草稿，未读取新选区");
-        return CaptureSelectedText.read(service);
+        return CaptureSelectedText.read(service,ownBridgeWindowId);
     }
 
     static boolean showOverlay(File draft, CaptureSourceContext source) {
