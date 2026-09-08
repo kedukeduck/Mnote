@@ -1,7 +1,7 @@
 # 全局摘录 V1 权限与隐私说明
 
 - 文档状态：V1 设计与验收基线
-- 更新日期：2026-09-07（补充 Android 1.0.6 主动拉取与离线缓存）
+- 更新日期：2026-09-08（补充 Android 1.0.7 窗口事件与提示条）
 - 适用范围：Windows 11、Android 11+、Chrome/Edge 扩展、同步与 AI 只读服务
 - 相关文档：[产品规格](universal-capture-v1-product-spec.md)、[记录结构](capture-record-schema.md)、[同步 API](sync-api.md)、[验收清单](acceptance-checklist.md)
 
@@ -71,7 +71,7 @@ Android 1.0.6 实际实现补充：用户点首页“刷新”时使用已配置
 | 一次性全局截图 | 用户启用的 `AccessibilityService`，服务元数据声明 `canTakeScreenshot=true` | 全局截图路径需要 | 用户主动开启功能时跳转系统设置，先显示独立披露与用途 |
 | 快捷设置入口 | 受系统绑定保护的 `TileService` | 推荐入口需要 | 用户主动把磁贴加入快捷设置；不读取屏幕 |
 | 原地悬浮批注 | 已连接无障碍服务的 `TYPE_ACCESSIBILITY_OVERLAY` | 截图批注使用 | 仅主动截图后显示或用户主动恢复会话；先全屏圈选再展开想法卡片，不额外申请 `SYSTEM_ALERT_WINDOW` |
-| 自动来源识别 | `canRetrieveWindowContent=true`，交互窗口和 view ID 查询 | 自动来源功能需要 | 仅主动新摘录时读取来源窗口包名及已知浏览器地址栏；快捷按钮点击先取短期快照，过渡页稳定后再次读取，窗口列表不可用时尝试活动根节点；不遍历正文、不自动点击、不订阅导航和输入事件 |
+| 自动来源识别 | `canRetrieveWindowContent=true`，交互窗口和 view ID 查询 | 自动来源功能需要 | 仅主动新摘录时读取来源包名及已知浏览器地址栏；短期点击快照、过渡页稳定后查询、活动根节点降级。1.0.7 订阅窗口状态 / 窗口列表事件以保持系统窗口更新，事件回调为空；不读取事件内容、正文或输入，不记录导航历史 |
 | 来源页面链接 | 适配浏览器地址栏、来源应用主动分享文字，或用户点击粘贴 / 手动输入 | 可选 | 不后台读取剪贴板或浏览历史；地址栏可能省略内容，保存前可编辑 / 移除。只保存 HTTP(S)，随记录原有隐私策略同步 |
 | 悬浮按钮 | 特殊应用访问 `SYSTEM_ALERT_WINDOW` | 可选，默认关闭 | 仅用户开启悬浮入口时申请；拒绝后磁贴和应用内入口仍可用 |
 | 前台状态通知 | `POST_NOTIFICATIONS`（Android 13+）及适用的前台服务声明 | 仅实际启用常驻入口时需要 | 解释常驻状态，不把拒绝通知等同于拒绝采集 |
@@ -89,7 +89,7 @@ Android 1.0.6 实际实现补充：用户点首页“刷新”时使用已配置
 
 ### 4.2 当前仓库与发布声明的区别
 
-独立 Mnote Manifest 只显式声明联网所需的 `INTERNET` 和 `ACCESS_NETWORK_STATE`；WorkManager 依赖会在 merged manifest 中加入后台任务所需的系统权限。Android 1.0.4 继续使用无障碍悬浮层，不使用普通 `SYSTEM_ALERT_WINDOW`，未新增常驻前台服务或开机自动采集。为满足自动来源识别，本版将无障碍元数据改为 `canRetrieveWindowContent=true`，启用 `FLAG_REPORT_VIEW_IDS` / `FLAG_RETRIEVE_INTERACTIVE_WINDOWS`；运行时事件订阅仍为 0。仅在主动新截图前查询一次，不为“随手记”、恢复悬浮会话或后台事件读取来源。设置页与启用对话框披露新增用途；旧安装可能需用户重新启用服务。每个发布包仍必须从最终 APK 的 merged manifest 重新生成权限清单并逐项解释。
+独立 Mnote Manifest 只显式声明联网所需的 `INTERNET` 和 `ACCESS_NETWORK_STATE`；WorkManager 依赖会在 merged manifest 中加入后台任务所需的系统权限。继续使用无障碍悬浮层，不使用普通 `SYSTEM_ALERT_WINDOW`，未新增常驻前台服务或开机自动采集。自动来源识别使用 `canRetrieveWindowContent=true`、`FLAG_REPORT_VIEW_IDS` / `FLAG_RETRIEVE_INTERACTIVE_WINDOWS`。1.0.7 不再将运行时事件类型清零，最小订阅窗口状态和窗口列表事件，回调不读取任何字段、不保存历史；来源节点仍仅在主动摘录时查询。新增的约 2.6 秒反馈提示条使用同一无障碍层、不可触摸或获取焦点，锁屏 / 销毁 / 下次截图前清除。权限是 Mnote 服务自身能力，没有独立的“来源识别”开关。每个发布包仍必须核对最终 merged manifest。
 
 悬浮会话在收起或屏幕关闭时留在当前进程内，只有点击保存才成为正式本地记录；服务销毁或进程回收后未保存会话不承诺恢复。来源 URL 不是页面历史快照，也不保证原 App 支持回跳；查询参数可能含敏感信息，用户应在保存前检查链接，并沿用记录级 AI 可见性策略。
 
