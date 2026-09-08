@@ -1,5 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="capture_retain_image_context">同时保留完整截图（含圈选外内容，会同步）</string>
+    <string name="capture_retain_text_context">同时保留提供的原文</string>
+    <string name="capture_text_context_edit">补充 / 查看原文</string>
+    <string name="capture_excerpt_action">摘录这段</string>
+    <string name="capture_excerpt_chosen">已选为摘录，可在下方记录想法</string>
+    <string name="capture_text_selected_help">已接收选中文字。来源应用未提供全文，需要时可补充原文。</string>
+    <string name="capture_text_shared_help">长按原文选择文字 → 摘录这段，再记录想法。可选择是否保留提供的原文。</string>
+    <string name="capture_context_paste_hint">在此粘贴原文或上下文（最多 4 万字）</string>
+    <string name="capture_context_provenance_help">仅保存你提供的内容，不自动读取文章全文。原文与选中文字、你的想法分别保存。</string>
+    <string name="capture_context_use">保留这份原文</string>
+    <string name="capture_context_image_open">查看完整截图与选区</string>
+    <string name="capture_context_image_title">完整截图 · 蓝框为选中区域</string>
+    <string name="capture_context_text_title">提供的原文 / 上下文</string>
+    <string name="capture_text_entry_label">Mnote 摘录</string>
+    <string name="capture_text_too_long">文字超过 10 万字，请分段分享；本次未保存，避免截断原文。</string>
     <string name="capture_screenshot_ready">截图已就绪，圈选后点下一步保存</string>
     <string name="capture_source_settings">来源识别与无障碍设置 ›</string>
     <string name="capture_source_service_disconnected">状态：Mnote 无障碍服务未连接</string>
@@ -173,7 +188,7 @@
     <string name="capture_detail_loading">正在打开完整批注图…</string>
     <string name="capture_detail_title_format">%1$s · %2$s</string>
     <string name="capture_detail_comment_label">我的想法 / 评论</string>
-    <string name="capture_detail_source_text_label">来源直接交付的文字</string>
+    <string name="capture_detail_source_text_label">摘录的文字</string>
     <string name="capture_detail_metadata_label">来源与隐私状态</string>
     <string name="capture_detail_metadata_format">%1$s · %2$s\n保真度：%3$s\nAI 可见性：%4$s\n同步：%5$s</string>
     <string name="capture_url_add">来源链接（可选）  ＋</string>

@@ -27,7 +27,7 @@ final class CaptureAccountImport {
                 File target = new File(destination, record.id);
                 if (CaptureStore.readRecord(target) != null) continue;
                 if (!target.isDirectory() && !target.mkdirs()) throw new IOException("storage_unavailable");
-                for (String name : new String[]{"original.png", "annotated.png"}) {
+                for (String name : new String[]{"original.png", "annotated.png", "context.png"}) {
                     File source = new File(directory,name);
                     if (source.isFile()) write(new File(target,name), Files.readAllBytes(source.toPath()));
                 }

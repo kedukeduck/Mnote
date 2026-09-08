@@ -212,6 +212,7 @@ final class CaptureOverlayEditor {
         status = root.findViewById(R.id.capture_editor_status);
         save = root.findViewById(R.id.capture_editor_save);
         sourceLink = new SourceLinkField(root);
+        root.findViewById(R.id.capture_retain_image_context).setVisibility(View.VISIBLE);
         sourceLink.acceptDetected(source.url, source.origin);
         root.findViewById(R.id.capture_editor_cancel).setOnClickListener(view -> back());
         save.setOnClickListener(view -> {
@@ -547,6 +548,7 @@ final class CaptureOverlayEditor {
         status.setText(R.string.capture_saving);
         Bitmap originalCopy = original;
         Bitmap annotatedCopy = annotated;
+        boolean retainImage = ((android.widget.CheckBox)root.findViewById(R.id.capture_retain_image_context)).isChecked();
         writer.execute(() -> {
             boolean success = false;
             try {
@@ -554,7 +556,8 @@ final class CaptureOverlayEditor {
                 synchronized (CaptureAccountSession.LOCK) {
                     CaptureAccountSession.requireScope(context, ownerScope);
                     record = CaptureStore.save(context, draft,
-                            originalCopy, annotatedCopy, annotations, recordKind, note, "screen", "", source.appPackage, url, urlOrigin);
+                            originalCopy, annotatedCopy, annotations, recordKind, note, "screen", "", source.appPackage, url, urlOrigin,
+                            retainImage, null);
                 }
                 success = true;
                 if (CaptureStore.SYNC_PENDING.equals(record.syncState)) CaptureSyncWorker.enqueue(context);

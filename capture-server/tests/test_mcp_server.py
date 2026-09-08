@@ -31,8 +31,12 @@ class MCPServerTest(unittest.TestCase):
                         "source": {"text": "证据"},
                         "ai_access": access,
                         "assets": {
-                            "original": {"content_type": "image/png", "data_base64": png}
+                            "original": {"content_type": "image/png", "data_base64": png},
+                            "context": {"content_type": "image/png", "data_base64": png},
                         },
+                        "evidence": {"context": {"image": {"retained": True,"width":1,"height":1,
+                            "selection":{"left":0,"top":0,"right":1,"bottom":1}},
+                            "text":{"full_text":"更长的原文证据","origin":"user_supplied"}}},
                     },
                 )
             server = build_server(store)
@@ -55,6 +59,13 @@ class MCPServerTest(unittest.TestCase):
                     )
                     self.assertEqual("capture-mcp-allowed", capture.structured_content["id"])
                     self.assertIn("image", {block.type for block in capture.content})
+                    self.assertEqual(2, sum(block.type == "image" for block in capture.content))
+                    labels = [block.text for block in capture.content if block.type == "text"]
+                    self.assertTrue(labels[1].startswith("Image role: context"))
+                    self.assertTrue(labels[2].startswith("Image role: original"))
+                    self.assertEqual("更长的原文证据",capture.structured_content["evidence"]["context"]["text"]["full_text"])
+                    denied = await client.call_tool("get_capture",{"capture_id":"capture-mcp-denied"})
+                    self.assertFalse(any(block.type == "image" for block in denied.content))
 
             asyncio.run(check())
 

@@ -174,6 +174,19 @@ public class CaptureUiLayoutTest {
         }
     }
 
+    @Test public void textExcerptShowsQuoteContextChoiceAndThoughtField() throws Exception {
+        Intent intent=new Intent(Intent.ACTION_SEND).setType("text/plain")
+                .putExtra(Intent.EXTRA_TEXT,"让记录成为思考的开始。\n\n保留上下文，也保留自己的判断。\n\n下次回顾时，分清作者说了什么，以及我想到了什么。");
+        try(ActivityController<CaptureEditorActivity> controller=Robolectric.buildActivity(CaptureEditorActivity.class,intent).setup()) {
+            CaptureEditorActivity activity=controller.get();
+            activity.<EditText>findViewById(R.id.capture_comment_input).setText("这让我想到：每周回顾时，把引用和自己的判断分开看。");
+            View root=layout(activity,390,844);
+            assertInside(root,activity.findViewById(R.id.capture_retain_text_context));
+            assertInside(root,activity.findViewById(R.id.capture_comment_input));
+            render(root,"text-excerpt.png");
+        }
+    }
+
     private static void assertInside(View root, View child) {
         int[] rootLocation = new int[2];
         int[] childLocation = new int[2];

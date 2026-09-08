@@ -16,6 +16,23 @@ class ClientContractTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
+    def test_context_assets_and_selected_text_remain_separate_through_changes_and_export(self):
+        import zipfile
+        from pathlib import Path
+        evidence={"context":{"image":{"retained":True,"width":100,"height":200,
+                    "coordinate_space":"context_image_pixels","selection":{"left":10,"top":20,"right":50,"bottom":60}},
+                    "text":{"full_text":"原文包含选中文字以及上下文","origin":"user_supplied","start":4,"end":8}}}
+        record=self.store.put("context-contract",{"comment":"这是我的想法","source":{"text":"选中文字"},
+                "ai_access":"remote_no_memory","evidence":evidence,
+                "assets":{role:{"content_type":"image/png","data_base64":self.png} for role in ("original","annotated","context")}})
+        self.assertEqual(evidence,record["evidence"])
+        self.assertEqual("选中文字",record["source"]["text"])
+        self.assertEqual(evidence,self.store.changes()["changes"][0]["record"]["evidence"])
+        self.assertEqual(minimal_png(),self.store.asset(record["id"],"context",ai_only=True)[0].read_bytes())
+        exported=Path(self.temporary.name)/"export.zip"; self.store.export_zip(exported)
+        with zipfile.ZipFile(exported) as archive:
+            self.assertTrue(any(name.endswith("context.png") for name in archive.namelist()))
+
     def test_android_legacy_shape_is_losslessly_canonicalized(self) -> None:
         record = self.store.put(
             "20260831T120000000-a1b2c3d4",

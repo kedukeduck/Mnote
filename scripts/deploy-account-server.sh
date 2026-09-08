@@ -18,7 +18,9 @@ assert env['HEARTNOTE_CAPTURE_DATA'] == '/var/lib/heartnote-capture', 'Unexpecte
 PY
 wheel_dir="$(mktemp -d /var/tmp/mnote-account-wheel.XXXXXX)"
 /opt/heartnote-capture/.venv/bin/python -m pip wheel --no-deps --wheel-dir "$wheel_dir" "$repo_dir/capture-server"
-wheel="$wheel_dir/heartnote_capture_server-0.2.0-py3-none-any.whl"
+version="$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["project"]["version"])' "$repo_dir/capture-server/pyproject.toml")"
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+wheel="$wheel_dir/heartnote_capture_server-$version-py3-none-any.whl"
 [[ -f "$wheel" ]]
 backup_dir="$(mktemp -d /var/backups/mnote-account-upgrade.XXXXXX)"
 chmod 700 "$backup_dir"

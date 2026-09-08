@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "heartnote-capture-server"
-version = "0.2.0"
+version = "0.2.1"
 description = "Local-first sync, search, export, and read-only MCP service for Mnote captures"
 readme = "README.md"
 requires-python = ">=3.11"

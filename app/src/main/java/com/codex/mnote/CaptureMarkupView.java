@@ -149,17 +149,19 @@ public final class CaptureMarkupView extends View {
     }
 
     JSONObject annotationLayer() throws JSONException {
+        IntCrop crop = integerCrop();
         JSONObject selection = new JSONObject()
-                .put("left", cropRect.left)
-                .put("top", cropRect.top)
-                .put("right", cropRect.right)
-                .put("bottom", cropRect.bottom);
+                .put("left", crop.left)
+                .put("top", crop.top)
+                .put("right", crop.right)
+                .put("bottom", crop.bottom);
         JSONArray encodedStrokes = new JSONArray();
         for (Stroke stroke : strokes) {
             encodedStrokes.put(stroke.toJson());
         }
         return new JSONObject()
                 .put("coordinateSpace", "source_bitmap_pixels")
+                .put("sourceWidth", source.getWidth()).put("sourceHeight", source.getHeight())
                 .put("selection", selection)
                 .put("strokes", encodedStrokes);
     }

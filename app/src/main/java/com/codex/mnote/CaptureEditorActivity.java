@@ -68,6 +68,7 @@ public final class CaptureEditorActivity extends Activity {
     private boolean requestNoteKeyboard;
     private SourceLinkField sourceLink;
     private String ownerScope;
+    private CaptureTextExcerpt textExcerpt;
 
     static Intent forScreenshot(Activity activity, File draft) {
         return new Intent(activity, CaptureEditorActivity.class)
@@ -83,9 +84,14 @@ public final class CaptureEditorActivity extends Activity {
         setContentView(R.layout.activity_capture_editor);
         CaptureStore.cleanupStaleDrafts(this);
         bindViews();
+        textExcerpt = new CaptureTextExcerpt(this, value -> sourceText=value);
         bindActions();
         sourcePackage = resolveSourcePackage();
         handleIntent(getIntent());
+        if (savedInstanceState != null) {
+            sourceText=savedInstanceState.getString("excerpt_quote",sourceText);
+            sourceTextView.setText(sourceText); textExcerpt.restore(savedInstanceState);
+        }
         if (ACTION_EDIT_SCREENSHOT.equals(getIntent().getAction())) {
             String detectedPackage = getIntent().getStringExtra("capture_source_package");
             if (detectedPackage != null) sourcePackage = detectedPackage;
@@ -96,6 +102,7 @@ public final class CaptureEditorActivity extends Activity {
 
     @Override protected void onSaveInstanceState(Bundle state) {
         state.putString("capture_owner_scope", ownerScope);
+        state.putString("excerpt_quote",sourceText); textExcerpt.save(state);
         super.onSaveInstanceState(state);
     }
 
@@ -203,6 +210,7 @@ public final class CaptureEditorActivity extends Activity {
             CharSequence supplied = intent.getCharSequenceExtra(
                     Intent.EXTRA_PROCESS_TEXT
             );
+            if (supplied != null && supplied.length() > 100_000) { showBlockingError(R.string.capture_text_too_long); return; }
             sourceText = cleanText(supplied, 100_000);
             sourceLink.acceptSharedText(supplied);
             if (sourceText.isEmpty()) {
@@ -213,6 +221,8 @@ public final class CaptureEditorActivity extends Activity {
             return;
         }
         if (Intent.ACTION_SEND.equals(action)) {
+            CharSequence supplied=intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
+            if(supplied!=null && supplied.length()>100_000) { showBlockingError(R.string.capture_text_too_long); return; }
             title.setText(R.string.capture_editor_share_title);
             sourceText = cleanText(
                     intent.getCharSequenceExtra(Intent.EXTRA_TEXT),
@@ -335,6 +345,7 @@ public final class CaptureEditorActivity extends Activity {
     }
 
     private void showImage(Bitmap bitmap) {
+        findViewById(R.id.capture_retain_image_context).setVisibility(View.VISIBLE);
         sourceBitmap = bitmap;
         markupView.setSourceBitmap(bitmap);
         markupContainer.setVisibility(View.VISIBLE);
@@ -350,11 +361,11 @@ public final class CaptureEditorActivity extends Activity {
     }
 
     private void showTextOnly() {
+        textExcerpt.show(sourceText,processTextRequest);
         markupContainer.setVisibility(View.GONE);
         toolRow.setVisibility(View.GONE);
         textContainer.setVisibility(View.VISIBLE);
         sourceTextView.setText(sourceText);
-        status.setText(R.string.capture_exact_text_help);
         setLoading(false);
     }
 
@@ -427,6 +438,10 @@ public final class CaptureEditorActivity extends Activity {
         Bitmap finalOriginal = original;
         Bitmap finalAnnotated = annotated;
         JSONObject finalAnnotation = annotation;
+        boolean retainImage = ((android.widget.CheckBox)findViewById(R.id.capture_retain_image_context)).isChecked();
+        JSONObject textContext;
+        try { textContext=textExcerpt.context(sourceText); }
+        catch (JSONException error) { recycle(original); recycle(annotated); saving=false; setLoading(false); return; }
         String kind = selectedKind();
         executor.execute(() -> {
             try {
@@ -445,7 +460,8 @@ public final class CaptureEditorActivity extends Activity {
                         sourceText,
                         sourcePackage,
                         url,
-                        urlOrigin
+                        urlOrigin,
+                        retainImage, textContext
                 );
                 }
                 if (CaptureStore.SYNC_PENDING.equals(record.syncState)) {
@@ -473,11 +489,9 @@ public final class CaptureEditorActivity extends Activity {
         saved = true;
         draft = null;
         if (processTextRequest) {
-            Intent result = new Intent().putExtra(
-                    Intent.EXTRA_PROCESS_TEXT,
-                    sourceText
-            );
-            setResult(RESULT_OK, result);
+            // This is an excerpt collector, not a text transformer. Never replace
+            // the selection in an editable source app with our narrower excerpt.
+            setResult(RESULT_CANCELED);
         } else {
             setResult(RESULT_OK);
         }
@@ -586,7 +600,7 @@ public final class CaptureEditorActivity extends Activity {
         if (text == null) {
             return "";
         }
-        String clean = text.toString().replace('\u0000', ' ').trim();
+        String clean = text.toString();
         return clean.length() <= maximum ? clean : clean.substring(0, maximum);
     }
 

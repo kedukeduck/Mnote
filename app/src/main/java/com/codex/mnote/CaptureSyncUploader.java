@@ -74,6 +74,7 @@ final class CaptureSyncUploader {
     ) throws IOException, JSONException, UploadFailure {
         checkAsset(record.originalFile);
         checkAsset(record.annotatedFile);
+        checkAsset(record.contextFile);
         File payload = File.createTempFile(
                 "capture-sync-",
                 ".json",
@@ -92,7 +93,9 @@ final class CaptureSyncUploader {
             }
             if (record.hasImage && record.annotatedFile != null) {
                 writeAsset(output, "annotated", record.annotatedFile, wroteAsset);
+                wroteAsset = true;
             }
+            if (record.contextFile != null) writeAsset(output,"context",record.contextFile,wroteAsset);
             writeUtf8(output, "}}");
             output.getFD().sync();
             if (payload.length() > MAX_PAYLOAD_BYTES) {
@@ -124,6 +127,7 @@ final class CaptureSyncUploader {
                 .put("local_id", record.id)
                 .put("platform", "android");
         JSONObject evidence = new JSONObject()
+                .put("context",record.captureContext)
                 .put(
                         "exact_text",
                         record.sourceText.isEmpty()

@@ -507,6 +507,14 @@ public final class CaptureInboxActivity extends Activity {
                 record.aiAccess,
                 getString(syncStateLabel(record.syncState))
         );
+        org.json.JSONObject textContext = record.captureContext.optJSONObject("text");
+        if (textContext != null) addDetailBlock(content,R.string.capture_context_text_title,
+                textContext.optString("full_text",""),true);
+        if (record.contextFile != null) {
+            Button contextButton=new Button(this); contextButton.setText(R.string.capture_context_image_open);
+            contextButton.setOnClickListener(view->showContextImage(record,ownerScope));
+            content.addView(contextButton);
+        }
         if (!record.sourceUrl.isEmpty()) {
             addDetailBlock(content, R.string.capture_url_detail, record.sourceUrl, true);
             Button openSource = new Button(this);
@@ -540,6 +548,24 @@ public final class CaptureInboxActivity extends Activity {
             });
         }
         dialog.show();
+    }
+
+    private void showContextImage(CaptureStore.CaptureRecord record, String ownerScope) {
+        thumbnailExecutor.execute(()-> {
+            Bitmap bitmap=CaptureStore.decodeReviewBitmap(record.contextFile);
+            runOnUiThread(()-> {
+                if (destroyed || isFinishing() || !ownerScope.equals(CaptureAccountSession.scope(this))) {
+                    if(bitmap!=null) bitmap.recycle(); return;
+                }
+                if(bitmap==null) { Toast.makeText(this,R.string.capture_error_unreadable_image,Toast.LENGTH_SHORT).show(); return; }
+                ScrollView scroll=new ScrollView(this);
+                CaptureContextPreview preview=new CaptureContextPreview(this,bitmap,record.captureContext.optJSONObject("image"));
+                scroll.addView(preview,new ScrollView.LayoutParams(-1,-2));
+                AlertDialog dialog=new AlertDialog.Builder(this).setTitle(R.string.capture_context_image_title)
+                        .setView(scroll).setPositiveButton(R.string.capture_confirm,null).create();
+                dialog.setOnDismissListener(ignored->bitmap.recycle()); dialog.show();
+            });
+        });
     }
 
     private void confirmDelete(CaptureStore.CaptureRecord record, String scope) {

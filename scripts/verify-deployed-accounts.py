@@ -57,10 +57,16 @@ try:
     assert status == 200 and feed['changes'] == [], 'Test account must start empty'
     capture_id = 'verify-' + uuid.uuid4().hex
     body = {'id': capture_id, 'comment': 'Temporary account smoke test', 'ai_access': 'deny',
-            'assets': {'original': {'content_type': 'image/png', 'data_base64': base64.b64encode(minimal_png()).decode()}}}
+            'source': {'text': 'selected text'},
+            'evidence': {'context': {'text': {'full_text': 'before selected text after', 'origin': 'user_supplied'},
+                'image': {'retained': True, 'width': 1, 'height': 1, 'selection': {'left': 0,'top': 0,'right': 1,'bottom': 1}}}},
+            'assets': {role: {'content_type': 'image/png', 'data_base64': base64.b64encode(minimal_png()).decode()}
+                for role in ('original', 'annotated', 'context')}}
     assert request('PUT', '/v1/captures/' + capture_id, body, token)[0] == 200
     assert request('GET', '/v1/captures/' + capture_id)[0] == 401
     assert request('GET', '/v1/captures/' + capture_id + '/assets/original', token=token) == (200, minimal_png())
+    assert request('GET', '/v1/captures/' + capture_id + '/assets/context', token=token) == (200, minimal_png())
+    assert request('GET', '/v1/captures/' + capture_id, token=token)[1]['evidence'] == body['evidence']
     assert request('GET', '/v1/changes', token=token)[1]['changes'][0]['capture_id'] == capture_id
     assert request('DELETE', '/v1/captures/' + capture_id, token=token, revision=1)[0] == 200
     assert request('GET', '/v1/changes', token=token)[1]['changes'][-1]['operation'] == 'delete'

@@ -143,7 +143,7 @@ final class CaptureRemoteCache {
         JSONObject assets = remote.optJSONObject("assets");
         boolean hasOriginal = assets != null && assets.has("original");
         boolean hasAnnotated = assets != null && assets.has("annotated");
-        for (String role : new String[]{"original", "annotated"}) {
+        for (String role : new String[]{"original", "annotated", "context"}) {
             if (assets == null || !assets.has(role)) continue;
             JSONObject asset = assets.getJSONObject(role);
             long size = asset.getLong("size");
@@ -168,6 +168,8 @@ final class CaptureRemoteCache {
         if ("screen_capture".equals(sourceType)) sourceType = "screen";
         if ("shared_image".equals(sourceType)) sourceType = "share_image";
         JSONObject local = new JSONObject().put("id", id)
+                .put("captureContext", remote.optJSONObject("evidence") == null ? new JSONObject()
+                        : remote.getJSONObject("evidence").optJSONObject("context"))
                 .put("createdAt", Instant.parse(remote.getString("created_at")).toEpochMilli())
                 .put("kind", remote.optString("kind", "comment")).put("comment", remote.optString("comment", ""))
                 .put("sourceType", sourceType).put("sourceText", source.optString("text", ""))

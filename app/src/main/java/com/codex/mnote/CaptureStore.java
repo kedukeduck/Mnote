@@ -206,6 +206,16 @@ final class CaptureStore {
             JSONObject annotationLayer, String kind, String comment, String sourceType,
             String sourceText, String sourcePackage, String sourceUrl, String sourceUrlOrigin
     ) throws IOException {
+        return save(context,sourceDraft,originalCrop,annotatedCrop,annotationLayer,kind,comment,sourceType,
+                sourceText,sourcePackage,sourceUrl,sourceUrlOrigin,false,null);
+    }
+
+    static CaptureRecord save(
+            Context context, File sourceDraft, Bitmap originalCrop, Bitmap annotatedCrop,
+            JSONObject annotationLayer, String kind, String comment, String sourceType,
+            String sourceText, String sourcePackage, String sourceUrl, String sourceUrlOrigin,
+            boolean retainImageContext, JSONObject textContext
+    ) throws IOException {
         String safeUrl = CaptureSourceUrl.clean(sourceUrl);
         if (sourceUrl != null && !sourceUrl.trim().isEmpty() && safeUrl.isEmpty()) {
             throw new IOException("Invalid source URL");
@@ -240,18 +250,34 @@ final class CaptureStore {
         File recordFile = new File(directory, RECORD_FILENAME);
         boolean complete = false;
         try {
+            JSONObject captureContext = new JSONObject().put("version",1);
+            if (textContext != null) captureContext.put("text",textContext);
             if (hasImage) {
                 writeBitmap(originalCrop, original);
                 writeBitmap(annotatedCrop, annotatedFile);
+                if (annotationLayer != null && annotationLayer.has("sourceWidth")) {
+                    int width = annotationLayer.getInt("sourceWidth"), height = annotationLayer.getInt("sourceHeight");
+                    if (retainImageContext) {
+                        if (safeDraft == null || safeDraft.length() > 16L*1024*1024) throw new IOException("context_image_unavailable_or_too_large");
+                        BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true;
+                        BitmapFactory.decodeFile(safeDraft.getAbsolutePath(), bounds);
+                        if (bounds.outWidth < 1 || bounds.outHeight < 1) throw new IOException("invalid_context_image");
+                        width = bounds.outWidth; height = bounds.outHeight;
+                        java.nio.file.Files.copy(safeDraft.toPath(),new File(directory,"context.png").toPath());
+                        try (FileOutputStream persisted = new FileOutputStream(new File(directory,"context.png"),true)) { persisted.getFD().sync(); }
+                    }
+                    captureContext.put("image",CaptureContext.image(annotationLayer,width,height,retainImageContext));
+                } else if (retainImageContext) throw new IOException("context_coordinates_missing");
             }
             JSONObject object = new JSONObject()
+                    .put("captureContext",captureContext)
                     .put("schemaVersion", 1)
                     .put("id", id)
                     .put("createdAt", createdAt)
                     .put("kind", cleanKind(kind))
                     .put("comment", safeText(comment, 20_000))
                     .put("sourceType", safeText(sourceType, 80))
-                    .put("sourceText", safeText(sourceText, 100_000))
+                    .put("sourceText", sourceText == null ? "" : sourceText.substring(0,Math.min(sourceText.length(),100_000)))
                     .put("sourcePackage", safeText(sourcePackage, 255))
                     .put("sourceUrl", safeUrl)
                     .put("sourceUrlOrigin", safeUrl.isEmpty() ? ""
@@ -427,6 +453,9 @@ final class CaptureStore {
         }
         try {
             boolean hasImage = object.optBoolean("hasImage", false);
+            JSONObject savedContext = object.optJSONObject("captureContext");
+            JSONObject savedImage = savedContext == null ? null : savedContext.optJSONObject("image");
+            if (savedImage != null && savedImage.optBoolean("retained") && !new File(directory,"context.png").isFile()) return null;
             if (hasImage
                     && (!new File(directory, ORIGINAL_FILENAME).isFile()
                     || !new File(directory, ANNOTATED_FILENAME).isFile())) {
@@ -484,7 +513,9 @@ final class CaptureStore {
                 hasImage,
                 hasImage ? new File(directory, ORIGINAL_FILENAME) : null,
                 hasImage ? new File(directory, ANNOTATED_FILENAME) : null,
-                new File(directory, RECORD_FILENAME)
+                new File(directory, RECORD_FILENAME),
+                new File(directory,"context.png").isFile() ? new File(directory,"context.png") : null,
+                object.optJSONObject("captureContext") == null ? new JSONObject() : object.optJSONObject("captureContext")
         );
     }
 
@@ -545,6 +576,7 @@ final class CaptureStore {
         byte[] bytes;
         try {
             bytes = object.toString(2).getBytes(StandardCharsets.UTF_8);
+            if (bytes.length > 512 * 1024) throw new IOException("record_too_large");
         } catch (JSONException error) {
             throw new IOException("Cannot format capture metadata", error);
         }
@@ -677,6 +709,8 @@ final class CaptureStore {
         final File originalFile;
         final File annotatedFile;
         final File metadataFile;
+        final File contextFile;
+        final JSONObject captureContext;
 
         CaptureRecord(
                 String id,
@@ -696,7 +730,9 @@ final class CaptureStore {
                 boolean hasImage,
                 File originalFile,
                 File annotatedFile,
-                File metadataFile
+                File metadataFile,
+                File contextFile,
+                JSONObject captureContext
         ) {
             this.id = id;
             this.createdAt = createdAt;
@@ -716,6 +752,8 @@ final class CaptureStore {
             this.originalFile = originalFile;
             this.annotatedFile = annotatedFile;
             this.metadataFile = metadataFile;
+            this.contextFile = contextFile;
+            this.captureContext = captureContext;
         }
     }
 }
