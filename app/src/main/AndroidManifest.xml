@@ -29,6 +29,8 @@
             android:exported="false"
             android:label="@string/capture_sync_settings_title"
             android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".CaptureAccountActivity" android:exported="false"
+            android:label="账号与同步" android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".CaptureTriggerActivity"

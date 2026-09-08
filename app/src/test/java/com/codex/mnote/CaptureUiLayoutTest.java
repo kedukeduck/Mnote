@@ -167,6 +167,13 @@ public class CaptureUiLayoutTest {
         return root;
     }
 
+    @Test public void accountLoginProtectsCredentialsAndRenders() throws Exception {
+        try (ActivityController<CaptureAccountActivity> controller = Robolectric.buildActivity(CaptureAccountActivity.class).setup()) {
+            assertTrue((controller.get().getWindow().getAttributes().flags & WindowManager.LayoutParams.FLAG_SECURE) != 0);
+            render(layout(controller.get(),390,844),"account-login.png");
+        }
+    }
+
     private static void assertInside(View root, View child) {
         int[] rootLocation = new int[2];
         int[] childLocation = new int[2];

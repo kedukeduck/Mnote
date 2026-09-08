@@ -16,7 +16,8 @@ import static org.junit.Assert.*;
 import static org.robolectric.Shadows.shadowOf;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(sdk={30,35}, shadows={CaptureInboxRefreshTest.Preferences.class,CaptureInboxRefreshTest.Reader.class},
+@Config(sdk={30,35}, shadows={CaptureInboxRefreshTest.Preferences.class,CaptureInboxRefreshTest.Reader.class,
+        CaptureInboxRefreshTest.Session.class,CaptureInboxRefreshTest.Sync.class},
         instrumentedPackages="com.codex.mnote")
 @LooperMode(LooperMode.Mode.PAUSED)
 public class CaptureInboxRefreshTest {
@@ -50,7 +51,7 @@ public class CaptureInboxRefreshTest {
         try (ActivityController<CaptureInboxActivity> controller = Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
             CaptureInboxActivity activity = controller.get();
             activity.findViewById(R.id.capture_refresh_button).performClick(); await(activity);
-            assertTrue(((TextView)activity.findViewById(R.id.capture_refresh_status)).getText().toString().contains("Token"));
+            assertTrue(((TextView)activity.findViewById(R.id.capture_refresh_status)).getText().toString().contains("登录"));
             assertTrue(activity.findViewById(R.id.capture_refresh_button).isEnabled());
             assertEquals(1,((android.widget.LinearLayout)activity.findViewById(R.id.capture_records)).getChildCount());
         }
@@ -61,7 +62,7 @@ public class CaptureInboxRefreshTest {
         try (ActivityController<CaptureInboxActivity> controller = Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
             CaptureInboxActivity activity = controller.get();
             activity.findViewById(R.id.capture_refresh_button).performClick();
-            assertEquals(activity.getString(R.string.capture_refresh_setup),((TextView)activity.findViewById(R.id.capture_refresh_status)).getText());
+            assertTrue(((TextView)activity.findViewById(R.id.capture_refresh_status)).getText().toString().contains("登录"));
             assertTrue(activity.findViewById(R.id.capture_refresh_button).isEnabled());
         }
     }
@@ -129,10 +130,21 @@ public class CaptureInboxRefreshTest {
     @Implements(CaptureSyncPreferences.class) public static class Preferences {
         @Implementation protected static CaptureSyncPreferences.Config load(Context context) {
             if (!configured) throw new IllegalArgumentException("not configured");
-            return new CaptureSyncPreferences.Config("https://test.example","test-only-credential","deny");
+            return new CaptureSyncPreferences.Config("https://test.example","test-only-credential","deny",Session.scope(context));
         }
     }
     @Implements(CaptureSyncReader.class) public static class Reader {
         @Implementation protected static CaptureSyncReader.Transport forConfig(CaptureSyncPreferences.Config config) { return transport; }
+    }
+    @Implements(CaptureAccountSession.class) public static class Session {
+        @Implementation protected static boolean hasAccount(Context context) { return configured; }
+        @Implementation protected static String scope(Context context) { return configured ? "a".repeat(64) : "guest"; }
+        @Implementation protected static String username(Context context) { return "test-user"; }
+    }
+    @Implements(CaptureAccountSync.class) public static class Sync {
+        @Implementation protected static void enqueue(Context context) { }
+        @Implementation protected static int run(Context context) throws Exception {
+            return CaptureRemoteCache.pull(context,Session.scope(context),transport,()->true);
+        }
     }
 }

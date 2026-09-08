@@ -36,6 +36,7 @@ import java.util.concurrent.Executors;
 /** A service-owned editing window. No Activity is started to edit the screenshot. */
 final class CaptureOverlayEditor {
     private final Context context;
+    private final String ownerScope;
     private final WindowManager windows;
     private final File draft;
     private final Runnable onClosed;
@@ -79,6 +80,7 @@ final class CaptureOverlayEditor {
 
     CaptureOverlayEditor(Context service, File draft, CaptureSourceContext source, Runnable onClosed) {
         this.context = new ContextThemeWrapper(service, R.style.Theme_Mnote);
+        this.ownerScope = CaptureAccountSession.scope(context);
         this.windows = service.getSystemService(WindowManager.class);
         this.draft = draft;
         this.onClosed = onClosed;
@@ -548,8 +550,12 @@ final class CaptureOverlayEditor {
         writer.execute(() -> {
             boolean success = false;
             try {
-                CaptureStore.CaptureRecord record = CaptureStore.save(context, draft,
-                        originalCopy, annotatedCopy, annotations, recordKind, note, "screen", "", source.appPackage, url, urlOrigin);
+                CaptureStore.CaptureRecord record;
+                synchronized (CaptureAccountSession.LOCK) {
+                    CaptureAccountSession.requireScope(context, ownerScope);
+                    record = CaptureStore.save(context, draft,
+                            originalCopy, annotatedCopy, annotations, recordKind, note, "screen", "", source.appPackage, url, urlOrigin);
+                }
                 success = true;
                 if (CaptureStore.SYNC_PENDING.equals(record.syncState)) CaptureSyncWorker.enqueue(context);
             } catch (Exception error) {

@@ -1,5 +1,7 @@
 # Mnote Server V1
 
+Android 1.1.0 起支持邀请制用户名 / 密码账号、账号隔离、自动双向同步和离线删除；首次激活保留原知识库。部署、API 和兼容边界见 [账号同步说明](../docs/android-1.1.0-account-sync.md)。下文三个静态 Token 仍用于旧客户端和 AI 集成。
+
 个人知识库 V1 的本地优先同步、搜索、导出和只读 MCP 服务。REST API 只依赖 Python 标准库；MCP 入口使用官方 Python SDK 2.x。
 
 ## 安全边界

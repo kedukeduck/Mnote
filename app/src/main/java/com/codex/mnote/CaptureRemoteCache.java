@@ -19,6 +19,7 @@ final class CaptureRemoteCache {
     static final int MAX_PAGES = 40;
 
     static String vault(CaptureSyncPreferences.Config config) {
+        if (!config.accountKey.isEmpty()) return config.accountKey;
         return digest((config.baseUrl + "\n" + config.writeToken).getBytes(StandardCharsets.UTF_8));
     }
 
@@ -32,14 +33,19 @@ final class CaptureRemoteCache {
     }
 
     static List<CaptureStore.CaptureRecord> merged(Context context, List<CaptureStore.CaptureRecord> local) {
+        if (CaptureAccountSession.hasAccount(context)) return merged(context, CaptureAccountSession.scope(context), local);
         try { return merged(context, vault(CaptureSyncPreferences.load(context)), local); }
-        catch (Exception ignored) { return local; }
+        catch (Exception ignored) {
+            List<CaptureStore.CaptureRecord> visible = new ArrayList<>(local);
+            Set<String> hidden = CaptureDeletionStore.hidden(context);
+            visible.removeIf(record -> hidden.contains(record.id));
+            return visible;
+        }
     }
 
     static List<CaptureStore.CaptureRecord> merged(Context context, String vault, List<CaptureStore.CaptureRecord> local) {
         Map<String, CaptureStore.CaptureRecord> result = new LinkedHashMap<>();
-        // A local record always wins. Refresh cannot clobber an unsent note or
-        // silently switch its server/AI policy, even when IDs happen to collide.
+        // Unsent local edits always win. Synced account copies may show newer cloud revisions.
         for (CaptureStore.CaptureRecord record : local) result.put(record.id, record);
         try {
             File directory = directory(context, vault);
@@ -47,16 +53,34 @@ final class CaptureRemoteCache {
             if (records != null) for (Iterator<String> it = records.keys(); it.hasNext();) {
                 String id = it.next();
                 JSONObject entry = records.getJSONObject(id);
-                if (!validId(id) || entry.optBoolean("deleted") || result.containsKey(id)) continue;
+                if (!validId(id) || entry.optBoolean("deleted")) continue;
+                CaptureStore.CaptureRecord localRecord = result.get(id);
+                if (localRecord != null && (!CaptureAccountSession.hasAccount(context)
+                        || !CaptureStore.SYNC_SYNCED.equals(localRecord.syncState)
+                        || localRecord.serverRevision > entry.getInt("revision"))) continue;
                 File revision = new File(directory, id + "/" + entry.getInt("revision"));
                 CaptureStore.CaptureRecord record = CaptureStore.readRecord(revision);
                 if (record != null) result.put(id, record);
             }
         } catch (Exception ignored) { }
         List<CaptureStore.CaptureRecord> records = new ArrayList<>(result.values());
+        Set<String> hidden = CaptureDeletionStore.hidden(context);
+        if (CaptureAccountSession.hasAccount(context)) hidden.addAll(deletedIds(context, vault));
+        records.removeIf(record -> hidden.contains(record.id));
         records.sort(Comparator.comparingLong((CaptureStore.CaptureRecord record) -> record.createdAt).reversed()
                 .thenComparing(record -> record.id));
         return records;
+    }
+
+    static Set<String> deletedIds(Context context, String vault) {
+        Set<String> deleted = new HashSet<>();
+        try {
+            JSONObject entries = index(directory(context, vault)).optJSONObject("records");
+            if (entries != null) for (Iterator<String> it = entries.keys(); it.hasNext();) {
+                String id = it.next(); if (entries.getJSONObject(id).optBoolean("deleted")) deleted.add(id);
+            }
+        } catch (Exception error) { throw new IllegalStateException("remote_state_unavailable", error); }
+        return deleted;
     }
 
     static synchronized int pull(Context context, String vault, CaptureSyncReader.Transport remote, StillCurrent current) throws Exception {
@@ -98,6 +122,7 @@ final class CaptureRemoteCache {
                         records.put(id, new JSONObject().put("revision", revision));
                         updated++;
                     }
+                    if ("restore".equals(operation)) CaptureDeletionStore.restored(context, vault, id);
                 } else throw new IOException("invalid_operation");
             }
             long next = page.getLong("next_sequence");

@@ -67,6 +67,7 @@ public final class CaptureEditorActivity extends Activity {
     private boolean destroyed;
     private boolean requestNoteKeyboard;
     private SourceLinkField sourceLink;
+    private String ownerScope;
 
     static Intent forScreenshot(Activity activity, File draft) {
         return new Intent(activity, CaptureEditorActivity.class)
@@ -77,6 +78,8 @@ public final class CaptureEditorActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        ownerScope = savedInstanceState == null ? CaptureAccountSession.scope(this)
+                : savedInstanceState.getString("capture_owner_scope", CaptureAccountSession.scope(this));
         setContentView(R.layout.activity_capture_editor);
         CaptureStore.cleanupStaleDrafts(this);
         bindViews();
@@ -89,6 +92,11 @@ public final class CaptureEditorActivity extends Activity {
             sourceLink.acceptDetected(getIntent().getStringExtra("capture_source_url"),
                     getIntent().getStringExtra("capture_source_origin"));
         }
+    }
+
+    @Override protected void onSaveInstanceState(Bundle state) {
+        state.putString("capture_owner_scope", ownerScope);
+        super.onSaveInstanceState(state);
     }
 
     @Override
@@ -422,7 +430,10 @@ public final class CaptureEditorActivity extends Activity {
         String kind = selectedKind();
         executor.execute(() -> {
             try {
-                CaptureStore.CaptureRecord record = CaptureStore.save(
+                CaptureStore.CaptureRecord record;
+                synchronized (CaptureAccountSession.LOCK) {
+                CaptureAccountSession.requireScope(this, ownerScope);
+                record = CaptureStore.save(
                         this,
                         draft,
                         finalOriginal,
@@ -436,6 +447,7 @@ public final class CaptureEditorActivity extends Activity {
                         url,
                         urlOrigin
                 );
+                }
                 if (CaptureStore.SYNC_PENDING.equals(record.syncState)) {
                     CaptureSyncWorker.enqueue(this);
                 }

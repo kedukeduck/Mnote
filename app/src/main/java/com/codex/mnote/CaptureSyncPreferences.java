@@ -75,6 +75,7 @@ final class CaptureSyncPreferences {
     }
 
     static Config load(Context context) throws GeneralSecurityException {
+        if (CaptureAccountSession.hasAccount(context)) return CaptureAccountSession.config(context);
         SharedPreferences values = preferences(context);
         String baseUrl = validateAndNormalizeBaseUrl(
                 values.getString(KEY_BASE_URL, "")
@@ -283,7 +284,7 @@ final class CaptureSyncPreferences {
         }
     }
 
-    private static EncryptedValue encryptToken(String token)
+    static EncryptedValue encryptToken(String token)
             throws GeneralSecurityException {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.ENCRYPT_MODE, key());
@@ -294,7 +295,7 @@ final class CaptureSyncPreferences {
         );
     }
 
-    private static String decryptToken(String ciphertext, String iv)
+    static String decryptToken(String ciphertext, String iv)
             throws GeneralSecurityException {
         if (ciphertext == null || ciphertext.isEmpty() || iv == null || iv.isEmpty()) {
             throw new GeneralSecurityException("No encrypted write token is stored");
@@ -343,15 +344,21 @@ final class CaptureSyncPreferences {
         final String baseUrl;
         final String writeToken;
         final String defaultAiAccess;
+        final String accountKey;
 
         Config(String baseUrl, String writeToken, String defaultAiAccess) {
+            this(baseUrl, writeToken, defaultAiAccess, "");
+        }
+
+        Config(String baseUrl, String writeToken, String defaultAiAccess, String accountKey) {
             this.baseUrl = baseUrl;
             this.writeToken = writeToken;
             this.defaultAiAccess = defaultAiAccess;
+            this.accountKey = accountKey;
         }
     }
 
-    private static final class EncryptedValue {
+    static final class EncryptedValue {
         final String ciphertext;
         final String iv;
 

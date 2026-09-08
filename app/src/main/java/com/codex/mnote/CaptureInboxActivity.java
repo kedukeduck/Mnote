@@ -82,6 +82,7 @@ public final class CaptureInboxActivity extends Activity {
         super.onResume();
         renderAccessStatus();
         renderRecords();
+        if (CaptureAccountSession.hasAccount(this)) CaptureAccountSync.enqueue(this);
     }
 
     @Override
@@ -166,6 +167,10 @@ public final class CaptureInboxActivity extends Activity {
         // Local refresh must work even offline, without a token, or during a remote pull.
         renderRecords();
         if (refreshing) return;
+        if (!CaptureAccountSession.hasAccount(this)) {
+            refreshStatus.setText("本机记录已刷新；登录后自动同步云端记录。");
+            openSyncSettings(); return;
+        }
         final CaptureSyncPreferences.Config config;
         try { config = CaptureSyncPreferences.load(this); }
         catch (Exception error) {
@@ -177,16 +182,10 @@ public final class CaptureInboxActivity extends Activity {
         refreshButton.setEnabled(false);
         refreshButton.setText(R.string.capture_refresh_busy);
         refreshStatus.setText(R.string.capture_refresh_downloading);
-        String vault = CaptureRemoteCache.vault(config);
         refreshExecutor.execute(() -> {
             String message;
             try {
-                int count = CaptureRemoteCache.pull(getApplicationContext(), vault,
-                        CaptureSyncReader.forConfig(config), () -> {
-                            if (destroyed) return false;
-                            try { return vault.equals(CaptureRemoteCache.vault(CaptureSyncPreferences.load(this))); }
-                            catch (Exception ignored) { return false; }
-                        });
+                int count = CaptureAccountSync.run(getApplicationContext());
                 message = count == 0 ? getString(R.string.capture_refresh_current)
                         : getString(R.string.capture_refresh_success, count);
             } catch (Exception error) {
@@ -367,6 +366,7 @@ public final class CaptureInboxActivity extends Activity {
             CaptureStore.CaptureRecord record,
             int generation
     ) {
+        String ownerScope = CaptureAccountSession.scope(this);
         TextView kind = card.findViewById(R.id.capture_item_kind);
         TextView time = card.findViewById(R.id.capture_item_time);
         TextView comment = card.findViewById(R.id.capture_item_comment);
@@ -427,12 +427,14 @@ public final class CaptureInboxActivity extends Activity {
         );
         card.setClickable(true);
         card.setFocusable(true);
-        card.setOnClickListener(view -> showRecordDetail(record));
+        card.setOnClickListener(view -> showRecordDetail(record, ownerScope));
+        card.setOnLongClickListener(view -> { confirmDelete(record, ownerScope); return true; });
     }
 
-    private void showRecordDetail(CaptureStore.CaptureRecord record) {
+    private void showRecordDetail(CaptureStore.CaptureRecord record, String ownerScope) {
+        if (!ownerScope.equals(CaptureAccountSession.scope(this))) return;
         if (!record.hasImage) {
-            presentRecordDetail(record, null);
+            presentRecordDetail(record, null, ownerScope);
             return;
         }
         Toast.makeText(
@@ -443,20 +445,21 @@ public final class CaptureInboxActivity extends Activity {
         thumbnailExecutor.execute(() -> {
             Bitmap image = CaptureStore.decodeReviewBitmap(record.annotatedFile);
             runOnUiThread(() -> {
-                if (destroyed || isFinishing()) {
+                if (destroyed || isFinishing() || !ownerScope.equals(CaptureAccountSession.scope(this))) {
                     if (image != null) {
                         image.recycle();
                     }
                     return;
                 }
-                presentRecordDetail(record, image);
+                presentRecordDetail(record, image, ownerScope);
             });
         });
     }
 
     private void presentRecordDetail(
             CaptureStore.CaptureRecord record,
-            Bitmap image
+            Bitmap image,
+            String ownerScope
     ) {
         ScrollView scroll = new ScrollView(this);
         LinearLayout content = new LinearLayout(this);
@@ -527,6 +530,7 @@ public final class CaptureInboxActivity extends Activity {
                 ))
                 .setView(scroll)
                 .setPositiveButton(R.string.capture_confirm, null)
+                .setNegativeButton("删除记录", (ignored, which) -> confirmDelete(record, ownerScope))
                 .create();
         if (image != null) {
             dialog.setOnDismissListener(ignored -> {
@@ -536,6 +540,27 @@ public final class CaptureInboxActivity extends Activity {
             });
         }
         dialog.show();
+    }
+
+    private void confirmDelete(CaptureStore.CaptureRecord record, String scope) {
+        if (!scope.equals(CaptureAccountSession.scope(this))) return;
+        new AlertDialog.Builder(this).setTitle("删除这条记录？")
+                .setMessage(CaptureAccountSession.hasAccount(this)
+                        ? "将从当前列表移除，联网后同步移到账号回收站。其他设备同步后也会移除。"
+                        : "将从本机列表移除。未登录时不会删除服务器上的副本。")
+                .setNegativeButton("取消", null).setPositiveButton("删除", (dialog, which) -> {
+                    refreshExecutor.execute(() -> {
+                        boolean ok = false;
+                        try { synchronized (CaptureAccountSession.LOCK) {
+                            CaptureAccountSession.requireScope(this, scope);
+                            CaptureDeletionStore.delete(this, record.id); ok = true;
+                        }} catch (Exception ignored) { }
+                        boolean success = ok;
+                        runOnUiThread(() -> { if (!destroyed) {
+                            renderRecords(); Toast.makeText(this, success ? ("guest".equals(scope) ? "本机记录已删除" : "已删除，联网后同步") : "删除失败，记录已保留", Toast.LENGTH_SHORT).show();
+                        }});
+                    });
+                }).show();
     }
 
     private void addDetailBlock(
@@ -586,58 +611,24 @@ public final class CaptureInboxActivity extends Activity {
     }
 
     private void openSyncSettings() {
-        startActivity(new Intent(this, CaptureSyncSettingsActivity.class));
+        startActivity(new Intent(this, CaptureAccountActivity.class));
     }
 
     private void syncAll() {
-        if (!CaptureSyncPreferences.isConfigured(this)) {
-            Toast.makeText(
-                    this,
-                    R.string.capture_sync_open_settings_first,
-                    Toast.LENGTH_LONG
-            ).show();
-            openSyncSettings();
-            return;
-        }
-        CaptureStore.markAllForSync(this);
-        CaptureSyncWorker.enqueue(this);
-        Toast.makeText(
-                this,
-                R.string.capture_sync_queued,
-                Toast.LENGTH_LONG
-        ).show();
-        renderRecords();
+        refreshRecords();
     }
 
     private void renderSyncStatus(List<CaptureStore.CaptureRecord> records) {
-        boolean configured = CaptureSyncPreferences.isConfigured(this);
-        syncAllButton.setEnabled(configured);
-        if (!configured) {
-            syncStatus.setText(R.string.capture_sync_status_disabled);
-            syncStatus.setTextColor(getColor(R.color.ink_muted));
+        if (CaptureAccountSession.hasAccount(this)) {
+            syncAllButton.setEnabled(true);
+            String error = CaptureAccountSession.preferences(this).getString("sync_error", "");
+            syncStatus.setText("账号：" + CaptureAccountSession.username(this) + (error.isEmpty() ? " · 自动同步已开启"
+                    : "login_required".equals(error) ? " · 登录已过期，请重新登录" : " · 同步待重试，可点击刷新"));
             return;
         }
-        int pending = 0;
-        int failed = 0;
-        int synced = 0;
-        for (CaptureStore.CaptureRecord record : records) {
-            if (CaptureStore.SYNC_PENDING.equals(record.syncState)) {
-                pending++;
-            } else if (CaptureStore.SYNC_FAILED.equals(record.syncState)) {
-                failed++;
-            } else if (CaptureStore.SYNC_SYNCED.equals(record.syncState)) {
-                synced++;
-            }
-        }
-        syncStatus.setText(getString(
-                R.string.capture_sync_status_format,
-                pending,
-                failed,
-                synced
-        ));
-        syncStatus.setTextColor(
-                failed > 0 ? getColor(R.color.danger) : getColor(R.color.success)
-        );
+        syncAllButton.setEnabled(true);
+        syncStatus.setText("未登录 · 新记录仅保存在本机");
+        syncStatus.setTextColor(getColor(R.color.ink_muted));
     }
 
     private int syncStateLabel(String state) {

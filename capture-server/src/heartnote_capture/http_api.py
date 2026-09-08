@@ -20,6 +20,7 @@ from .store import (
     CaptureStore,
     CaptureValidationError,
 )
+from .accounts import Accounts, AuthError
 
 
 WEB_ROOT = Path(__file__).with_name("web")
@@ -58,6 +59,7 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
     server_version = "MnoteCapture/0.1"
     store: CaptureStore
     tokens: Tokens
+    accounts: Accounts
 
     def end_headers(self) -> None:
         # Applied to UI, API, assets and errors. No Access-Control-Allow-Origin
@@ -126,10 +128,16 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
         return value
 
     def _scope(self) -> str | None:
+        self.store = self.accounts.legacy
         authorization = self.headers.get("Authorization", "")
         if not authorization.startswith("Bearer "):
             return None
         supplied = authorization[7:]
+        account = self.accounts.resolve(supplied)
+        if account is not None:
+            self.store = self.accounts.store(account)
+            self.account = account
+            return "account"
         for scope, expected in (
             ("write", self.tokens.write),
             ("read", self.tokens.read),
@@ -148,7 +156,7 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
                 {"WWW-Authenticate": 'Bearer realm="Mnote"'},
             )
             return None
-        if scope not in allowed:
+        if scope not in allowed and not (scope == "account" and ("read" in allowed or "write" in allowed)):
             self._problem(
                 HTTPStatus.FORBIDDEN,
                 "forbidden",
@@ -336,6 +344,9 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
             self._problem(HTTPStatus.BAD_REQUEST, "invalid_request", str(error))
 
     def do_POST(self) -> None:  # noqa: N802
+        if urlparse(self.path).path.startswith("/v1/auth/"):
+            self._account_action()
+            return
         if self._require("write") is None:
             return
         parts = self._parts(urlparse(self.path).path)
@@ -411,12 +422,37 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
 
+    def _account_action(self):
+        path = urlparse(self.path).path
+        try:
+            if path == "/v1/auth/logout":
+                if self._scope() != "account":
+                    raise AuthError("invalid_session", 401)
+                self.accounts.logout(self.headers.get("Authorization", "")[7:])
+                self._json(200, {"ok": True})
+                return
+            if path not in {"/v1/auth/login", "/v1/auth/activate"}:
+                raise AuthError("not_found", 404)
+            if int(self.headers.get("Content-Length", "0")) > 4096:
+                raise AuthError("request_too_large", 413)
+            body = self._body()
+            self.accounts.throttle(self.client_address[0], body.get("username", ""))
+            if path.endswith("/activate"):
+                result = self.accounts.activate(body.get("username"), body.get("password"), body.get("invitation"))
+            else:
+                result = self.accounts.login(body.get("username"), body.get("password"))
+            self._json(200, result)
+        except AuthError as error:
+            self._json(error.status, {"error": str(error)})
+        except (CaptureValidationError, ValueError):
+            self._json(400, {"error": "invalid_request"})
+
 
 def create_server(host: str, port: int, store: CaptureStore, tokens: Tokens) -> ThreadingHTTPServer:
     handler = type(
         "ConfiguredCaptureRequestHandler",
         (CaptureRequestHandler,),
-        {"store": store, "tokens": tokens},
+        {"store": store, "tokens": tokens, "accounts": Accounts(store)},
     )
     return ThreadingHTTPServer((host, port), handler)
 

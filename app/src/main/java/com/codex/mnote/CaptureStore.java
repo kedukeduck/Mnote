@@ -268,7 +268,7 @@ final class CaptureStore {
                     )
                     .put(
                             "syncState",
-                            CaptureSyncPreferences.isConfigured(context)
+                            (CaptureAccountSession.hasAccount(context) || CaptureSyncPreferences.isConfigured(context))
                                     ? SYNC_PENDING
                                     : SYNC_LOCAL_ONLY
                     )
@@ -600,7 +600,9 @@ final class CaptureStore {
     }
 
     private static File inboxDirectory(Context context) {
-        File directory = new File(context.getApplicationContext().getFilesDir(), INBOX_DIRECTORY);
+        String scope = CaptureAccountSession.scope(context);
+        File directory = new File(context.getApplicationContext().getFilesDir(),
+                "guest".equals(scope) ? INBOX_DIRECTORY : "account_inbox/" + scope);
         if (!directory.isDirectory()) {
             directory.mkdirs();
         }
