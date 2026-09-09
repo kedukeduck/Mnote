@@ -22,13 +22,13 @@ Mnote 是一个独立的本地优先个人知识捕获项目，用于在 Android
 
 ## Android 构建
 
-当前 Android 增量测试版：[1.3.0-test APK](https://github.com/kedukeduck/Mnote/releases/download/mnote-android-v1.3.0-test/Mnote-Android-1.3.0-test.apk)。
+当前 Android 增量测试版：[1.3.1-test APK](https://github.com/kedukeduck/Mnote/releases/download/mnote-android-v1.3.1-test/Mnote-Android-1.3.1-test.apk)。
 
 Android 全部页面及应用弹窗采用 A「轻盈极简」主题；首页提供搜索、摘录/想法/待办筛选及固定底部操作区。账号登录后自动同步，支持刷新拉取和删除记录。来源与无障碍说明位于首页“快捷方式与权限设置”。
 
 单次摘录优先尝试读取选中文字，无法取得时回退截图；截图继续使用“圈选 → 下一步 → 想法”的原地悬浮流程，可选择保留完整截图上下文。不同应用的选区和链接能力仍有差异，不承诺任意应用均可自动获取，也不提供截图 OCR 选字。系统权限页和键盘保留系统样式。
 
-详见[1.3.0 视觉规范、覆盖范围与验收](docs/android-1.3.0-style-a.md)。覆盖安装前先保存草稿，不要卸载；此包沿用测试签名。
+记录页提供大预览、圈选区域 / 完整截图切换与独立想法区；详情为完整阅读页。详见[1.3.1 记录与阅读页说明](docs/android-1.3.1-compose-review.md)及 [A 视觉规范](docs/android-1.3.0-style-a.md)。覆盖安装前先保存草稿，不要卸载；此包沿用测试签名。
 ```bash
 ./gradlew --no-daemon testDebugUnitTest assembleDebug lintDebug
 ```
