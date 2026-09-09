@@ -118,6 +118,12 @@ public final class CaptureAccessibilityService extends AccessibilityService {
         if (service != null && service.feedback != null) service.feedback.hide();
         return service == null ? CaptureSourceContext.EMPTY : CaptureSourceContext.read(service);
     }
+    static QuickNotePageContext readPageOnce(int bridgeWindowId,boolean text) {
+        CaptureAccessibilityService service;
+        synchronized(INSTANCE_LOCK) {service=activeService.get();}
+        if(service==null) return QuickNotePageContext.failure("无障碍服务未连接。随手记和剪贴板摘录仍可使用。");
+        return QuickNotePageContext.read(service,bridgeWindowId,text);
+    }
     static CaptureSelectedText readSelectionOnce() {
         return readSelectionOnce(-1,false);
     }

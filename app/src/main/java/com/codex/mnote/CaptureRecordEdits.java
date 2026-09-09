@@ -57,6 +57,8 @@ final class CaptureRecordEdits {
                     JSONObject text=CaptureContext.text(original,originalChanged ? "user_edited"
                             : previous==null ? "user_supplied" : previous.optString("origin","user_supplied"),quote);
                     if(!originalChanged && previous!=null) text.put("extent",previous.optString("extent","provided_text"));
+                    if(previous!=null) for(String key:new String[]{"relation_to_quote","source_package","source_url"})
+                        if(previous.has(key)) text.put(key,previous.get(key));
                     evidence.put("text",text);
                 }
                 JSONObject edits=evidence.optJSONObject("text_edit");

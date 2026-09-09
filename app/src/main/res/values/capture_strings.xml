@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="capture_source_clipboard">剪贴板摘录</string>
     <string name="capture_selection_detected">已读取选中文字，可直接记录想法。可选择保留同一文字块作为原文（不保证是全文）。</string>
-    <string name="capture_selection_expired">本次文字选区已失效，请回到来源应用重新选中，再点“单次摘录”。</string>
+    <string name="capture_selection_expired">本次文字选区已失效，请重新通过系统文字菜单分享；也可复制后在“随手记”中开启剪贴板摘录。</string>
     <string name="capture_selection_launch_failed">未能打开文字摘录，请回到来源应用重试；本次未保存。</string>
     <string name="capture_retain_image_context">同时保留完整截图</string>
     <string name="capture_retain_text_context">同时保留提供的原文</string>
@@ -69,7 +70,7 @@
     <string name="capture_empty_detail">一句灵感、一件待办，或一张有启发的截图。\n点击“随手记”，写下第一条。</string>
 
     <string name="capture_tile_label">单次摘录</string>
-    <string name="capture_tile_ready">选中文字优先，否则截图</string>
+    <string name="capture_tile_ready">截图、圈选与批注</string>
     <string name="capture_tile_setup_needed">需要先设置</string>
     <string name="capture_tile_added">“单次摘录”磁贴已添加。</string>
     <string name="capture_tile_already_added">“单次摘录”磁贴已经在快捷设置中。</string>
@@ -84,10 +85,10 @@
     <string name="capture_service_connecting_toast">服务仍在连接，请稍等片刻再试。</string>
 
     <string name="capture_accessibility_service_label">Mnote 单次摘录</string>
-    <string name="capture_accessibility_service_summary">主动摘录时优先读取选中文字，没有可读选区时截图</string>
-    <string name="capture_accessibility_service_description">仅在你主动点击“单次摘录”时，在当前应用中有界查找文字选区，读取选中文字及同一文字块供你选择保留；没有可读选区则截图。需要查看窗口内容的无障碍能力。跳过密码和隐藏控件，不读取剪贴板，不监听输入或保存选择历史，不自动点击、不持续录屏。也可识别来源应用及已适配浏览器地址栏。部分应用不提供文字选区，此时仍使用截图。升级后如不可用，可关闭再重新启用服务。</string>
+    <string name="capture_accessibility_service_summary">单次摘录用于截图；随手记可主动附加页面文字或截图</string>
+    <string name="capture_accessibility_service_description">点击“单次摘录”时截取当前页面并尝试识别应用及浏览器地址，不查找文字选区。在“随手记”主动选择附加上下文时，才读取可访问页面文字或截取页面；页面文字不保证文章全文。跳过密码、可编辑和隐藏文字，不监听输入、不记录浏览历史、不自动点击、不持续录屏。剪贴板由前台随手记在你开启摘录时读取第一条，无障碍服务不读取剪贴板。升级后如不可用，可关闭再重新启用服务。</string>
     <string name="capture_accessibility_dialog_title">启用单次截图</string>
-    <string name="capture_accessibility_dialog_detail">请在系统辅助功能列表中启用“Mnote 单次摘录”。仅当你主动摘录时，优先读取当前选中文字，可选择保留同一文字块；读不到则截图。也会尝试读取来源应用与浏览器地址栏。需要查看窗口内容能力，不监听输入、不记录选择或浏览历史、不读取剪贴板。不想启用时，仍可使用随手记和系统分享。</string>
+    <string name="capture_accessibility_dialog_detail">请在系统辅助功能列表中启用“Mnote 单次摘录”。单次摘录用于截图、圈选和批注；随手记仅在你主动选择时附加页面文字或截图。需要查看窗口内容能力，不监听输入、不记录浏览历史。无障碍服务不读取剪贴板。不启用时仍可使用随手记、剪贴板摘录和系统分享。</string>
     <string name="capture_accessibility_connecting_detail">系统显示服务已启用，但它尚未连接。可以稍等后重试；如果一直未连接，请进入辅助功能设置重新启用。</string>
     <string name="capture_open_accessibility_settings">前往辅助功能设置</string>
     <string name="capture_retry">重试</string>

@@ -9,7 +9,7 @@ import android.os.Build;
 import android.service.quicksettings.Tile;
 import android.service.quicksettings.TileService;
 
-/** Permission-free text entry. This path never requests a screenshot. */
+/** Text entry; clipboard and page context are separate opt-in actions in the foreground editor. */
 public final class QuickNoteTileService extends TileService {
     @Override
     public void onStartListening() {
@@ -47,7 +47,7 @@ public final class QuickNoteTileService extends TileService {
 
     static Intent noteIntent(Context context) {
         // A fresh task preserves an existing editor and returns to the source app.
-        return new Intent(context, CaptureEditorActivity.class)
+        return new Intent(context, QuickNoteActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
                         | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);

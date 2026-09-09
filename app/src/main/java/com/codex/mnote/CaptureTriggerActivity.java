@@ -126,16 +126,6 @@ public final class CaptureTriggerActivity extends Activity {
             return;
         }
         captureRequested = true;
-        CaptureSelectedText selected=CaptureAccessibilityService.readSelectionOnce(ownAccessibilityWindowId());
-        if(selected.found()) {
-            try {
-                startActivity(CaptureEditorActivity.forSelectedText(this,selected));
-                finish(); overridePendingTransition(0,0); return;
-            } catch(RuntimeException error) {
-                CaptureSelectionTicket.clear(); captureRequested=false;
-                showBlockingMessage(R.string.capture_selection_launch_failed,false); return;
-            }
-        }
         CaptureSourceContext currentSource = CaptureAccessibilityService.readSourceOnce();
         CaptureSourceContext source = currentSource.appPackage.isEmpty() && currentSource.allowClickFallback
                 ? CaptureSourceContext.fromClick(getIntent()) : currentSource;
@@ -189,16 +179,6 @@ public final class CaptureTriggerActivity extends Activity {
                     }
                 }
         );
-    }
-
-    private int ownAccessibilityWindowId() {
-        android.view.accessibility.AccessibilityNodeInfo node=null;
-        try {
-            // Our own attached decor, not a query into another app or a cached ID.
-            node=getWindow().getDecorView().createAccessibilityNodeInfo();
-            return node==null ? -1 : node.getWindowId();
-        } catch(RuntimeException error) { return -1; }
-        finally { if(node!=null) node.recycle(); }
     }
 
     private void showAccessibilitySetup() {

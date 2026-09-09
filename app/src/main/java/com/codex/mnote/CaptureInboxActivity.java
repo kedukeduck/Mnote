@@ -171,7 +171,7 @@ public final class CaptureInboxActivity extends Activity {
         });
         findViewById(R.id.capture_quick_note_button).setOnClickListener(
                 view -> startActivity(
-                        new Intent(this, CaptureEditorActivity.class)
+                        QuickNoteTileService.noteIntent(this)
                 )
         );
         findViewById(R.id.capture_sync_settings_button).setOnClickListener(
@@ -624,6 +624,7 @@ public final class CaptureInboxActivity extends Activity {
     }
 
     private int sourceTypeLabel(String type) {
+        if ("clipboard".equals(type)) return R.string.capture_source_clipboard;
         if ("process_text".equals(type) || "accessibility_selection".equals(type)) {
             return R.string.capture_source_process_text;
         }

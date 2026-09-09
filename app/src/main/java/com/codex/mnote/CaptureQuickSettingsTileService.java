@@ -10,7 +10,7 @@ import android.os.Build;
 import android.service.quicksettings.Tile;
 import android.service.quicksettings.TileService;
 
-/** Quick Settings entry: selected text first, otherwise one screenshot. */
+/** Quick Settings entry: screenshot only. */
 public final class CaptureQuickSettingsTileService extends TileService {
     static void requestRefresh(Context context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -82,10 +82,6 @@ public final class CaptureQuickSettingsTileService extends TileService {
     static Intent prepareCaptureIntent(Context context) {
         Intent intent=captureIntent(context);
         if(!CaptureAccessibilityService.hasOverlay()) {
-            CaptureSelectedText selected=CaptureAccessibilityService.readSelectionOnce();
-            // A selection available at click time goes straight to the text editor;
-            // it must not lose focus to a screenshot bridge before being handed off.
-            if(selected.found()) return CaptureEditorActivity.forSelectedText(context,selected);
             CaptureSelectionTicket.clear();
             CaptureAccessibilityService.readSourceOnce().attachTo(intent);
         }

@@ -34,6 +34,9 @@
             android:label="账号与同步" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".CaptureRecordEditActivity" android:exported="false"
             android:label="编辑记录" android:windowSoftInputMode="adjustResize|stateAlwaysHidden" />
+        <activity android:name=".QuickNoteActivity" android:exported="false"
+            android:label="随手记" android:taskAffinity="" android:excludeFromRecents="true"
+            android:theme="@style/Theme.QuickNote" android:windowSoftInputMode="adjustResize|stateAlwaysVisible" />
 
         <activity
             android:name=".CaptureTriggerActivity"

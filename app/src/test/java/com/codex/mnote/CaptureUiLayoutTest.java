@@ -100,6 +100,32 @@ public class CaptureUiLayoutTest {
     }
 
     @Test
+    public void clipboardQuickNoteUsesStyleAAndScrollableKeyboardLayout() throws Exception {
+        try (ActivityController<QuickNoteActivity> controller = Robolectric.buildActivity(QuickNoteActivity.class).setup()) {
+            QuickNoteActivity activity=controller.get();activity.onWindowFocusChanged(true);
+            activity.<EditText>findViewById(R.id.capture_comment_input).setText("给灵感留一点空间，\n先记下此刻的想法。");
+            View root=layout(activity,390,844);
+            assertInside(root,root.findViewById(R.id.capture_editor_save));
+            assertInside(root,root.findViewById(R.id.quick_note_clipboard));
+            render(root,"quick-note-clipboard-default.png");
+            activity.getSystemService(android.content.ClipboardManager.class).setPrimaryClip(
+                    android.content.ClipData.newPlainText("","记录，不只是保存信息。\n也留下那些被触动的时刻。"));
+            activity.<android.widget.CompoundButton>findViewById(R.id.quick_note_clipboard).setChecked(true);
+            root=layout(activity,390,844);
+            root.findViewById(R.id.quick_note_capture_page).requestRectangleOnScreen(new android.graphics.Rect(0,0,120,48),true);
+            render(root,"quick-note-clipboard-material.png");
+            RuntimeEnvironment.setFontScale(1.5f);
+            root=layout(activity,360,400);
+            EditText input=root.findViewById(R.id.capture_comment_input);input.requestFocus();
+            input.requestRectangleOnScreen(new android.graphics.Rect(0,0,input.getWidth(),80),true);
+            assertInside(root,root.findViewById(R.id.capture_editor_save));
+            assertEquals(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE,
+                    activity.getWindow().getAttributes().softInputMode & android.view.WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST);
+            render(root,"quick-note-clipboard-keyboard.png");
+        } finally {RuntimeEnvironment.setFontScale(1f);}
+    }
+
+    @Test
     public void screenshotEditorRetainsCanvasAndCommentComposer() throws Exception {
         Context context = RuntimeEnvironment.getApplication();
         Bitmap sample = Bitmap.createBitmap(390, 620, Bitmap.Config.ARGB_8888);

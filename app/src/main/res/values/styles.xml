@@ -18,6 +18,13 @@
 
     <style name="Theme.Mnote" parent="Base.Theme.Mnote" />
 
+    <style name="Theme.QuickNote" parent="Theme.Mnote">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
+
     <style name="MnoteContextSwitch" parent="android:style/Widget.Material.Light.CompoundButton.Switch">
         <item name="android:background">@drawable/bg_card</item>
         <item name="android:minHeight">52dp</item>

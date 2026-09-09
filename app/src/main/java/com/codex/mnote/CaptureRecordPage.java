@@ -57,6 +57,8 @@ final class CaptureRecordPage {
                                 /Math.max(1,preview.getDrawable().getIntrinsicWidth())));
                 preview.setLayoutParams(bounds);
             });
+            boolean pageContext=record.captureContext.optJSONObject("image")!=null
+                    && "page_context".equals(record.captureContext.optJSONObject("image").optString("purpose"));
             RadioGroup modes=CapturePreviewModes.create(activity,false,showFull ->
             {
                 preview.setContent(showFull ? full : crop,showFull ? record.captureContext.optJSONObject("image") : null);
@@ -65,12 +67,16 @@ final class CaptureRecordPage {
             modes.findViewById(R.id.capture_preview_full).setEnabled(full!=null);
             modes.findViewById(R.id.capture_preview_crop).setEnabled(crop!=null);
             if(crop==null) modes.check(R.id.capture_preview_full);
-            add(body,modes,12);
+            if(pageContext) {
+                preview.setContent(full!=null ? full : crop,record.captureContext.optJSONObject("image"));
+                add(body,text(activity,"完整页面上下文 · 未推断剪贴板摘录的位置",12),12);
+            } else add(body,modes,12);
             if(full==null) add(body,text(activity,"未保留完整截图",12),8);
         } else if(record.hasImage) {
             add(body,text(activity,"截图暂时无法显示，记录仍保留。",14),8);
         }
         if(!record.sourceText.isEmpty() || !CaptureRecordEdits.original(record).isEmpty()) {
+            if("clipboard".equals(record.sourceType)) add(body,text(activity,"剪贴板摘录 · 附加页面不一定是其原始出处",12),12);
             TextView quote=block(activity,record.sourceText.isEmpty() ? "未记录摘录文字" : record.sourceText,16);
             quote.setMinHeight(dp(activity,220));
             add(body,quote,12);

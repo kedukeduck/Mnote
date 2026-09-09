@@ -55,7 +55,7 @@ public class QuickNoteFlowTest {
     public void noteTileLaunchesFreshEditorWithoutScreenshotPayload() {
         Context context = RuntimeEnvironment.getApplication();
         Intent intent = QuickNoteTileService.noteIntent(context);
-        assertEquals(new ComponentName(context, CaptureEditorActivity.class), intent.getComponent());
+        assertEquals(new ComponentName(context, QuickNoteActivity.class), intent.getComponent());
         assertNull(intent.getAction());
         assertNull(intent.getExtras());
         assertTrue((intent.getFlags() & Intent.FLAG_ACTIVITY_NEW_TASK) != 0);
@@ -74,7 +74,7 @@ public class QuickNoteFlowTest {
         assertEquals("随手记", info.loadLabel(context.getPackageManager()).toString());
         PendingIntent note = QuickNoteTileService.notePendingIntent(context);
         assertTrue(shadowOf(note).isImmutable());
-        assertEquals(new ComponentName(context, CaptureEditorActivity.class),
+        assertEquals(new ComponentName(context, QuickNoteActivity.class),
                 shadowOf(note).getSavedIntent().getComponent());
         assertNotEquals(note, CaptureQuickSettingsTileService.capturePendingIntent(context));
         if (Build.VERSION.SDK_INT >= 35) {
@@ -177,7 +177,7 @@ public class QuickNoteFlowTest {
             assertEquals(View.GONE, panel.getVisibility());
             activity.findViewById(R.id.capture_quick_note_button).performClick();
             Intent intent = shadowOf(activity).getNextStartedActivity();
-            assertEquals(new ComponentName(activity, CaptureEditorActivity.class), intent.getComponent());
+            assertEquals(new ComponentName(activity, QuickNoteActivity.class), intent.getComponent());
             assertNull(intent.getExtras());
             assertEquals(0, CaptureTileFlowTest.ScreenshotServiceShadow.requests);
         }
@@ -185,7 +185,7 @@ public class QuickNoteFlowTest {
 
     private static ActivityController<CaptureEditorActivity> note() {
         return Robolectric.buildActivity(CaptureEditorActivity.class,
-                QuickNoteTileService.noteIntent(RuntimeEnvironment.getApplication()))
+                new Intent(RuntimeEnvironment.getApplication(), CaptureEditorActivity.class))
                 .create().start().resume();
     }
 }

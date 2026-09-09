@@ -52,6 +52,7 @@ public class CaptureTileFlowTest {
         ScreenshotServiceShadow.overlayRequests = 0;
         ScreenshotServiceShadow.restores = 0;
         ScreenshotServiceShadow.sourceReads = 0;
+        ScreenshotServiceShadow.selectionReads = 0;
         ScreenshotServiceShadow.source = new CaptureSourceContext("com.android.chrome", "https://example.com/post", "browser_address_bar");
         ScreenshotServiceShadow.overlaidSource = null;
         ScreenshotServiceShadow.selection=CaptureSelectedText.EMPTY;
@@ -84,13 +85,14 @@ public class CaptureTileFlowTest {
     }
     @Test
     @Config(shadows={ScreenshotServiceShadow.class,OwnNodeWindowShadow.class})
-    public void bridgePassesItsAttachedWindowIdentityToTheOneShotReader() {
+    public void screenshotBridgeNeverInvokesTheSelectedTextReader() {
         try(ActivityController<CaptureTriggerActivity> bridge=Robolectric.buildActivity(CaptureTriggerActivity.class).setup()) {
             ScreenshotServiceShadow.selection=new CaptureSelectedText("reader.app",27,"quote","quote",0);
             bridge.get().onWindowFocusChanged(true); idle(350);
-            assertEquals(2301,ScreenshotServiceShadow.bridgeWindowId);
-            assertEquals(0,ScreenshotServiceShadow.requests);
-            assertNotNull(shadowOf(bridge.get()).getNextStartedActivity());
+            assertEquals(-1,ScreenshotServiceShadow.bridgeWindowId);
+            assertEquals(0,ScreenshotServiceShadow.selectionReads);
+            assertEquals(1,ScreenshotServiceShadow.requests);
+            assertNull(shadowOf(bridge.get()).getNextStartedActivity());
         }
     }
     @Implements(android.view.accessibility.AccessibilityNodeInfo.class)
@@ -301,43 +303,27 @@ public class CaptureTileFlowTest {
     private static void idle(long millis) {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(millis));
     }
-    @Test public void selectedTextOpensEditorWithoutTakingScreenshotAndCanRetainOriginal() throws Exception {
+    @Test public void selectedTextDoesNotChangeScreenshotTriggerRoute() throws Exception {
         ScreenshotServiceShadow.selection=new CaptureSelectedText("com.example.reader",17,"选中文字","前文选中文字后文",2);
         try(ActivityController<CaptureTriggerActivity> bridge=Robolectric.buildActivity(CaptureTriggerActivity.class).create().start().resume()) {
             bridge.get().onWindowFocusChanged(true); idle(350);
-            assertEquals(0,ScreenshotServiceShadow.requests);
-            Intent editorIntent=shadowOf(bridge.get()).getNextStartedActivity(); assertNotNull(editorIntent);
-            assertNull(editorIntent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT));
-            try(ActivityController<CaptureEditorActivity> editor=Robolectric.buildActivity(CaptureEditorActivity.class,editorIntent).setup()) {
-                CaptureEditorActivity activity=editor.get();
-                assertEquals("选中文字",activity.<android.widget.TextView>findViewById(R.id.capture_source_text).getText().toString());
-                activity.<android.widget.CompoundButton>findViewById(R.id.capture_retain_text_context).setChecked(true);
-                activity.<android.widget.EditText>findViewById(R.id.capture_comment_input).setText("我的想法");
-                activity.findViewById(R.id.capture_editor_save).performClick();
-                ReflectionHelpers.<java.util.concurrent.ExecutorService>getField(activity,"executor").submit(()->{}).get(5,java.util.concurrent.TimeUnit.SECONDS);
-                idle(0);
-                CaptureStore.CaptureRecord record=CaptureStore.list(activity,10).get(0);
-                assertEquals("accessibility_selection",record.sourceType); assertEquals("我的想法",record.comment);
-                assertEquals("前文选中文字后文",record.captureContext.getJSONObject("text").getString("full_text"));
-                assertEquals("accessibility_node",record.captureContext.getJSONObject("text").getString("origin"));
-                assertFalse(record.hasImage);
-            }
+            assertEquals(1,ScreenshotServiceShadow.requests);
+            assertEquals(0,ScreenshotServiceShadow.selectionReads);
+            assertNull(shadowOf(bridge.get()).getNextStartedActivity());
         }
     }
-    @Test public void tileGoesDirectlyToTextEditorWhenSelectionIsPresentAndOtherwiseKeepsScreenshotRoute() {
+    @Test public void tileAlwaysKeepsScreenshotRouteWhenSelectionIsPresent() {
         Context context=RuntimeEnvironment.getApplication();
         ScreenshotServiceShadow.selection=new CaptureSelectedText("com.example.reader",17,"quote","quote",0);
         Intent intent=CaptureQuickSettingsTileService.prepareCaptureIntent(context);
-        assertEquals(new ComponentName(context,CaptureEditorActivity.class),intent.getComponent());
+        assertEquals(new ComponentName(context,CaptureTriggerActivity.class),intent.getComponent());
         assertNull(intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT));
-        try(ActivityController<CaptureEditorActivity> editor=Robolectric.buildActivity(CaptureEditorActivity.class,intent).setup()) {
-            assertEquals("quote",editor.get().<android.widget.TextView>findViewById(R.id.capture_source_text).getText().toString());
-        }
         ScreenshotServiceShadow.selection=CaptureSelectedText.EMPTY;
         assertEquals(new ComponentName(context,CaptureTriggerActivity.class),CaptureQuickSettingsTileService.prepareCaptureIntent(context).getComponent());
         ScreenshotServiceShadow.selection=new CaptureSelectedText("com.example.reader",17,"quote","quote",0);
         ScreenshotServiceShadow.overlayPresent=true;
         assertEquals(new ComponentName(context,CaptureTriggerActivity.class),CaptureQuickSettingsTileService.prepareCaptureIntent(context).getComponent());
+        assertEquals(0,ScreenshotServiceShadow.selectionReads);
     }
 
     @Test public void selectedTextSurvivesRecreationWithoutReusingTicket() throws Exception {
@@ -374,8 +360,8 @@ public class CaptureTileFlowTest {
             ScreenshotServiceShadow.readerWindow=bridge.get().getWindow();
             ScreenshotServiceShadow.selection=new CaptureSelectedText("reader.app",17,"quote","quote",0);
             bridge.get().onWindowFocusChanged(true); idle(350);
-            assertEquals(0,ScreenshotServiceShadow.requests);
-            assertEquals(new ComponentName(context,CaptureEditorActivity.class),shadowOf(bridge.get()).getNextStartedActivity().getComponent());
+            assertEquals(1,ScreenshotServiceShadow.requests);
+            assertNull(shadowOf(bridge.get()).getNextStartedActivity());
         }
     }
 
@@ -401,6 +387,7 @@ public class CaptureTileFlowTest {
         static int overlayRequests;
         static int restores;
         static int sourceReads;
+        static int selectionReads;
         static CaptureSourceContext source;
         static CaptureSourceContext overlaidSource;
         static CaptureSelectedText selection;
@@ -410,6 +397,7 @@ public class CaptureTileFlowTest {
             bridgeWindowId=ownBridgeWindowId; return readSelectionOnce();
         }
         @Implementation protected static CaptureSelectedText readSelectionOnce() {
+            selectionReads++;
             if(readerWindow!=null) {
                 android.view.WindowManager.LayoutParams params=readerWindow.getAttributes();
                 if(params.width!=1 || params.height!=1

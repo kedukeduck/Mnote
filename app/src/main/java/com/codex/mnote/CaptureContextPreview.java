@@ -15,10 +15,12 @@ final class CaptureContextPreview extends ImageView {
         paint.setColor(context.getColor(R.color.coral)); paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(3*getResources().getDisplayMetrics().density);
         setContent(bitmap, metadata);
-        setContentDescription(context.getString(R.string.capture_context_image_title));
     }
     void setContent(Bitmap bitmap, JSONObject metadata) {
         setImageBitmap(bitmap); selection.setEmpty();
+        boolean pageContext = metadata != null && "page_context".equals(metadata.optString("purpose"));
+        setContentDescription(pageContext ? "完整页面上下文，未推断摘录位置" : getContext().getString(R.string.capture_context_image_title));
+        if (pageContext) { invalidate(); return; }
         if(metadata != null && bitmap != null) {
             JSONObject rect=metadata.optJSONObject("selection");
             float sx=(float)bitmap.getWidth()/Math.max(1,metadata.optInt("width"));

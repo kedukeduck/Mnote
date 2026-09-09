@@ -19,7 +19,7 @@ final class CaptureContext {
     static JSONObject image(JSONObject layer, int width, int height, boolean retained) throws org.json.JSONException {
         JSONObject selection = layer.getJSONObject("selection");
         double sx = (double)width/layer.getInt("sourceWidth"), sy = (double)height/layer.getInt("sourceHeight");
-        return new JSONObject().put("retained",retained).put("asset_role",retained ? "context" : JSONObject.NULL)
+        JSONObject result = new JSONObject().put("retained",retained).put("asset_role",retained ? "context" : JSONObject.NULL)
                 .put("annotation_coordinate_space","editor_bitmap_pixels")
                 .put("editor_width",layer.getInt("sourceWidth")).put("editor_height",layer.getInt("sourceHeight"))
                 .put("width",width).put("height",height).put("coordinate_space","context_image_pixels")
@@ -27,5 +27,10 @@ final class CaptureContext {
                 .put("selection",new JSONObject().put("left",selection.getDouble("left")*sx)
                         .put("top",selection.getDouble("top")*sy).put("right",selection.getDouble("right")*sx)
                         .put("bottom",selection.getDouble("bottom")*sy));
+        if ("page_context".equals(layer.optString("purpose"))) {
+            result.put("purpose","page_context").put("relation_to_quote","unverified")
+                    .put("selection_meaning","full_viewport_not_quote_location");
+        }
+        return result;
     }
 }
