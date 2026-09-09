@@ -30,7 +30,8 @@ final class CaptureFeedback {
         view.setMaxWidth(service.getResources().getDisplayMetrics().widthPixels - dp(40));
         view.setAccessibilityLiveRegion(android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE);
         GradientDrawable surface = new GradientDrawable();
-        surface.setColor(0xF0252A32); surface.setCornerRadius(dp(24));
+        surface.setColor(0xF0000000 | (service.getColor(R.color.ink) & 0xFFFFFF));
+        surface.setCornerRadius(dp(24));
         view.setBackground(surface);
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,

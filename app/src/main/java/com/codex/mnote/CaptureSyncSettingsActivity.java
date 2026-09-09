@@ -62,7 +62,7 @@ public final class CaptureSyncSettingsActivity extends Activity {
         header.addView(back, new LinearLayout.LayoutParams(dp(72), dp(48)));
         TextView title = text(
                 getString(R.string.capture_sync_settings_title),
-                22,
+                20,
                 R.color.ink
         );
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);

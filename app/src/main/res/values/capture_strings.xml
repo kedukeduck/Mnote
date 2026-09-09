@@ -50,11 +50,11 @@
     <string name="capture_access_unsupported">这台设备低于 Android 11，无法使用本版单次系统截图。仍可通过系统“分享”或“处理文字”保存内容。</string>
     <string name="capture_setup_button">开启截图</string>
     <string name="capture_retry_connection_button">检查连接</string>
-    <string name="capture_test_capture_button">截图测试</string>
+    <string name="capture_test_capture_button">摘录</string>
     <string name="capture_add_tile_button">添加“单次摘录”快捷按钮</string>
     <string name="capture_quick_note_button">随手记</string>
-    <string name="capture_setup_expand">快捷按钮与截图设置  ＋</string>
-    <string name="capture_setup_collapse">快捷按钮与截图设置  −</string>
+    <string name="capture_setup_expand">快捷方式与权限设置  ＋</string>
+    <string name="capture_setup_collapse">快捷方式与权限设置  −</string>
     <string name="capture_shortcuts_intro">在其他 App 中下拉快捷设置：\n“随手记”直接写字，不保存截图。\n“单次摘录”截图并打开原地悬浮批注。\n收起批注后，再点“单次摘录”继续。</string>
     <string name="capture_privacy_detail">隐私边界：不会持续录屏、不会监听按键或 UI 树，也不会绕过银行、密码、DRM 等安全窗口。截图先进入应用私有本地存储。</string>
     <string name="capture_sync_card_title">账号与自动同步</string>
@@ -225,5 +225,5 @@
     <string name="capture_detected_url">已读取地址栏，可展开来源链接核对完整地址</string>
     <string name="capture_detected_url_https">已读取地址栏并补全 HTTPS，请核对是否为完整页面链接</string>
     <string name="capture_selection_preview">本次保存的截图选区预览</string>
-    <string name="capture_source_unavailable_help">本次未读到来源。保存后可到 Mnote 首页“来源识别与无障碍设置”检查；没有单独的来源开关。</string>
+    <string name="capture_source_unavailable_help">本次未读到来源。可在首页“快捷方式与权限设置”中检查无障碍服务。</string>
 </resources>

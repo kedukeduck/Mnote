@@ -18,8 +18,8 @@
             android:textColor="@color/ink" android:textSize="17sp" android:fontFamily="sans-serif-medium" />
         <Button android:id="@+id/capture_editor_save" android:layout_width="wrap_content"
             android:layout_height="wrap_content" android:minWidth="68dp"
-            android:background="@drawable/bg_button_primary" android:text="@string/capture_save"
-            android:textColor="@color/white" android:textSize="15sp" android:fontFamily="sans-serif-medium" />
+            android:background="@drawable/bg_button_secondary" android:text="@string/capture_save"
+            android:textColor="@color/button_text" android:textSize="15sp" android:fontFamily="sans-serif-medium" />
     </LinearLayout>
 
     <TextView android:id="@+id/capture_editor_status" android:layout_width="match_parent"
@@ -84,8 +84,12 @@
             <RadioButton android:id="@+id/capture_kind_thought" style="@style/CaptureSegment" android:text="@string/capture_kind_thought" />
             <RadioButton android:id="@+id/capture_kind_todo" style="@style/CaptureSegment" android:text="@string/capture_kind_todo" />
         </RadioGroup>
-        <EditText android:id="@+id/capture_comment_input" android:layout_width="match_parent"
+        <TextView android:id="@+id/capture_thought_label" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:layout_marginTop="12dp"
+            android:labelFor="@id/capture_comment_input" android:text="@string/capture_thought_label"
+            android:textColor="@color/ink" android:textSize="13sp" android:fontFamily="sans-serif-medium" />
+        <EditText android:id="@+id/capture_comment_input" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:layout_marginTop="8dp"
             android:background="@drawable/bg_input" android:gravity="top|start"
             android:hint="@string/capture_comment_hint" android:inputType="textCapSentences|textMultiLine"
             android:imeOptions="flagNoExtractUi" android:importantForAutofill="no"

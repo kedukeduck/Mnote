@@ -67,8 +67,12 @@ final class CaptureTextExcerpt {
         input.setSaveEnabled(false); input.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
         input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(CaptureContext.MAX_TEXT)});
         input.setHint(R.string.capture_context_paste_hint); input.setText(original);
+        FrameLayout inset = new FrameLayout(activity);
+        int margin = Math.round(20 * activity.getResources().getDisplayMetrics().density);
+        inset.setPadding(margin, margin / 2, margin, 0);
+        inset.addView(input, new FrameLayout.LayoutParams(-1, -2));
         AlertDialog dialog=new AlertDialog.Builder(activity).setTitle(R.string.capture_text_context_edit)
-                .setMessage(R.string.capture_context_provenance_help).setView(input)
+                .setMessage(R.string.capture_context_provenance_help).setView(inset)
                 .setPositiveButton(R.string.capture_context_use,(d,which)-> {
                     String value=input.getText().toString();
                     if(!value.equals(original)) { origin="user_supplied"; selectedStart=-1; }

@@ -21,13 +21,19 @@ public final class CaptureAccountActivity extends Activity {
         super.onCreate(saved);
         getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
         ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true); scroll.setBackgroundColor(getColor(R.color.cream));
+        scroll.setFillViewport(true); scroll.setFitsSystemWindows(true);
+        scroll.setBackgroundColor(getColor(R.color.cream));
         LinearLayout column = new LinearLayout(this); column.setOrientation(LinearLayout.VERTICAL);
-        column.setPadding(dp(24), dp(28), dp(24), dp(28));
+        column.setPadding(dp(22), dp(14), dp(22), dp(28));
         column.setBackgroundColor(getColor(R.color.cream)); scroll.addView(column); setContentView(scroll);
+        Button back = button(column, getString(R.string.capture_back), this::finish);
+        back.setBackgroundResource(android.R.color.transparent);
+        back.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
         TextView title = new TextView(this); title.setText("你的 Mnote"); title.setTextSize(30); title.setTextColor(getColor(R.color.ink));
+        title.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
         column.addView(title);
-        status = new TextView(this); status.setTextSize(14); status.setPadding(0,dp(16),0,dp(20));
+        status = new TextView(this); status.setTextSize(14); status.setPadding(0,dp(12),0,dp(24));
+        status.setTextColor(getColor(R.color.ink_muted)); status.setLineSpacing(dp(4), 1);
         status.setText(CaptureAccountSession.hasAccount(this) ? "当前账号：" + CaptureAccountSession.username(this)
                 + "\n同一账号自动同步记录。退出后本机缓存保留，但不会向其他账号显示。" : "登录后，想法和截图会自动同步到你的账号。");
         status.setAccessibilityLiveRegion(android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE); column.addView(status);
@@ -35,14 +41,18 @@ public final class CaptureAccountActivity extends Activity {
         server.setText(CaptureAccountSession.baseUrl(this));
         username = input(column, "用户名（3–32 位英文、数字、._-）", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
         username.setText(CaptureAccountSession.username(this));
+        username.setHint("输入用户名");
         password = input(column, "密码（首次设置至少 12 位）", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        password.setHint("输入密码");
         invitation = input(column, "首次激活码", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         invitation.setVisibility(android.view.View.GONE);
+        ((TextView) invitation.getTag()).setVisibility(android.view.View.GONE);
         login = button(column, "登录并同步", () -> authenticate());
         login.setBackgroundResource(R.drawable.bg_button_primary); login.setTextColor(getColor(R.color.white));
         activate = button(column, "首次激活账号", () -> {
             activating = !activating;
             invitation.setVisibility(activating ? android.view.View.VISIBLE : android.view.View.GONE);
+            ((TextView) invitation.getTag()).setVisibility(invitation.getVisibility());
             login.setText(activating ? "设置账号并同步" : "登录并同步");
             activate.setText(activating ? "已有账号，返回登录" : "首次激活账号");
         });
@@ -53,6 +63,7 @@ public final class CaptureAccountActivity extends Activity {
                 .setPositiveButton("导入并同步", (dialog, which) -> importNotes()).setNegativeButton("取消", null).show());
         logout.setVisibility(CaptureAccountSession.hasAccount(this) ? android.view.View.VISIBLE : android.view.View.GONE);
         importNotes.setVisibility(logout.getVisibility());
+        logout.setTextColor(getColor(R.color.danger));
     }
 
     private boolean canChange() {
@@ -127,7 +138,13 @@ public final class CaptureAccountActivity extends Activity {
         for (Button button : new Button[]{login,activate,logout,importNotes}) button.setEnabled(!value);
     }
     private EditText input(LinearLayout column, String hint, int type) {
+        TextView label = new TextView(this); label.setText(hint);
+        label.setTextSize(13); label.setTextColor(getColor(R.color.ink_muted));
+        label.setPadding(dp(2), dp(8), 0, dp(8)); column.addView(label);
         EditText input = new EditText(this); input.setHint(hint); input.setInputType(type); input.setSingleLine(true);
+        input.setId(android.view.View.generateViewId());
+        label.setLabelFor(input.getId());
+        input.setTag(label);
         input.setSaveEnabled(false); input.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_NO);
         input.setBackgroundResource(R.drawable.bg_input); input.setPadding(dp(16),dp(14),dp(16),dp(14));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1,-2); params.bottomMargin=dp(12);
@@ -135,7 +152,9 @@ public final class CaptureAccountActivity extends Activity {
     }
     private Button button(LinearLayout column, String title, Runnable action) {
         Button button = new Button(this); button.setText(title); button.setMinHeight(dp(48));
-        button.setOnClickListener(view -> action.run()); column.addView(button,new LinearLayout.LayoutParams(-1,-2)); return button;
+        button.setOnClickListener(view -> action.run());
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1,-2);
+        params.topMargin=dp(10); column.addView(button,params); return button;
     }
     private int dp(int value) { return Math.round(getResources().getDisplayMetrics().density * value); }
     @Override public void onDestroy() { destroyed = true; executor.shutdownNow(); super.onDestroy(); }

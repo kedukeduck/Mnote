@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Base.Theme.Mnote" parent="android:style/Theme.Material.Light.NoActionBar">
-        <item name="android:fontFamily">sans</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:alertDialogTheme">@style/Theme.Mnote.Dialog</item>
+        <item name="android:editTextStyle">@style/MnoteInput</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:colorAccent">@color/coral</item>
         <item name="android:windowLightStatusBar">true</item>
@@ -16,7 +18,41 @@
 
     <style name="Theme.Mnote" parent="Base.Theme.Mnote" />
 
+    <style name="Theme.Mnote.Dialog" parent="android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:colorAccent">@color/coral</item>
+        <item name="android:textColorPrimary">@color/ink</item>
+        <item name="android:textColorSecondary">@color/ink_muted</item>
+        <item name="android:windowBackground">@drawable/bg_dialog</item>
+        <item name="android:backgroundDimAmount">0.28</item>
+        <item name="android:windowMinWidthMajor">88%</item>
+        <item name="android:windowMinWidthMinor">92%</item>
+        <item name="android:buttonBarPositiveButtonStyle">@style/MnoteDialogButton</item>
+        <item name="android:buttonBarNegativeButtonStyle">@style/MnoteDialogButton</item>
+        <item name="android:buttonBarNeutralButtonStyle">@style/MnoteDialogButton</item>
+        <item name="android:editTextStyle">@style/MnoteInput</item>
+    </style>
+
+    <style name="MnoteDialogButton" parent="android:style/Widget.Material.Light.Button.Borderless">
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">@color/button_text</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:minHeight">48dp</item>
+    </style>
+
+    <style name="MnoteInput" parent="android:style/Widget.Material.Light.EditText">
+        <item name="android:background">@drawable/bg_input</item>
+        <item name="android:backgroundTint">@null</item>
+        <item name="android:textColor">@color/ink</item>
+        <item name="android:textColorHint">@color/ink_muted</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:padding">16dp</item>
+    </style>
+
     <style name="Theme.CaptureTrigger" parent="android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:alertDialogTheme">@style/Theme.Mnote.Dialog</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
@@ -40,10 +76,12 @@
         <item name="android:textStyle">bold</item>
     </style>
     <style name="MnoteButton" parent="android:style/Widget.Material.Light.Button">
+        <item name="android:backgroundTint">@null</item>
         <item name="android:background">@drawable/bg_button_secondary</item>
         <item name="android:stateListAnimator">@null</item>
         <item name="android:textAllCaps">false</item>
-        <item name="android:textColor">@color/coral</item>
+        <item name="android:textColor">@color/button_text</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
         <item name="android:textSize">15sp</item>
         <item name="android:minHeight">48dp</item>
         <item name="android:paddingStart">12dp</item>

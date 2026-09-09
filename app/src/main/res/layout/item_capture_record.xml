@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginTop="14dp"
+    android:layout_marginTop="12dp"
     android:background="@drawable/bg_card"
     android:focusable="true"
     android:foreground="?android:attr/selectableItemBackground"
@@ -11,7 +11,7 @@
     <ImageView
         android:id="@+id/capture_item_image"
         android:layout_width="match_parent"
-        android:layout_height="190dp"
+        android:layout_height="132dp"
         android:adjustViewBounds="false"
         android:background="@drawable/bg_canvas"
         android:contentDescription="@string/capture_item_image_description"
@@ -21,7 +21,7 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
+        android:layout_marginTop="8dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -51,28 +51,28 @@
     </LinearLayout>
 
     <TextView
-        android:id="@+id/capture_item_comment"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:lineSpacingExtra="3dp"
-        android:textColor="@color/ink"
-        android:textSize="18sp"
-        android:maxLines="6"
-        android:ellipsize="end"
-        android:visibility="gone" />
-
-    <TextView
         android:id="@+id/capture_item_exact_text"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:background="@drawable/bg_capture_source_excerpt"
         android:lineSpacingExtra="3dp"
-        android:maxLines="8"
+        android:maxLines="4"
         android:padding="12dp"
         android:textColor="@color/ink"
-        android:textSize="13sp"
+        android:textSize="15sp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/capture_item_comment"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:lineSpacingExtra="3dp"
+        android:textColor="@color/ink"
+        android:textSize="16sp"
+        android:maxLines="4"
+        android:ellipsize="end"
         android:visibility="gone" />
 
     <TextView

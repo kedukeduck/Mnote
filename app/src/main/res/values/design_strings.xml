@@ -1,0 +1,11 @@
+<resources>
+    <string name="capture_account_short">账号</string>
+    <string name="capture_search_hint">搜索记录与想法</string>
+    <string name="capture_filter_all">全部</string>
+    <string name="capture_filter_excerpt">摘录</string>
+    <string name="capture_search_empty_title">没有找到匹配的记录</string>
+    <string name="capture_search_empty_detail">试试其他关键词，或切换到“全部”。</string>
+    <string name="capture_filtered_count">%1$d / %2$d 条</string>
+    <string name="capture_thought_label">我的想法</string>
+    <string name="capture_back">返回</string>
+</resources>

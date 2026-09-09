@@ -11,9 +11,8 @@ import android.widget.TextView;
 
 /** Small translucent controls, not a screenshot-obscuring toolbar surface. */
 final class CaptureToolStyle {
-    static final int BLUE = 0xFF0A84FF;
-
     static void tool(TextView view, int symbol) {
+        int accent = view.getContext().getColor(R.color.coral);
         int color = view.isSelected() ? 0xFFFFFFFF : 0xFFF2F4F8;
         view.setTextSize(10);
         view.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
@@ -28,10 +27,11 @@ final class CaptureToolStyle {
         view.setCompoundDrawablePadding(dp(view, 3));
         view.setTextColor(color);
         view.setShadowLayer(0, 0, 0, 0);
-        surface(view, view.isSelected() ? 0xE60A84FF : 0x99252A32, 17);
+        surface(view, view.isSelected() ? (0xE6000000 | (accent & 0xFFFFFF)) : 0x99202430, 17);
     }
 
     static void action(TextView view, int symbol, boolean primary, boolean composing) {
+        int accent = view.getContext().getColor(R.color.coral);
         view.setShadowLayer(0, 0, 0, 0);
         view.setBackgroundTintList(null);
         view.setMinHeight(dp(view, 48));
@@ -44,14 +44,15 @@ final class CaptureToolStyle {
                 primary ? LinearLayout.LayoutParams.WRAP_CONTENT : dp(view, 48), dp(view, 48));
         params.setMarginStart(dp(view, 4));
         view.setLayoutParams(params);
-        int color = composing && !primary ? BLUE : Color.WHITE;
+        int color = composing && !primary ? accent : Color.WHITE;
         view.setTextColor(color);
         if (!primary) {
             view.setText("");
             view.setCompoundDrawablesWithIntrinsicBounds(null, new Symbol(view, symbol, color), null, null);
             view.setPadding(dp(view, 12), dp(view, 12), dp(view, 12), dp(view, 12));
         }
-        surface(view, primary ? 0xEB0A84FF : composing ? 0x110A84FF : 0x99252A32, 24);
+        surface(view, primary ? (composing ? accent : (0xEB000000 | (accent & 0xFFFFFF)))
+                : composing ? view.getContext().getColor(R.color.coral_soft) : 0x99202430, 24);
     }
 
     private static void surface(TextView view, int color, int radius) {

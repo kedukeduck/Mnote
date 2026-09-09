@@ -129,7 +129,7 @@ final class CaptureOverlayEditor {
             }
         };
         root.setFocusableInTouchMode(true);
-        root.setBackgroundColor(0xFF101114);
+        root.setBackgroundColor(context.getColor(R.color.ink));
         View editor = LayoutInflater.from(context).inflate(R.layout.activity_capture_editor, root, false);
         editor.setBackgroundResource(R.drawable.bg_overlay_panel);
         editor.setClipToOutline(true);
@@ -207,6 +207,9 @@ final class CaptureOverlayEditor {
         // Keep the primary writing field at the top of the scrollable form.
         composer.removeView(comment);
         composer.addView(comment, 0);
+        View thoughtLabel = composer.findViewById(R.id.capture_thought_label);
+        composer.removeView(thoughtLabel);
+        composer.addView(thoughtLabel, 0);
         comment.setOnFocusChangeListener((view, focused) -> { if (focused) keepFocusedInputVisible(); });
         kind = root.findViewById(R.id.capture_kind_group);
         status = root.findViewById(R.id.capture_editor_status);

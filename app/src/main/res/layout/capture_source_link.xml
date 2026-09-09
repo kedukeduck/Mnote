@@ -3,7 +3,8 @@
     <TextView android:id="@+id/capture_url_toggle" android:layout_width="match_parent"
         android:layout_height="wrap_content" android:minHeight="48dp" android:gravity="center_vertical"
         android:text="@string/capture_url_add" android:textColor="@color/coral" android:textSize="13sp"
-        android:clickable="true" android:focusable="true" android:background="?android:attr/selectableItemBackground" />
+        android:paddingStart="12dp" android:paddingEnd="12dp"
+        android:clickable="true" android:focusable="true" android:background="@drawable/bg_button_secondary" />
     <LinearLayout android:id="@+id/capture_url_panel" android:layout_width="match_parent"
         android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"

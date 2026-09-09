@@ -113,10 +113,12 @@ public class CaptureInboxRefreshTest {
         assertEquals(1,CaptureStore.list(failingBroadcast,10).size());
     }
 
-    @Test public void sourceSettingsEntryIsVisibleWithoutExpandingSetup() {
+    @Test public void sourceSettingsRemainAccessibleInCompactSetupSection() {
         try (ActivityController<CaptureInboxActivity> controller = Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
             CaptureInboxActivity activity = controller.get();
             assertEquals(android.view.View.GONE,activity.findViewById(R.id.capture_setup_panel).getVisibility());
+            assertFalse(activity.findViewById(R.id.capture_source_settings_button).isShown());
+            activity.findViewById(R.id.capture_setup_toggle).performClick();
             assertTrue(activity.findViewById(R.id.capture_source_settings_button).isShown());
             activity.findViewById(R.id.capture_source_settings_button).performClick();
             assertNotNull(org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog());

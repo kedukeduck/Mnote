@@ -167,6 +167,89 @@ public class CaptureUiLayoutTest {
         return root;
     }
 
+    @Test public void styleALibraryFiltersAndDockRemainUsable() throws Exception {
+        Context context = RuntimeEnvironment.getApplication();
+        CaptureStore.save(context,null,null,null,null,"comment","每周留十分钟，回看真正触动我的内容。",
+                "text_share","记录不是终点，思考才是。","");
+        CaptureStore.save(context,null,null,null,null,"thought","散步时不戴耳机，也许会有新的想法。","quick_note","","");
+        CaptureStore.save(context,null,null,null,null,"todo","周日整理本周摘录","quick_note","","");
+        try (ActivityController<CaptureInboxActivity> controller =
+                     Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
+            CaptureInboxActivity activity = controller.get();
+            View root = layout(activity,390,844);
+            android.widget.LinearLayout records = root.findViewById(R.id.capture_records);
+            assertEquals(3,records.getChildCount());
+            assertInside(root,root.findViewById(R.id.capture_action_dock));
+            render(root,"style-a-library.png");
+            android.widget.RadioGroup filters = root.findViewById(R.id.capture_filter_group);
+            filters.check(R.id.capture_filter_excerpt); assertEquals(1,records.getChildCount());
+            filters.check(R.id.capture_filter_todo); assertEquals(1,records.getChildCount());
+            filters.check(R.id.capture_filter_thought); assertEquals(1,records.getChildCount());
+            EditText query = root.findViewById(R.id.capture_search);
+            query.setText("周日"); assertEquals(0,records.getChildCount());
+            assertEquals(View.VISIBLE,root.findViewById(R.id.capture_empty).getVisibility());
+            filters.check(R.id.capture_filter_all); assertEquals(1,records.getChildCount());
+            query.setText(""); assertEquals(3,records.getChildCount());
+        }
+    }
+
+    @Test public void styleADockFitsSmallScreenWithLargeFontAndKeyboard() throws Exception {
+        RuntimeEnvironment.setFontScale(1.5f);
+        try (ActivityController<CaptureInboxActivity> controller =
+                     Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
+            View root = layout(controller.get(),320,400);
+            assertInside(root,root.findViewById(R.id.capture_action_dock));
+            assertInside(root,root.findViewById(R.id.capture_quick_note_button));
+            assertInside(root,root.findViewById(R.id.capture_start_button));
+            render(root,"style-a-library-small.png");
+        } finally { RuntimeEnvironment.setFontScale(1f); }
+    }
+
+    @Test public void styleADetailAndDestructiveDialogsShareTheme() throws Exception {
+        CaptureStore.save(RuntimeEnvironment.getApplication(),null,null,null,null,"thought",
+                "给灵感留一点空间。","quick_note","","");
+        try (ActivityController<CaptureInboxActivity> controller =
+                     Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
+            CaptureInboxActivity activity = controller.get();
+            android.util.TypedValue theme = new android.util.TypedValue();
+            assertTrue(activity.getTheme().resolveAttribute(android.R.attr.alertDialogTheme,theme,true));
+            assertEquals(R.style.Theme_Mnote_Dialog,theme.resourceId);
+            android.widget.LinearLayout list=activity.findViewById(R.id.capture_records);
+            list.getChildAt(0).performClick();
+            android.app.AlertDialog detail=org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+            assertTrue(detail.isShowing());
+            assertEquals(activity.getColor(R.color.danger),detail.getButton(-2).getCurrentTextColor());
+            renderDialog(detail,"style-a-detail.png");
+            detail.getButton(-2).performClick();
+            shadowOf(Looper.getMainLooper()).idle();
+            android.app.AlertDialog deletion=org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+            assertTrue(deletion.isShowing());
+            assertEquals(activity.getColor(R.color.danger),deletion.getButton(-1).getCurrentTextColor());
+            renderDialog(deletion,"style-a-delete-dialog.png");
+            deletion.getButton(-2).performClick();
+            shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(1,CaptureStore.list(activity,10).size());
+        }
+    }
+
+    @Test public void styleATransitionDialogUsesSameThemeWithoutOpaqueActivity() {
+        android.view.ContextThemeWrapper context = new android.view.ContextThemeWrapper(
+                RuntimeEnvironment.getApplication(),R.style.Theme_CaptureTrigger);
+        android.util.TypedValue value=new android.util.TypedValue();
+        context.getTheme().resolveAttribute(android.R.attr.alertDialogTheme,value,true);
+        assertEquals(R.style.Theme_Mnote_Dialog,value.resourceId);
+        context.getTheme().resolveAttribute(android.R.attr.windowIsTranslucent,value,true);
+        assertNotEquals(0,value.data);
+    }
+
+    private static void renderDialog(android.app.AlertDialog dialog,String name) throws Exception {
+        View root=dialog.getWindow().getDecorView();
+        root.measure(View.MeasureSpec.makeMeasureSpec(360,View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(720,View.MeasureSpec.AT_MOST));
+        root.layout(0,0,360,root.getMeasuredHeight());
+        render(root,name);
+    }
+
     @Test public void accountLoginProtectsCredentialsAndRenders() throws Exception {
         try (ActivityController<CaptureAccountActivity> controller = Robolectric.buildActivity(CaptureAccountActivity.class).setup()) {
             assertTrue((controller.get().getWindow().getAttributes().flags & WindowManager.LayoutParams.FLAG_SECURE) != 0);

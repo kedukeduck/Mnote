@@ -272,6 +272,7 @@ public final class CaptureEditorActivity extends Activity {
         sourceType = "quick_note";
         title.setText(R.string.capture_editor_quick_title);
         kindGroup.check(R.id.capture_kind_thought);
+        findViewById(R.id.capture_thought_label).setVisibility(View.GONE);
         markupContainer.setVisibility(View.GONE);
         textContainer.setVisibility(View.GONE);
         toolRow.setVisibility(View.GONE);

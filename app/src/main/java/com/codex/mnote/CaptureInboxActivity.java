@@ -15,6 +15,8 @@ import android.os.Bundle;
 import android.net.Uri;
 import android.provider.Settings;
 import android.text.format.DateFormat;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.graphics.Typeface;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -24,6 +26,8 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.EditText;
+import android.widget.RadioGroup;
 
 import androidx.core.content.ContextCompat;
 
@@ -64,9 +68,12 @@ public final class CaptureInboxActivity extends Activity {
     private Button syncAllButton;
     private LinearLayout recordsContainer;
     private View emptyState;
-    private int renderGeneration;
+    private volatile int renderGeneration;
     private volatile boolean destroyed;
     private boolean syncReceiverRegistered;
+    private List<CaptureStore.CaptureRecord> libraryRecords = new ArrayList<>();
+    private EditText searchInput;
+    private RadioGroup filterGroup;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -132,9 +139,26 @@ public final class CaptureInboxActivity extends Activity {
         refreshStatus = findViewById(R.id.capture_refresh_status);
         recordsContainer = findViewById(R.id.capture_records);
         emptyState = findViewById(R.id.capture_empty);
+        searchInput = findViewById(R.id.capture_search);
+        filterGroup = findViewById(R.id.capture_filter_group);
     }
 
     private void bindActions() {
+        filterGroup.setOnCheckedChangeListener((group, id) -> renderFilteredRecords());
+        searchInput.setOnEditorActionListener((view, actionId, event) -> {
+            if (actionId != android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) return false;
+            getSystemService(android.view.inputmethod.InputMethodManager.class)
+                    .hideSoftInputFromWindow(view.getWindowToken(), 0);
+            view.clearFocus();
+            return true;
+        });
+        searchInput.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                renderFilteredRecords();
+            }
+            @Override public void afterTextChanged(Editable s) { }
+        });
         captureButton.setOnClickListener(view -> startCaptureOrSetup());
         addTileButton.setOnClickListener(view -> requestTile(false));
         addNoteTileButton.setOnClickListener(view -> requestTile(true));
@@ -331,22 +355,39 @@ public final class CaptureInboxActivity extends Activity {
     }
 
     private void renderRecords() {
-        int generation = ++renderGeneration;
-        clearThumbnails();
-        recordsContainer.removeAllViews();
         List<CaptureStore.CaptureRecord> allRecords = CaptureStore.list(
                 this,
                 Integer.MAX_VALUE
         );
         renderSyncStatus(allRecords);
-        allRecords = CaptureRemoteCache.merged(this, allRecords);
+        libraryRecords = CaptureRemoteCache.merged(this, allRecords);
+        renderFilteredRecords();
+    }
+
+    private void renderFilteredRecords() {
+        int generation = ++renderGeneration;
+        clearThumbnails();
+        recordsContainer.removeAllViews();
+        List<CaptureStore.CaptureRecord> allRecords = new ArrayList<>();
+        String query = searchInput.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
+        int filter = filterGroup.getCheckedRadioButtonId();
+        for (CaptureStore.CaptureRecord record : libraryRecords) {
+            boolean match = filter == R.id.capture_filter_excerpt
+                    ? record.hasImage || !record.sourceText.isEmpty()
+                    : filter == R.id.capture_filter_thought ? "thought".equals(record.kind)
+                    : filter == R.id.capture_filter_todo ? "todo".equals(record.kind) : true;
+            String searchable = record.comment + "\n" + record.sourceText + "\n" + record.sourceUrl;
+            if (match && searchable.toLowerCase(java.util.Locale.ROOT).contains(query)) allRecords.add(record);
+        }
         List<CaptureStore.CaptureRecord> records = allRecords.size() <= RECORD_LIMIT
                 ? allRecords
                 : new ArrayList<>(allRecords.subList(0, RECORD_LIMIT));
-        recordCount.setText(getString(
-                R.string.capture_inbox_count,
-                allRecords.size()
-        ));
+        recordCount.setText(getString(R.string.capture_filtered_count, allRecords.size(), libraryRecords.size()));
+        TextView emptyTitle = (TextView) ((LinearLayout) emptyState).getChildAt(1);
+        TextView emptyDetail = (TextView) ((LinearLayout) emptyState).getChildAt(2);
+        boolean filtered = !query.isEmpty() || filter != R.id.capture_filter_all;
+        emptyTitle.setText(filtered ? R.string.capture_search_empty_title : R.string.capture_empty_title);
+        emptyDetail.setText(filtered ? R.string.capture_search_empty_detail : R.string.capture_empty_detail);
         emptyState.setVisibility(records.isEmpty() ? View.VISIBLE : View.GONE);
         recordsContainer.setVisibility(records.isEmpty() ? View.GONE : View.VISIBLE);
         LayoutInflater inflater = LayoutInflater.from(this);
@@ -381,7 +422,9 @@ public final class CaptureInboxActivity extends Activity {
                 "yyyy-MM-dd HH:mm",
                 new Date(record.createdAt)
         ));
-        setOptionalText(comment, record.comment);
+        setOptionalText(comment, record.comment.isEmpty() ? "" :
+                (record.hasImage || !record.sourceText.isEmpty()
+                        ? getString(R.string.capture_thought_label) + " · " : "") + record.comment);
         source.setText(sourceTypeLabel(record.sourceType));
         if (!record.sourceUrl.isEmpty()) {
             source.append(" · " + getString(R.string.capture_url_saved_badge));
@@ -403,6 +446,8 @@ public final class CaptureInboxActivity extends Activity {
         image.setVisibility(record.hasImage ? View.VISIBLE : View.GONE);
         if (record.hasImage) {
             thumbnailExecutor.execute(() -> {
+                // A fast sequence of search/filter changes must not queue obsolete image decodes.
+                if (destroyed || generation != renderGeneration) return;
                 Bitmap thumbnail = CaptureStore.decodeThumbnail(
                         record.annotatedFile
                 );
@@ -487,16 +532,11 @@ public final class CaptureInboxActivity extends Activity {
         }
         addDetailBlock(
                 content,
-                R.string.capture_detail_comment_label,
-                record.comment,
-                true
-        );
-        addDetailBlock(
-                content,
                 R.string.capture_detail_source_text_label,
                 record.sourceText,
                 true
         );
+        addDetailBlock(content, R.string.capture_detail_comment_label, record.comment, true);
         String metadata = getString(
                 R.string.capture_detail_metadata_format,
                 getString(sourceTypeLabel(record.sourceType)),
@@ -548,6 +588,7 @@ public final class CaptureInboxActivity extends Activity {
             });
         }
         dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(getColor(R.color.danger));
     }
 
     private void showContextImage(CaptureStore.CaptureRecord record, String ownerScope) {
@@ -570,7 +611,7 @@ public final class CaptureInboxActivity extends Activity {
 
     private void confirmDelete(CaptureStore.CaptureRecord record, String scope) {
         if (!scope.equals(CaptureAccountSession.scope(this))) return;
-        new AlertDialog.Builder(this).setTitle("删除这条记录？")
+        AlertDialog confirmation = new AlertDialog.Builder(this).setTitle("删除这条记录？")
                 .setMessage(CaptureAccountSession.hasAccount(this)
                         ? "将从当前列表移除，联网后同步移到账号回收站。其他设备同步后也会移除。"
                         : "将从本机列表移除。未登录时不会删除服务器上的副本。")
@@ -587,6 +628,7 @@ public final class CaptureInboxActivity extends Activity {
                         }});
                     });
                 }).show();
+        confirmation.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(getColor(R.color.danger));
     }
 
     private void addDetailBlock(
