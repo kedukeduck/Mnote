@@ -137,9 +137,22 @@ public class CaptureOverlayEditorTest {
         android.widget.ImageView preview = root().findViewById(R.id.capture_selection_preview);
         assertTrue(preview.isShown());
         assertNotNull(preview.getDrawable());
-        assertTrue(preview.getTop() < root().findViewById(R.id.capture_editor_status).getTop());
+        assertTrue(preview.getHeight() >= 280);
+        assertTrue(root().findViewById(R.id.capture_preview_modes).isShown());
+        assertFalse(root().findViewById(R.id.capture_editor_status).isShown());
         ((EditText) root().findViewById(R.id.capture_comment_input)).setText("先选区域，再写想法");
         render("overlay-compose.png");
+        android.widget.CompoundButton retain=root().findViewById(R.id.capture_retain_image_context);
+        assertFalse(retain.isChecked());
+        root().findViewById(R.id.capture_preview_full).performClick();
+        assertSame(ReflectionHelpers.getField(editor,"sourceBitmap"),
+                ((android.graphics.drawable.BitmapDrawable)preview.getDrawable()).getBitmap());
+        assertFalse(retain.isChecked());
+        assertEquals(selection,markup.annotationLayer().getJSONObject("selection").toString());
+        assertFalse(ReflectionHelpers.<android.graphics.RectF>getField(preview,"selection").isEmpty());
+        render("overlay-compose-context.png");
+        root().findViewById(R.id.capture_preview_crop).performClick();
+        assertTrue(ReflectionHelpers.<android.graphics.RectF>getField(preview,"selection").isEmpty());
         root().findViewById(R.id.capture_editor_cancel).performClick();
         layout(390, 844);
         assertFalse(root().findViewById(R.id.capture_composer).isShown());
@@ -321,6 +334,10 @@ public class CaptureOverlayEditorTest {
         layout(360, 480);
         for (int id : new int[]{R.id.capture_editor_save, R.id.capture_source_url, R.id.capture_comment_input}) {
             View view = root().findViewById(id);
+            if(view instanceof EditText) {
+                view.requestFocus();
+                view.requestRectangleOnScreen(new Rect(0,0,view.getWidth(),view.getHeight()),true);
+            }
             int[] location = new int[2];
             int[] rootLocation = new int[2];
             view.getLocationInWindow(location);
@@ -345,8 +362,9 @@ public class CaptureOverlayEditorTest {
             ScrollView scroll = (ScrollView) composer.getParent();
             assertTrue(scroll.getHeight() > 48);
             scroll.setSmoothScrollingEnabled(false);
-            scroll.scrollTo(0, 0);
             View commentView = root().findViewById(R.id.capture_comment_input);
+            commentView.requestFocus();
+            commentView.requestRectangleOnScreen(new Rect(0,0,commentView.getWidth(),commentView.getHeight()),true);
             render("overlay-large-font-keyboard.png");
             Rect visible = new Rect();
             assertTrue("composer=" + composer.getHeight() + ", scroll=" + scroll.getHeight()
@@ -386,6 +404,7 @@ public class CaptureOverlayEditorTest {
 
     @Test public void imeInsetsLiftInputEvenWhenOverlayIsNotResizedAndDoNotDoubleLiftWhenResized() throws Exception {
         open(); next();
+        root().findViewById(R.id.capture_comment_input).requestFocus();
         android.view.WindowInsets shown = new android.view.WindowInsets.Builder()
                 .setInsets(android.view.WindowInsets.Type.ime(), android.graphics.Insets.of(0, 0, 0, 320))
                 .setVisible(android.view.WindowInsets.Type.ime(), true).build();
@@ -422,7 +441,10 @@ public class CaptureOverlayEditorTest {
 
     @Test public void visibleFrameFallbackAlsoProtectsInputWithoutImeInsets() throws Exception {
         open(); next();
+        root().findViewById(R.id.capture_comment_input).requestFocus();
         ReflectionHelpers.setField(editor, "visibleBottom", 524);
+        // The global-layout listener requests layout when this cached bound changes.
+        root().requestLayout();
         layout(390, 844);
         assertInputAbove(524);
     }
@@ -432,7 +454,9 @@ public class CaptureOverlayEditorTest {
         Rect rect = new Rect();
         assertTrue(input.getGlobalVisibleRect(rect));
         assertTrue("input bottom=" + rect.bottom, rect.bottom <= bottom);
-        assertTrue(rect.height() >= 48);
+        assertTrue("visible="+rect+" inputHeight="+input.getHeight()+" scroll="
+                +((android.widget.ScrollView)root().findViewById(R.id.capture_composer).getParent()).getScrollY()
+                +" focus="+root().findFocus(),rect.height() >= 48);
         assertTrue(root().findViewById(R.id.capture_selection_preview).getGlobalVisibleRect(new Rect()));
         assertTrue(root().findViewById(R.id.capture_editor_save).getGlobalVisibleRect(new Rect()));
     }
@@ -455,6 +479,7 @@ public class CaptureOverlayEditorTest {
         root().findViewById(R.id.capture_editor_save).performClick();
         layout(390, 844);
     }
+
 
     private void layout(int width, int height) {
         root().measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),

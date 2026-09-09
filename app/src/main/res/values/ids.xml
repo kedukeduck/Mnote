@@ -1,4 +1,14 @@
 <resources>
+    <item name="capture_text_preview_modes" type="id" />
+    <item name="capture_text_preview_quote" type="id" />
+    <item name="capture_text_preview_original" type="id" />
+    <item name="capture_reading_scroll" type="id" />
+    <item name="capture_preview_modes" type="id" />
+    <item name="capture_preview_crop" type="id" />
+    <item name="capture_preview_full" type="id" />
+    <item name="capture_review_close" type="id" />
+    <item name="capture_review_delete" type="id" />
+    <item name="capture_review_body" type="id" />
     <item name="capture_excerpt_action" type="id" />
     <item name="capture_overlay_minimize" type="id" />
     <item name="capture_tool_move" type="id" />

@@ -102,7 +102,7 @@ public class CaptureContextTest {
             try(ActivityController<CaptureEditorActivity> controller=editor(Intent.ACTION_SEND,"前文：选中这段：后文")) {
                 CaptureEditorActivity activity=controller.get();
                 CaptureTextExcerpt excerpt=ReflectionHelpers.getField(activity,"textExcerpt"); excerpt.choose(3,7);
-                activity.<CheckBox>findViewById(R.id.capture_retain_text_context).setChecked(keep);
+                activity.<CompoundButton>findViewById(R.id.capture_retain_text_context).setChecked(keep);
                 save(activity); CaptureStore.CaptureRecord record=CaptureStore.list(activity,10).get(0);
                 assertEquals("选中这段",record.sourceText); assertEquals(keep,record.captureContext.has("text"));
                 if(keep) {
@@ -117,16 +117,33 @@ public class CaptureContextTest {
         try(ActivityController<CaptureEditorActivity> controller=editor(Intent.ACTION_PROCESS_TEXT,"选中")) {
             CaptureEditorActivity activity=controller.get(); CaptureTextExcerpt excerpt=ReflectionHelpers.getField(activity,"textExcerpt");
             ReflectionHelpers.setField(excerpt,"original","前文选中后文");
-            activity.<CheckBox>findViewById(R.id.capture_retain_text_context).setChecked(true);
+            activity.<CompoundButton>findViewById(R.id.capture_retain_text_context).setChecked(true);
             save(activity); JSONObject text=CaptureStore.list(activity,10).get(0).captureContext.getJSONObject("text");
             assertEquals("user_supplied",text.getString("origin")); assertEquals(2,text.getInt("start"));
+        }
+    }
+    @Test public void previewingOriginalDoesNotChangeQuoteOrRetentionAndSurvivesRecreation() throws Exception {
+        try(ActivityController<CaptureEditorActivity> controller=editor(Intent.ACTION_SEND,"前文选中后文")) {
+            CaptureEditorActivity activity=controller.get();
+            ReflectionHelpers.<CaptureTextExcerpt>getField(activity,"textExcerpt").choose(2,4);
+            activity.findViewById(R.id.capture_text_preview_original).performClick();
+            assertEquals("前文选中后文",activity.<TextView>findViewById(R.id.capture_source_text).getText().toString());
+            assertFalse(activity.<CompoundButton>findViewById(R.id.capture_retain_text_context).isChecked());
+            controller.recreate(); activity=controller.get();
+            activity.findViewById(R.id.capture_text_preview_original).performClick();
+            activity.findViewById(R.id.capture_text_preview_quote).performClick();
+            assertEquals("选中",activity.<TextView>findViewById(R.id.capture_source_text).getText().toString());
+            activity.findViewById(R.id.capture_text_preview_original).performClick();
+            save(activity);
+            CaptureStore.CaptureRecord record=CaptureStore.list(activity,10).get(0);
+            assertEquals("选中",record.sourceText); assertFalse(record.captureContext.has("text"));
         }
     }
     @Test public void repeatedQuoteKeepsActualChosenOccurrenceAcrossRecreation() throws Exception {
         try(ActivityController<CaptureEditorActivity> controller=editor(Intent.ACTION_SEND,"重复和重复")) {
             CaptureEditorActivity activity=controller.get();
             ReflectionHelpers.<CaptureTextExcerpt>getField(activity,"textExcerpt").choose(3,5);
-            activity.<CheckBox>findViewById(R.id.capture_retain_text_context).setChecked(true);
+            activity.<CompoundButton>findViewById(R.id.capture_retain_text_context).setChecked(true);
             controller.recreate(); activity=controller.get();
             save(activity); JSONObject text=CaptureStore.list(activity,10).get(0).captureContext.getJSONObject("text");
             assertEquals("user_selected",text.getString("match")); assertEquals(3,text.getInt("start"));

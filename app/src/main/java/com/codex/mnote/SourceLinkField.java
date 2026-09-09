@@ -38,7 +38,6 @@ final class SourceLinkField {
         automaticOrigin = "shared_text";
         sharedUrl = CaptureSourceUrl.fromSharedText(text);
         input.setText(sharedUrl);
-        if (!sharedUrl.isEmpty()) panel.setVisibility(View.VISIBLE);
         updateLabel();
     }
 
@@ -68,8 +67,11 @@ final class SourceLinkField {
     boolean hasInput() { return !input.getText().toString().trim().isEmpty(); }
 
     private void updateLabel() {
-        toggle.setText(hasInput() ? R.string.capture_url_attached
-                : panel.getVisibility() == View.VISIBLE ? R.string.capture_url_hide : R.string.capture_url_add);
+        String clean = CaptureSourceUrl.clean(input.getText().toString());
+        String host = clean.isEmpty() ? "" : android.net.Uri.parse(clean).getHost();
+        toggle.setText(host != null && !host.isEmpty() ? "↗  " + host + "  ›"
+                : toggle.getContext().getString(panel.getVisibility() == View.VISIBLE
+                        ? R.string.capture_url_hide : R.string.capture_url_add));
     }
 
     private void paste() {

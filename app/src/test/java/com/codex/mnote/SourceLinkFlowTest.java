@@ -47,6 +47,9 @@ public class SourceLinkFlowTest {
             CaptureEditorActivity activity = controller.get();
             EditText url = activity.findViewById(R.id.capture_source_url);
             assertEquals(URL, url.getText().toString());
+            assertEquals(View.GONE,activity.findViewById(R.id.capture_url_panel).getVisibility());
+            assertTrue(activity.<android.widget.TextView>findViewById(R.id.capture_url_toggle)
+                    .getText().toString().contains("m.weibo.cn"));
             ((EditText) activity.findViewById(R.id.capture_comment_input)).setText("我的想法");
             CaptureStore.CaptureRecord record = save(activity);
             assertEquals(URL, record.sourceUrl);

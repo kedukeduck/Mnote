@@ -14,11 +14,13 @@ import java.util.function.Consumer;
 final class CaptureTextExcerpt {
     private final Activity activity;
     private final TextView text;
-    private final CheckBox retain;
+    private final CompoundButton retain;
     private final View controls;
     private final Consumer<String> selected;
     private String original = "", origin = "user_supplied";
     private int selectedStart = -1;
+    private RadioGroup previewModes;
+    private String quote = "";
     CaptureTextExcerpt(Activity activity, Consumer<String> selected) {
         this.activity=activity; this.selected=selected;
         text=activity.findViewById(R.id.capture_source_text);
@@ -44,6 +46,7 @@ final class CaptureTextExcerpt {
         });
     }
     void show(String supplied,boolean selectedByOtherApp) {
+        quote=supplied;
         controls.setVisibility(View.VISIBLE);
         original=selectedByOtherApp || supplied.length()>CaptureContext.MAX_TEXT ? "" : supplied;
         origin=selectedByOtherApp ? "user_supplied" : "shared_text";
@@ -55,11 +58,23 @@ final class CaptureTextExcerpt {
         int base=displayed.equals(original) ? 0 : selectedStart;
         selectedStart=base<0 ? -1 : base+start;
         String excerpt=text.getText().subSequence(start,end).toString();
-        selected.accept(excerpt); text.setText(excerpt);
+        quote=excerpt; selected.accept(excerpt); text.setText(excerpt);
+        if(previewModes!=null) previewModes.check(R.id.capture_text_preview_quote);
         Toast.makeText(activity,R.string.capture_excerpt_chosen,Toast.LENGTH_SHORT).show();
     }
     void detectedOriginal(String value,int start) {
         original=value; origin="accessibility_node"; selectedStart=start;
+    }
+    RadioGroup previewModes() {
+        previewModes=CapturePreviewModes.create(activity,true,full->text.setText(full ? original : quote));
+        updatePreviewAvailability();
+        return previewModes;
+    }
+    private void updatePreviewAvailability() {
+        if(previewModes!=null) {
+            previewModes.findViewById(R.id.capture_text_preview_original).setEnabled(!original.isEmpty());
+            if(original.isEmpty()) previewModes.check(R.id.capture_text_preview_quote);
+        }
     }
     private void editOriginal() {
         EditText input=new EditText(activity); input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);
@@ -76,7 +91,9 @@ final class CaptureTextExcerpt {
                 .setPositiveButton(R.string.capture_context_use,(d,which)-> {
                     String value=input.getText().toString();
                     if(!value.equals(original)) { origin="user_supplied"; selectedStart=-1; }
-                    original=value; retain.setChecked(!original.isEmpty());
+                    original=value; retain.setChecked(!original.isEmpty()); updatePreviewAvailability();
+                    if(previewModes!=null && previewModes.getCheckedRadioButtonId()==R.id.capture_text_preview_original)
+                        text.setText(original);
                 }).setNegativeButton(R.string.capture_cancel,null).create();
         dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         dialog.show();
@@ -94,5 +111,6 @@ final class CaptureTextExcerpt {
         original=state.getString("excerpt_original",original); origin=state.getString("excerpt_origin",origin);
         selectedStart=state.getInt("excerpt_start",-1);
         retain.setChecked(state.getBoolean("excerpt_retain",false));
+        quote=state.getString("excerpt_quote",quote);
     }
 }

@@ -110,6 +110,11 @@ public final class CaptureEditorActivity extends Activity {
             sourceLink.acceptDetected(getIntent().getStringExtra("capture_source_url"),
                     getIntent().getStringExtra("capture_source_origin"));
         }
+        if (!"quick_note".equals(sourceType)) {
+            title.setText(R.string.capture_compose_title);
+            CaptureReadingLayout.attach((LinearLayout) title.getParent().getParent());
+            attachTextPreviewModes();
+        }
     }
 
     @Override protected void onSaveInstanceState(Bundle state) {
@@ -392,6 +397,17 @@ public final class CaptureEditorActivity extends Activity {
         textContainer.setVisibility(View.VISIBLE);
         sourceTextView.setText(sourceText);
         setLoading(false);
+        attachTextPreviewModes();
+    }
+
+    private void attachTextPreviewModes() {
+        if(textContainer.getVisibility()!=View.VISIBLE || findViewById(R.id.capture_reading_scroll)==null
+                || findViewById(R.id.capture_text_preview_modes)!=null) return;
+        LinearLayout body=(LinearLayout)findViewById(R.id.capture_evidence_container).getParent();
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
+        params.setMargins(CaptureReadingLayout.dp(this,20),0,
+                CaptureReadingLayout.dp(this,20),CaptureReadingLayout.dp(this,12));
+        body.addView(textExcerpt.previewModes(),1,params);
     }
 
     private void selectTool(CaptureMarkupView.Tool tool) {
@@ -463,7 +479,7 @@ public final class CaptureEditorActivity extends Activity {
         Bitmap finalOriginal = original;
         Bitmap finalAnnotated = annotated;
         JSONObject finalAnnotation = annotation;
-        boolean retainImage = ((android.widget.CheckBox)findViewById(R.id.capture_retain_image_context)).isChecked();
+        boolean retainImage = ((android.widget.CompoundButton)findViewById(R.id.capture_retain_image_context)).isChecked();
         JSONObject textContext;
         try { textContext=textExcerpt.context(sourceText); }
         catch (JSONException error) { recycle(original); recycle(annotated); saving=false; setLoading(false); return; }

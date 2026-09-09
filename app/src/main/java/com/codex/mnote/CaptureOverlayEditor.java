@@ -58,9 +58,11 @@ final class CaptureOverlayEditor {
     private ScrollView composerScroll;
     private LinearLayout column;
     private ImageView preview;
+    private RadioGroup previewModes;
     private Bitmap previewBitmap;
     private int imeInset;
     private int visibleBottom;
+    private final Rect focusedBounds = new Rect();
     private boolean composing;
     private boolean toolsAtTop;
     private int topInset;
@@ -100,8 +102,12 @@ final class CaptureOverlayEditor {
                     composerScroll.getLayoutParams().height = LinearLayout.LayoutParams.WRAP_CONTENT;
                 }
                 if (preview != null && composing) {
-                    preview.getLayoutParams().height = Math.max(dp(48), Math.min(dp(180),
-                            Math.round((bottom - topInset) * .23f)));
+                    int room = bottom - topInset;
+                    comment.setMinHeight(dp(room < dp(600) ? 80 : 144));
+                    comment.setMaxLines(room < dp(600) ? 2 : 6);
+                    preview.getLayoutParams().height = room < dp(600)
+                            ? Math.max(dp(64), Math.min(dp(100), Math.round(room * .20f)))
+                            : Math.min(dp(320), Math.round(room * .40f));
                 }
                 super.onMeasure(widthSpec, heightSpec);
                 if (composerScroll == null || column == null) return;
@@ -117,6 +123,17 @@ final class CaptureOverlayEditor {
                 if (composing && composerScroll.getMeasuredHeight() > Math.max(0, available)) {
                     composerScroll.getLayoutParams().height = Math.max(0, available);
                     super.onMeasure(widthSpec, heightSpec);
+                }
+            }
+
+            @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
+                super.onLayout(changed,l,t,r,b);
+                if(composing && usableBottom(b-t)-topInset < dp(600)) {
+                    View focused=findFocus();
+                    if(focused instanceof EditText) {
+                        focusedBounds.set(0,0,focused.getWidth(),focused.getHeight());
+                        focused.requestRectangleOnScreen(focusedBounds,true);
+                    }
                 }
             }
 
@@ -158,14 +175,20 @@ final class CaptureOverlayEditor {
         dockParams.setMargins(dp(12), dp(12), dp(12), dp(24));
         column.setLayoutParams(dockParams);
         column.setElevation(dp(12));
-        preview = new ImageView(context);
+        preview = new CaptureContextPreview(context, null, null);
         preview.setId(R.id.capture_selection_preview);
         preview.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        preview.setBackgroundResource(R.drawable.bg_capture_text_preview);
+        preview.setClipToOutline(true);
         preview.setContentDescription(context.getString(R.string.capture_selection_preview));
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(180));
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(320));
         previewParams.setMargins(dp(16), 0, dp(16), dp(8));
         column.addView(preview, 1, previewParams);
+        previewModes = CapturePreviewModes.create(context, false, this::showPreview);
+        LinearLayout.LayoutParams modesParams=new LinearLayout.LayoutParams(-1,-2);
+        modesParams.setMargins(dp(16),0,dp(16),dp(12));
+        column.addView(previewModes,2,modesParams);
         root.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
                 | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         root.setOnApplyWindowInsetsListener((view, insets) -> {
@@ -202,14 +225,8 @@ final class CaptureOverlayEditor {
         root.findViewById(R.id.capture_markup_container).setBackground(null);
         comment = root.findViewById(R.id.capture_comment_input);
         // Keep the lower panel compact when the keyboard or link field opens.
-        comment.setMaxLines(2);
-        comment.setMinHeight(dp(60));
-        // Keep the primary writing field at the top of the scrollable form.
-        composer.removeView(comment);
-        composer.addView(comment, 0);
-        View thoughtLabel = composer.findViewById(R.id.capture_thought_label);
-        composer.removeView(thoughtLabel);
-        composer.addView(thoughtLabel, 0);
+        comment.setMaxLines(6);
+        comment.setMinHeight(dp(144));
         comment.setOnFocusChangeListener((view, focused) -> { if (focused) keepFocusedInputVisible(); });
         kind = root.findViewById(R.id.capture_kind_group);
         status = root.findViewById(R.id.capture_editor_status);
@@ -331,7 +348,7 @@ final class CaptureOverlayEditor {
         header.setPadding(dp(4), 0, dp(4), 0);
         TextView title = root.findViewById(R.id.capture_editor_title);
         title.setVisibility(composing ? View.VISIBLE : View.INVISIBLE);
-        title.setTextSize(13);
+        title.setTextSize(17);
         title.setTextColor(context.getColor(R.color.ink));
         title.setShadowLayer(0, 0, 0, 0);
         int[] ids = {R.id.capture_tool_select, R.id.capture_tool_pen, R.id.capture_tool_highlighter,
@@ -357,8 +374,13 @@ final class CaptureOverlayEditor {
             previewBitmap = nextPreview;
         }
         preview.setVisibility(value ? View.VISIBLE : View.GONE);
+        previewModes.setVisibility(value ? View.VISIBLE : View.GONE);
+        if(value) {
+            previewModes.check(R.id.capture_preview_crop);
+            showPreview(false);
+        }
         root.findViewById(R.id.capture_evidence_container).setAlpha(value ? .18f : 1f);
-        status.setVisibility(value ? View.VISIBLE : View.GONE);
+        status.setVisibility(View.GONE);
         status.setMaxLines(2);
         composerScroll.setVisibility(value ? View.VISIBLE : View.GONE);
         root.findViewById(R.id.capture_tool_row).setVisibility(!value && !loading ? View.VISIBLE : View.GONE);
@@ -373,16 +395,19 @@ final class CaptureOverlayEditor {
             comment.clearFocus();
             InputMethodManager keyboard = context.getSystemService(InputMethodManager.class);
             if (keyboard != null) keyboard.hideSoftInputFromWindow(root.getWindowToken(), 0);
-        } else {
-            comment.requestFocus();
-            comment.post(() -> {
-                if (!attached || !composing || closed) return;
-                InputMethodManager keyboard = context.getSystemService(InputMethodManager.class);
-                if (keyboard != null) keyboard.showSoftInput(comment, InputMethodManager.SHOW_IMPLICIT);
-            });
         }
         positionDock();
         styleControls();
+    }
+
+    private void showPreview(boolean full) {
+        if(sourceBitmap==null) return;
+        JSONObject imageContext=null;
+        if(full) try {
+            imageContext=markup.annotationLayer();
+            imageContext.put("width",sourceBitmap.getWidth()).put("height",sourceBitmap.getHeight());
+        } catch(org.json.JSONException ignored) { }
+        ((CaptureContextPreview)preview).setContent(full ? sourceBitmap : previewBitmap,imageContext);
     }
 
     private String sourceSummary() {
@@ -551,7 +576,7 @@ final class CaptureOverlayEditor {
         status.setText(R.string.capture_saving);
         Bitmap originalCopy = original;
         Bitmap annotatedCopy = annotated;
-        boolean retainImage = ((android.widget.CheckBox)root.findViewById(R.id.capture_retain_image_context)).isChecked();
+        boolean retainImage = ((android.widget.CompoundButton)root.findViewById(R.id.capture_retain_image_context)).isChecked();
         writer.execute(() -> {
             boolean success = false;
             try {

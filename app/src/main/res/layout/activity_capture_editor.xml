@@ -64,29 +64,22 @@
 
     <LinearLayout android:id="@+id/capture_composer" android:layout_width="match_parent"
         android:layout_height="wrap_content" android:orientation="vertical"
-        android:paddingStart="16dp" android:paddingTop="8dp" android:paddingEnd="16dp" android:paddingBottom="16dp">
-        <include layout="@layout/capture_source_link" />
-        <CheckBox android:id="@+id/capture_retain_image_context" android:layout_width="match_parent"
+        android:paddingStart="20dp" android:paddingTop="0dp" android:paddingEnd="20dp" android:paddingBottom="20dp">
+        <Switch style="@style/MnoteContextSwitch" android:id="@+id/capture_retain_image_context" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:minHeight="48dp" android:visibility="gone"
             android:text="@string/capture_retain_image_context" android:textSize="14sp" />
         <LinearLayout android:id="@+id/capture_text_context_controls" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
-            <CheckBox android:id="@+id/capture_retain_text_context" android:layout_width="0dp" android:layout_weight="1"
+            <Switch style="@style/MnoteContextSwitch" android:id="@+id/capture_retain_text_context" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/capture_retain_text_context" android:textSize="13sp" />
             <Button android:id="@+id/capture_text_context_edit" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="@string/capture_text_context_edit" android:textSize="13sp" />
         </LinearLayout>
-        <RadioGroup android:id="@+id/capture_kind_group" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:checkedButton="@id/capture_kind_comment"
-            android:background="@drawable/bg_segments" android:padding="3dp"
-            android:gravity="center_vertical" android:orientation="horizontal">
-            <RadioButton android:id="@+id/capture_kind_comment" style="@style/CaptureSegment" android:text="@string/capture_kind_comment" />
-            <RadioButton android:id="@+id/capture_kind_thought" style="@style/CaptureSegment" android:text="@string/capture_kind_thought" />
-            <RadioButton android:id="@+id/capture_kind_todo" style="@style/CaptureSegment" android:text="@string/capture_kind_todo" />
-        </RadioGroup>
+
+        <include layout="@layout/capture_source_link" />
         <TextView android:id="@+id/capture_thought_label" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:layout_marginTop="12dp"
-            android:labelFor="@id/capture_comment_input" android:text="@string/capture_thought_label"
+            android:text="@string/capture_thought_label"
             android:textColor="@color/ink" android:textSize="13sp" android:fontFamily="sans-serif-medium" />
         <EditText android:id="@+id/capture_comment_input" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:layout_marginTop="8dp"
@@ -94,7 +87,15 @@
             android:hint="@string/capture_comment_hint" android:inputType="textCapSentences|textMultiLine"
             android:imeOptions="flagNoExtractUi" android:importantForAutofill="no"
             android:maxLength="20000" android:maxLines="4"
-            android:minHeight="84dp" android:padding="16dp" android:lineSpacingExtra="5dp"
+            android:minHeight="144dp" android:padding="16dp" android:lineSpacingExtra="5dp"
             android:textColor="@color/ink" android:textColorHint="@color/ink_muted" android:textSize="16sp" />
+        <RadioGroup android:id="@+id/capture_kind_group" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:layout_marginTop="16dp" android:checkedButton="@id/capture_kind_comment"
+            android:background="@drawable/bg_segments" android:padding="3dp"
+            android:gravity="center_vertical" android:orientation="horizontal">
+            <RadioButton android:id="@+id/capture_kind_comment" style="@style/CaptureSegment" android:text="@string/capture_kind_comment" />
+            <RadioButton android:id="@+id/capture_kind_thought" style="@style/CaptureSegment" android:text="@string/capture_kind_thought" />
+            <RadioButton android:id="@+id/capture_kind_todo" style="@style/CaptureSegment" android:text="@string/capture_kind_todo" />
+        </RadioGroup>
     </LinearLayout>
 </LinearLayout>

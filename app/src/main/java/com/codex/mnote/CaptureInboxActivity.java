@@ -479,7 +479,7 @@ public final class CaptureInboxActivity extends Activity {
     private void showRecordDetail(CaptureStore.CaptureRecord record, String ownerScope) {
         if (!ownerScope.equals(CaptureAccountSession.scope(this))) return;
         if (!record.hasImage) {
-            presentRecordDetail(record, null, ownerScope);
+            presentRecordDetail(record, null, null, ownerScope);
             return;
         }
         Toast.makeText(
@@ -489,124 +489,24 @@ public final class CaptureInboxActivity extends Activity {
         ).show();
         thumbnailExecutor.execute(() -> {
             Bitmap image = CaptureStore.decodeReviewBitmap(record.annotatedFile);
+            Bitmap full = record.contextFile == null ? null : CaptureStore.decodeReviewBitmap(record.contextFile);
             runOnUiThread(() -> {
                 if (destroyed || isFinishing() || !ownerScope.equals(CaptureAccountSession.scope(this))) {
+                    if (full != null) full.recycle();
                     if (image != null) {
                         image.recycle();
                     }
                     return;
                 }
-                presentRecordDetail(record, image, ownerScope);
+                presentRecordDetail(record, image, full, ownerScope);
             });
         });
     }
 
-    private void presentRecordDetail(
-            CaptureStore.CaptureRecord record,
-            Bitmap image,
-            String ownerScope
-    ) {
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(18), dp(10), dp(18), dp(22));
-        scroll.addView(content, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT
-        ));
-
-        if (image != null) {
-            ImageView preview = new ImageView(this);
-            preview.setAdjustViewBounds(true);
-            preview.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            preview.setImageBitmap(image);
-            preview.setContentDescription(
-                    getString(R.string.capture_item_image_description)
-            );
-            LinearLayout.LayoutParams imageParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-            );
-            imageParams.bottomMargin = dp(16);
-            content.addView(preview, imageParams);
-        }
-        addDetailBlock(
-                content,
-                R.string.capture_detail_source_text_label,
-                record.sourceText,
-                true
-        );
-        addDetailBlock(content, R.string.capture_detail_comment_label, record.comment, true);
-        String metadata = getString(
-                R.string.capture_detail_metadata_format,
-                getString(sourceTypeLabel(record.sourceType)),
-                record.sourcePackage.isEmpty()
-                        ? getString(R.string.capture_source_unknown)
-                        : CaptureSourceContext.appLabel(this, record.sourcePackage) + " · " + record.sourcePackage,
-                record.fidelityLevel,
-                record.aiAccess,
-                getString(syncStateLabel(record.syncState))
-        );
-        org.json.JSONObject textContext = record.captureContext.optJSONObject("text");
-        if (textContext != null) addDetailBlock(content,R.string.capture_context_text_title,
-                textContext.optString("full_text",""),true);
-        if (record.contextFile != null) {
-            Button contextButton=new Button(this); contextButton.setText(R.string.capture_context_image_open);
-            contextButton.setOnClickListener(view->showContextImage(record,ownerScope));
-            content.addView(contextButton);
-        }
-        if (!record.sourceUrl.isEmpty()) {
-            addDetailBlock(content, R.string.capture_url_detail, record.sourceUrl, true);
-            Button openSource = new Button(this);
-            openSource.setText(R.string.capture_url_open);
-            openSource.setOnClickListener(view -> openSourceUrl(record.sourceUrl));
-            content.addView(openSource, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        }
-        addDetailBlock(
-                content,
-                R.string.capture_detail_metadata_label,
-                metadata,
-                false
-        );
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(getString(
-                        R.string.capture_detail_title_format,
-                        getString(kindLabel(record.kind)),
-                        DateFormat.format("yyyy-MM-dd HH:mm", new Date(record.createdAt))
-                ))
-                .setView(scroll)
-                .setPositiveButton(R.string.capture_confirm, null)
-                .setNegativeButton("删除记录", (ignored, which) -> confirmDelete(record, ownerScope))
-                .create();
-        if (image != null) {
-            dialog.setOnDismissListener(ignored -> {
-                if (!image.isRecycled()) {
-                    image.recycle();
-                }
-            });
-        }
-        dialog.show();
-        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(getColor(R.color.danger));
-    }
-
-    private void showContextImage(CaptureStore.CaptureRecord record, String ownerScope) {
-        thumbnailExecutor.execute(()-> {
-            Bitmap bitmap=CaptureStore.decodeReviewBitmap(record.contextFile);
-            runOnUiThread(()-> {
-                if (destroyed || isFinishing() || !ownerScope.equals(CaptureAccountSession.scope(this))) {
-                    if(bitmap!=null) bitmap.recycle(); return;
-                }
-                if(bitmap==null) { Toast.makeText(this,R.string.capture_error_unreadable_image,Toast.LENGTH_SHORT).show(); return; }
-                ScrollView scroll=new ScrollView(this);
-                CaptureContextPreview preview=new CaptureContextPreview(this,bitmap,record.captureContext.optJSONObject("image"));
-                scroll.addView(preview,new ScrollView.LayoutParams(-1,-2));
-                AlertDialog dialog=new AlertDialog.Builder(this).setTitle(R.string.capture_context_image_title)
-                        .setView(scroll).setPositiveButton(R.string.capture_confirm,null).create();
-                dialog.setOnDismissListener(ignored->bitmap.recycle()); dialog.show();
-            });
-        });
+    private void presentRecordDetail(CaptureStore.CaptureRecord record, Bitmap image,
+                                     Bitmap full, String ownerScope) {
+        CaptureRecordPage.show(this,record,image,full,
+                () -> confirmDelete(record,ownerScope),this::openSourceUrl);
     }
 
     private void confirmDelete(CaptureStore.CaptureRecord record, String scope) {
@@ -629,42 +529,6 @@ public final class CaptureInboxActivity extends Activity {
                     });
                 }).show();
         confirmation.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(getColor(R.color.danger));
-    }
-
-    private void addDetailBlock(
-            LinearLayout content,
-            int labelResource,
-            String value,
-            boolean selectable
-    ) {
-        if (value == null || value.isEmpty()) {
-            return;
-        }
-        TextView label = new TextView(this);
-        label.setText(labelResource);
-        label.setTextColor(getColor(R.color.ink_muted));
-        label.setTextSize(12);
-        label.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        labelParams.topMargin = dp(8);
-        content.addView(label, labelParams);
-
-        TextView text = new TextView(this);
-        text.setText(value);
-        text.setTextColor(getColor(R.color.ink));
-        text.setTextSize(15);
-        text.setLineSpacing(0f, 1.2f);
-        text.setTextIsSelectable(selectable);
-        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        textParams.topMargin = dp(4);
-        textParams.bottomMargin = dp(8);
-        content.addView(text, textParams);
     }
 
     private void openSourceUrl(String supplied) {

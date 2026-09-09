@@ -311,7 +311,7 @@ public class CaptureTileFlowTest {
             try(ActivityController<CaptureEditorActivity> editor=Robolectric.buildActivity(CaptureEditorActivity.class,editorIntent).setup()) {
                 CaptureEditorActivity activity=editor.get();
                 assertEquals("选中文字",activity.<android.widget.TextView>findViewById(R.id.capture_source_text).getText().toString());
-                activity.<android.widget.CheckBox>findViewById(R.id.capture_retain_text_context).setChecked(true);
+                activity.<android.widget.CompoundButton>findViewById(R.id.capture_retain_text_context).setChecked(true);
                 activity.<android.widget.EditText>findViewById(R.id.capture_comment_input).setText("我的想法");
                 activity.findViewById(R.id.capture_editor_save).performClick();
                 ReflectionHelpers.<java.util.concurrent.ExecutorService>getField(activity,"executor").submit(()->{}).get(5,java.util.concurrent.TimeUnit.SECONDS);
@@ -345,8 +345,8 @@ public class CaptureTileFlowTest {
         Intent intent=CaptureEditorActivity.forSelectedText(context,
                 new CaptureSelectedText("com.example.reader",17,"quote","before quote after",7));
         try(ActivityController<CaptureEditorActivity> editor=Robolectric.buildActivity(CaptureEditorActivity.class,intent).setup()) {
-            assertFalse(editor.get().<android.widget.CheckBox>findViewById(R.id.capture_retain_text_context).isChecked());
-            editor.get().<android.widget.CheckBox>findViewById(R.id.capture_retain_text_context).setChecked(true);
+            assertFalse(editor.get().<android.widget.CompoundButton>findViewById(R.id.capture_retain_text_context).isChecked());
+            editor.get().<android.widget.CompoundButton>findViewById(R.id.capture_retain_text_context).setChecked(true);
             editor.get().<android.widget.EditText>findViewById(R.id.capture_comment_input).setText("my thought");
             editor.recreate();
             assertEquals("quote",editor.get().<android.widget.TextView>findViewById(R.id.capture_source_text).getText().toString());

@@ -132,6 +132,9 @@ public class CaptureUiLayoutTest {
             root = layout(activity, 360, 480);
             assertTrue(root.findViewById(R.id.capture_markup_view).getHeight() > 0);
             assertInside(root, root.findViewById(R.id.capture_editor_save));
+            View input = root.findViewById(R.id.capture_comment_input);
+            input.requestFocus();
+            input.requestRectangleOnScreen(new android.graphics.Rect(0,0,input.getWidth(),input.getHeight()),true);
             assertInside(root, root.findViewById(R.id.capture_comment_input));
             ((EditText) root.findViewById(R.id.capture_comment_input)).setText("这段话提醒我定期回顾。");
             root.findViewById(R.id.capture_editor_save).performClick();
@@ -218,9 +221,10 @@ public class CaptureUiLayoutTest {
             list.getChildAt(0).performClick();
             android.app.AlertDialog detail=org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
             assertTrue(detail.isShowing());
-            assertEquals(activity.getColor(R.color.danger),detail.getButton(-2).getCurrentTextColor());
+            assertEquals(activity.getColor(R.color.danger),
+                    ((android.widget.TextView)detail.findViewById(R.id.capture_review_delete)).getCurrentTextColor());
             renderDialog(detail,"style-a-detail.png");
-            detail.getButton(-2).performClick();
+            detail.findViewById(R.id.capture_review_delete).performClick();
             shadowOf(Looper.getMainLooper()).idle();
             android.app.AlertDialog deletion=org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
             assertTrue(deletion.isShowing());
@@ -242,10 +246,51 @@ public class CaptureUiLayoutTest {
         assertNotEquals(0,value.data);
     }
 
+    @Test public void savedScreenshotUsesLargeReadingPreviewAndIndependentThought() throws Exception {
+        Context context=RuntimeEnvironment.getApplication();
+        Bitmap full=Bitmap.createBitmap(390,844,Bitmap.Config.ARGB_8888);
+        full.eraseColor(Color.WHITE);
+        Canvas canvas=new Canvas(full); Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(Color.rgb(32,36,48)); paint.setTextSize(24);
+        canvas.drawText("给思考留一点空间",24,64,paint);
+        paint.setTextSize(13);paint.setColor(Color.rgb(104,113,132));
+        canvas.drawText("阅读摘录 · 虚构示例",24,96,paint);
+        paint.setColor(Color.rgb(229,235,245));canvas.drawRoundRect(24,124,366,324,16,16,paint);
+        paint.setColor(Color.rgb(144,162,190));
+        android.graphics.Path mountain=new android.graphics.Path();mountain.moveTo(24,300);
+        mountain.lineTo(126,190);mountain.lineTo(204,270);mountain.lineTo(284,172);
+        mountain.lineTo(366,282);mountain.lineTo(366,324);mountain.lineTo(24,324);mountain.close();canvas.drawPath(mountain,paint);
+        paint.setColor(Color.rgb(32,36,48));paint.setTextSize(18);
+        canvas.drawText("记录，不只是保存信息。",24,370,paint);
+        canvas.drawText("也保留那些被触动的时刻。",24,408,paint);
+        paint.setTextSize(15);paint.setColor(Color.rgb(104,113,132));
+        canvas.drawText("回顾时，记得问自己：",24,484,paint);
+        canvas.drawText("这段内容为什么打动了我？",24,516,paint);
+        File draft=CaptureStore.writeDraftBitmap(context,full);
+        CaptureMarkupView markup=new CaptureMarkupView(context,null);markup.setSourceBitmap(full);
+        ReflectionHelpers.<android.graphics.RectF>getField(markup,"cropRect").set(16,116,374,430);
+        Bitmap crop=markup.renderOriginalSelection(),annotated=markup.renderAnnotatedSelection();
+        CaptureStore.CaptureRecord record=CaptureStore.save(context,draft,crop,annotated,markup.annotationLayer(),
+                "thought","想把每周回顾变成习惯。\n不只看收藏了什么，也看看自己为什么会被触动。",
+                "screen","","","https://example.com/reading","user",true,null);
+        crop.recycle();annotated.recycle();full.recycle();
+        try(ActivityController<CaptureInboxActivity> controller=Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
+            android.app.AlertDialog page=CaptureRecordPage.show(controller.get(),record,
+                    CaptureStore.decodeReviewBitmap(record.annotatedFile),CaptureStore.decodeReviewBitmap(record.contextFile),
+                    ()->fail("No delete expected"),url->assertEquals(record.sourceUrl,url));
+            renderDialog(page,"style-a-image-detail.png");
+            assertTrue(page.findViewById(R.id.capture_selection_preview).getHeight()>=320);
+            page.findViewById(R.id.capture_preview_full).performClick();
+            renderDialog(page,"style-a-image-context.png");
+            page.dismiss();
+        }
+    }
+
     private static void renderDialog(android.app.AlertDialog dialog,String name) throws Exception {
         View root=dialog.getWindow().getDecorView();
+        boolean reading=dialog.findViewById(R.id.capture_review_body)!=null;
         root.measure(View.MeasureSpec.makeMeasureSpec(360,View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(720,View.MeasureSpec.AT_MOST));
+                View.MeasureSpec.makeMeasureSpec(reading ? 844 : 720,reading ? View.MeasureSpec.EXACTLY : View.MeasureSpec.AT_MOST));
         root.layout(0,0,360,root.getMeasuredHeight());
         render(root,name);
     }
