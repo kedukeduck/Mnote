@@ -22,12 +22,13 @@ Mnote 是一个独立的本地优先个人知识捕获项目，用于在 Android
 
 ## Android 构建
 
-当前 Android 增量测试版：[1.0.7-test APK](https://github.com/kedukeduck/Mnote/releases/download/mnote-android-v1.0.7-test/Mnote-Android-1.0.7-test.apk)。
-支持“全屏选区 → 下一步 → 底部想法卡片”的两步摘录、独立随手记，以及主动摘录时一次性识别来源应用 / 已适配浏览器的地址栏。
-浏览器适配包含 Chrome、Edge、Brave、Firefox；完整程度取决于浏览器暴露的地址栏。升级后可能需要重新启用无障碍服务以获得窗口内容读取能力。
-微博等原生 App 的内部页面链接仍不能保证自动取得；可收起批注、复制原帖链接，再恢复并粘贴。原生选中文字后“记到 Mnote”或分享入口仍保留，本版不提供截图 OCR 选字。
-首页“刷新”拉取云端记录及截图，“上传本机”负责上传。本版修复本地保存后首页不及时更新，增加截图就绪 Toast 和独立反馈提示条；首页新增“来源识别与无障碍设置”入口，显示真实能力状态，优先直达 Mnote 的系统服务页面。窗口事件保持最小订阅但丢弃全部事件内容，来源仍只在主动摘录时读取。详见[本版说明与验收边界](docs/android-1.0.7-save-source-fixes.md)。
+当前 Android 增量测试版：[1.3.0-test APK](https://github.com/kedukeduck/Mnote/releases/download/mnote-android-v1.3.0-test/Mnote-Android-1.3.0-test.apk)。
 
+Android 全部页面及应用弹窗采用 A「轻盈极简」主题；首页提供搜索、摘录/想法/待办筛选及固定底部操作区。账号登录后自动同步，支持刷新拉取和删除记录。来源与无障碍说明位于首页“快捷方式与权限设置”。
+
+单次摘录优先尝试读取选中文字，无法取得时回退截图；截图继续使用“圈选 → 下一步 → 想法”的原地悬浮流程，可选择保留完整截图上下文。不同应用的选区和链接能力仍有差异，不承诺任意应用均可自动获取，也不提供截图 OCR 选字。系统权限页和键盘保留系统样式。
+
+详见[1.3.0 视觉规范、覆盖范围与验收](docs/android-1.3.0-style-a.md)。覆盖安装前先保存草稿，不要卸载；此包沿用测试签名。
 ```bash
 ./gradlew --no-daemon testDebugUnitTest assembleDebug lintDebug
 ```
