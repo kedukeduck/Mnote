@@ -75,4 +75,16 @@ public class CaptureRecordPageTest {
                 View.MeasureSpec.makeMeasureSpec(height,View.MeasureSpec.EXACTLY));
         root.layout(0,0,width,height);
     }
+
+    @Test public void retainedOriginalIsStillReadableAfterExcerptIsCleared() throws Exception {
+        android.content.Context context=RuntimeEnvironment.getApplication();
+        CaptureStore.CaptureRecord record=CaptureStore.save(context,null,null,null,null,"thought","我的想法","share_text","","",
+                "","",false,CaptureContext.text("仍然保留的原文","user_edited",""));
+        try(ActivityController<CaptureInboxActivity> controller=Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
+            AlertDialog dialog=CaptureRecordPage.show(controller.get(),record,null,null,()->{},url->{});
+            RadioGroup modes=dialog.findViewById(R.id.capture_text_preview_modes);
+            assertNotNull(modes);assertEquals(R.id.capture_text_preview_original,modes.getCheckedRadioButtonId());
+            dialog.dismiss();
+        }
+    }
 }

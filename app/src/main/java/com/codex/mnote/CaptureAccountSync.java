@@ -30,7 +30,8 @@ public final class CaptureAccountSync extends Worker {
         try { run(getApplicationContext()); return Result.success(); }
         catch (Exception error) {
             String code = error.getMessage();
-            if ("http_401".equals(code) || "http_403".equals(code) || "login_required".equals(code)) return Result.failure();
+            if ("http_401".equals(code) || "http_403".equals(code) || "login_required".equals(code)
+                    || "revision_conflict".equals(code)) return Result.failure();
             return Result.retry();
         }
     }
@@ -54,6 +55,7 @@ public final class CaptureAccountSync extends Worker {
                 }
                 Set<String> deleted = CaptureDeletionStore.hidden(context);
                 deleted.addAll(CaptureRemoteCache.deletedIds(context, scope));
+                boolean conflict=false;
                 for (CaptureStore.CaptureRecord record : CaptureStore.list(context, Integer.MAX_VALUE)) {
                     if (deleted.contains(record.id) || CaptureStore.SYNC_SYNCED.equals(record.syncState)
                             || CaptureStore.SYNC_LOCAL_ONLY.equals(record.syncState)) continue;
@@ -62,11 +64,13 @@ public final class CaptureAccountSync extends Worker {
                         CaptureStore.updateSyncState(context, record.id, CaptureStore.SYNC_SYNCED, "", result.revision);
                     } catch (CaptureSyncUploader.UploadFailure error) {
                         CaptureStore.updateSyncState(context, record.id, CaptureStore.SYNC_FAILED, error.code, record.serverRevision);
+                        if("http_409".equals(error.code)) { conflict=true; continue; }
                         throw error;
                     }
                 }
                 changes += CaptureRemoteCache.pull(context, scope, CaptureSyncReader.forConfig(config),
                         () -> scope.equals(CaptureAccountSession.scope(context)));
+                if(conflict) throw new java.io.IOException("revision_conflict");
                 CaptureAccountSession.preferences(context).edit().putString("sync_error", "")
                         .putLong("last_sync", System.currentTimeMillis()).apply();
                 return changes;
@@ -74,7 +78,7 @@ public final class CaptureAccountSync extends Worker {
                 String code = error.getMessage();
                 CaptureAccountSession.preferences(context).edit().putString("sync_error",
                         "http_401".equals(code) || "http_403".equals(code) || "login_required".equals(code)
-                                ? "login_required" : "sync_failed").apply();
+                                ? "login_required" : "revision_conflict".equals(code) ? "revision_conflict" : "sync_failed").apply();
                 throw error;
             } finally {
                 context.sendBroadcast(new Intent(CaptureSyncWorker.ACTION_SYNC_CHANGED).setPackage(context.getPackageName()));

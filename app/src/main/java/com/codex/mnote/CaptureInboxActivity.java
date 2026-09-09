@@ -218,6 +218,7 @@ public final class CaptureInboxActivity extends Activity {
                         ? R.string.capture_refresh_auth_error : "more_records_pending".equals(reason)
                         ? R.string.capture_refresh_more : "configuration_changed".equals(reason)
                         ? R.string.capture_refresh_changed : R.string.capture_refresh_failed);
+                if("revision_conflict".equals(reason)) message="云端有新版本，本机修改已保留，未自动覆盖。其他记录已继续同步。";
             }
             String result = message;
             runOnUiThread(() -> {
@@ -430,6 +431,7 @@ public final class CaptureInboxActivity extends Activity {
             source.append(" · " + getString(R.string.capture_url_saved_badge));
         }
         sync.setText(syncStateLabel(record.syncState));
+        if("http_409".equals(record.syncLastError)) sync.setText("云端有新版本 · 本机修改已保留");
         if (CaptureStore.SYNC_SYNCED.equals(record.syncState)) {
             sync.setTextColor(getColor(R.color.success));
         } else if (CaptureStore.SYNC_FAILED.equals(record.syncState)) {
@@ -506,7 +508,23 @@ public final class CaptureInboxActivity extends Activity {
     private void presentRecordDetail(CaptureStore.CaptureRecord record, Bitmap image,
                                      Bitmap full, String ownerScope) {
         CaptureRecordPage.show(this,record,image,full,
-                () -> confirmDelete(record,ownerScope),this::openSourceUrl);
+                () -> confirmDelete(record,ownerScope),this::openSourceUrl,
+                () -> startActivityForResult(new Intent(this,CaptureRecordEditActivity.class)
+                        .putExtra(CaptureRecordEditActivity.ID,record.id)
+                        .putExtra(CaptureRecordEditActivity.SCOPE,ownerScope),701));
+    }
+
+    @Override protected void onActivityResult(int request,int result,Intent data) {
+        super.onActivityResult(request,result,data);
+        if(request!=701 || result!=RESULT_OK || data==null) return;
+        String scope=data.getStringExtra(CaptureRecordEditActivity.SCOPE), id=data.getStringExtra(CaptureRecordEditActivity.ID);
+        refreshExecutor.execute(()->{
+            try {
+                CaptureStore.CaptureRecord record;
+                synchronized(CaptureAccountSession.LOCK) {record=CaptureRecordEdits.latest(this,scope,id);}
+                runOnUiThread(()->{if(!destroyed && !isFinishing()) showRecordDetail(record,scope);});
+            } catch(Exception ignored) { }
+        });
     }
 
     private void confirmDelete(CaptureStore.CaptureRecord record, String scope) {
@@ -555,7 +573,8 @@ public final class CaptureInboxActivity extends Activity {
             syncAllButton.setEnabled(true);
             String error = CaptureAccountSession.preferences(this).getString("sync_error", "");
             syncStatus.setText("账号：" + CaptureAccountSession.username(this) + (error.isEmpty() ? " · 自动同步已开启"
-                    : "login_required".equals(error) ? " · 登录已过期，请重新登录" : " · 同步待重试，可点击刷新"));
+                    : "login_required".equals(error) ? " · 登录已过期，请重新登录"
+                    : "revision_conflict".equals(error) ? " · 云端有新版本，本机修改已保留" : " · 同步待重试，可点击刷新"));
             return;
         }
         syncAllButton.setEnabled(true);

@@ -1,4 +1,11 @@
 <resources>
+    <item name="record_edit_open" type="id" />
+    <item name="record_edit_save" type="id" />
+    <item name="record_edit_cancel" type="id" />
+    <item name="record_edit_comment" type="id" />
+    <item name="record_edit_quote" type="id" />
+    <item name="record_edit_original" type="id" />
+    <item name="record_edit_status" type="id" />
     <item name="capture_text_preview_modes" type="id" />
     <item name="capture_text_preview_quote" type="id" />
     <item name="capture_text_preview_original" type="id" />

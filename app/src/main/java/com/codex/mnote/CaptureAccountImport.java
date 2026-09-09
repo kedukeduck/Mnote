@@ -28,11 +28,12 @@ final class CaptureAccountImport {
                 if (CaptureStore.readRecord(target) != null) continue;
                 if (!target.isDirectory() && !target.mkdirs()) throw new IOException("storage_unavailable");
                 for (String name : new String[]{"original.png", "annotated.png", "context.png"}) {
-                    File source = new File(directory,name);
+                    File source = new File(record.metadataFile.getParentFile(),name);
                     if (source.isFile()) write(new File(target,name), Files.readAllBytes(source.toPath()));
                 }
                 JSONObject metadata = new JSONObject(new String(Files.readAllBytes(record.metadataFile.toPath()),StandardCharsets.UTF_8));
                 metadata.put("syncState", CaptureStore.SYNC_PENDING);
+                metadata.put("serverRevision",JSONObject.NULL);
                 write(new File(target,"record.json"),metadata.toString().getBytes(StandardCharsets.UTF_8));
                 imported++;
             }

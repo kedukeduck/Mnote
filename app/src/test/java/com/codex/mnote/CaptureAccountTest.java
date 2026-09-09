@@ -108,6 +108,37 @@ public class CaptureAccountTest {
         CaptureDeletionStore.delete(broken,local.id); assertTrue(visible().isEmpty());
     }
 
+    @Test public void editSyncedRecordOfflineThenSyncUpdatesSameIdAndRemoteRevision() throws Exception {
+        login("a");CaptureStore.CaptureRecord first=note("旧想法");CaptureAccountSync.run(context);
+        CaptureStore.CaptureRecord synced=visible().get(0);offline=true;
+        CaptureRecordEdits.save(context,CaptureAccountSession.scope(context),first.id,CaptureRecordEdits.fingerprint(synced),
+                "修改后的想法","修改后的摘录","原文包含修改后的摘录");
+        assertEquals("修改后的想法",visible().get(0).comment);assertEquals(1,visible().size());
+        assertThrows(IOException.class,()->CaptureAccountSync.run(context));
+        assertEquals("旧想法",cloud.get(first.id).getString("comment"));
+        offline=false;CaptureAccountSync.run(context);
+        assertEquals(2,cloud.get(first.id).getInt("revision"));
+        assertEquals("修改后的想法",cloud.get(first.id).getString("comment"));
+        assertEquals("修改后的摘录",cloud.get(first.id).getJSONObject("source").getString("text"));
+        assertEquals(CaptureStore.SYNC_SYNCED,CaptureStore.find(context,first.id).syncState);
+        assertEquals("修改后的想法",visible().get(0).comment);
+        assertEquals("原文包含修改后的摘录",CaptureRecordEdits.original(visible().get(0)));
+        assertEquals(1,visible().size());CaptureAccountSync.run(context);assertEquals(2,uploads);
+    }
+    @Test public void conflictingEditDoesNotOverwriteCloudOrBlockOtherUploads() throws Exception {
+        login("a");CaptureStore.CaptureRecord first=note("旧想法");CaptureAccountSync.run(context);
+        CaptureStore.CaptureRecord synced=visible().get(0);
+        CaptureRecordEdits.save(context,CaptureAccountSession.scope(context),first.id,CaptureRecordEdits.fingerprint(synced),"本机修改","","");
+        JSONObject changed=new JSONObject(cloud.get(first.id).toString()).put("comment","另一台设备修改").put("revision",2);
+        cloud.put(first.id,changed);feed.add(CaptureRemoteCacheTest.change(feed.size()+1,"upsert",first.id,changed));
+        CaptureStore.CaptureRecord other=note("另一条正常记录");
+        assertEquals("revision_conflict",assertThrows(IOException.class,()->CaptureAccountSync.run(context)).getMessage());
+        assertEquals("另一台设备修改",cloud.get(first.id).getString("comment"));
+        assertEquals("本机修改",CaptureStore.find(context,first.id).comment);
+        assertEquals("http_409",CaptureStore.find(context,first.id).syncLastError);
+        assertTrue(cloud.containsKey(other.id));assertEquals(2,visible().size());
+    }
+
     // Only cryptography is substituted in Robolectric; production uses Android Keystore AES-GCM.
     @Implements(CaptureSyncPreferences.class) public static class Crypto {
         @Implementation protected static CaptureSyncPreferences.EncryptedValue encryptToken(String token) {
@@ -146,9 +177,16 @@ public class CaptureAccountTest {
     @Implements(CaptureSyncUploader.class) public static class Uploader {
         @Implementation protected static CaptureSyncUploader.UploadResult upload(Context context,CaptureSyncPreferences.Config config,CaptureStore.CaptureRecord local) throws Exception {
             assertEquals(CaptureAccountSession.scope(context),config.accountKey); uploads++;
-            JSONObject record=CaptureRemoteCacheTest.record(local.id,1).put("comment",local.comment);
+            JSONObject previous=cloud.get(local.id);
+            int revision=previous==null ? 0 : previous.getInt("revision");
+            JSONObject record=org.robolectric.util.ReflectionHelpers.callStaticMethod(CaptureSyncUploader.class,"metadata",
+                    org.robolectric.util.ReflectionHelpers.ClassParameter.from(Context.class,context),
+                    org.robolectric.util.ReflectionHelpers.ClassParameter.from(CaptureStore.CaptureRecord.class,local));
+            if(revision>0 && record.optInt("base_revision")!=revision)
+                throw new CaptureSyncUploader.UploadFailure("http_409",false,null);
+            record.remove("base_revision");record.put("revision",revision+1);
             cloud.put(local.id,record); feed.add(CaptureRemoteCacheTest.change(feed.size()+1,"upsert",local.id,record));
-            return new CaptureSyncUploader.UploadResult(1);
+            return new CaptureSyncUploader.UploadResult(revision+1);
         }
     }
 }

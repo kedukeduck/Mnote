@@ -14,6 +14,10 @@ import java.util.function.Consumer;
 final class CaptureRecordPage {
     static AlertDialog show(Activity activity, CaptureStore.CaptureRecord record, Bitmap crop,
                             Bitmap full, Runnable delete, Consumer<String> openSource) {
+        return show(activity,record,crop,full,delete,openSource,null);
+    }
+    static AlertDialog show(Activity activity, CaptureStore.CaptureRecord record, Bitmap crop,
+                            Bitmap full, Runnable delete, Consumer<String> openSource,Runnable edit) {
         LinearLayout page=column(activity);
         page.setBackgroundColor(activity.getColor(R.color.cream));
         page.setFitsSystemWindows(true);
@@ -29,7 +33,9 @@ final class CaptureRecordPage {
         Button remove=new Button(activity); remove.setText("删除"); remove.setId(R.id.capture_review_delete);
         headerAction(activity,remove);
         remove.setTextColor(activity.getColor(R.color.danger));
-        header.addView(remove,new LinearLayout.LayoutParams(-2,-2));
+        Button editButton=new Button(activity);editButton.setText("编辑");editButton.setId(R.id.record_edit_open);
+        headerAction(activity,editButton);
+        header.addView(edit==null ? remove : editButton,new LinearLayout.LayoutParams(-2,-2));
         page.addView(header);
         ScrollView scroll=new ScrollView(activity); scroll.setFillViewport(true); scroll.setVerticalScrollBarEnabled(false);
         LinearLayout body=column(activity); body.setId(R.id.capture_review_body);
@@ -64,14 +70,18 @@ final class CaptureRecordPage {
         } else if(record.hasImage) {
             add(body,text(activity,"截图暂时无法显示，记录仍保留。",14),8);
         }
-        if(!record.sourceText.isEmpty()) {
-            TextView quote=block(activity,record.sourceText,16);
+        if(!record.sourceText.isEmpty() || !CaptureRecordEdits.original(record).isEmpty()) {
+            TextView quote=block(activity,record.sourceText.isEmpty() ? "未记录摘录文字" : record.sourceText,16);
             quote.setMinHeight(dp(activity,220));
             add(body,quote,12);
             org.json.JSONObject context=record.captureContext.optJSONObject("text");
             String original=context==null ? "" : context.optString("full_text","");
-            if(!original.isEmpty()) add(body,CapturePreviewModes.create(activity,true,
-                    showFull -> quote.setText(showFull ? original : record.sourceText)),12);
+            if(!original.isEmpty()) {
+                RadioGroup textModes=CapturePreviewModes.create(activity,true,
+                        showFull -> quote.setText(showFull ? original : record.sourceText.isEmpty() ? "未记录摘录文字" : record.sourceText));
+                add(body,textModes,12);
+                if(record.sourceText.isEmpty()) textModes.check(R.id.capture_text_preview_original);
+            }
         }
         Button source=new Button(activity);
         String host=android.net.Uri.parse(record.sourceUrl).getHost();
@@ -95,9 +105,11 @@ final class CaptureRecordPage {
         Button information=new Button(activity); information.setText("记录信息  ›");
         information.setOnClickListener(view->details.setVisibility(details.getVisibility()==View.VISIBLE ? View.GONE : View.VISIBLE));
         add(body,information,20); add(body,details,8);
+        if(edit!=null) add(body,remove,20);
         AlertDialog dialog=new AlertDialog.Builder(activity).create();
         dialog.setView(page,0,0,0,0);
         close.setOnClickListener(view->dialog.dismiss());
+        editButton.setOnClickListener(view->{dialog.dismiss();if(edit!=null) edit.run();});
         remove.setOnClickListener(view->{dialog.dismiss();delete.run();});
         dialog.setOnDismissListener(ignored->{
             if(crop!=null && !crop.isRecycled()) crop.recycle();

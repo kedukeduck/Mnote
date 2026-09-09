@@ -32,6 +32,8 @@
             android:windowSoftInputMode="adjustResize" />
         <activity android:name=".CaptureAccountActivity" android:exported="false"
             android:label="账号与同步" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".CaptureRecordEditActivity" android:exported="false"
+            android:label="编辑记录" android:windowSoftInputMode="adjustResize|stateAlwaysHidden" />
 
         <activity
             android:name=".CaptureTriggerActivity"

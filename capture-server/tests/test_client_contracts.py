@@ -4,7 +4,7 @@ import base64
 import tempfile
 import unittest
 
-from heartnote_capture.store import CaptureStore, minimal_png
+from heartnote_capture.store import CaptureStore, CaptureConflict, minimal_png
 
 
 class ClientContractTest(unittest.TestCase):
@@ -15,6 +15,30 @@ class ClientContractTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def test_android_text_update_preserves_images_revision_identity_and_search(self):
+        body={"id":"editable-record","created_at":"2026-09-09T00:00:00Z",
+              "kind":"thought","comment":"旧想法","source":{"text":"旧摘录"},
+              "ai_access":"deny","evidence":{"context":{"text":{"full_text":"旧原文"}}},
+              "assets":{role:{"content_type":"image/png","data_base64":self.png}
+                        for role in ("original","annotated","context")}}
+        first=self.store.put(body["id"],body)
+        changed={**body,"comment":"新想法","source":{"text":"新摘录","text_origin":"user_edited"},
+                 "evidence":{"context":{"text":{"full_text":"新原文","origin":"user_edited"}}},"assets":{}}
+        second=self.store.put(body["id"],changed,base_revision=first["revision"])
+        self.assertEqual(2,second["revision"])
+        self.assertEqual(first["id"],second["id"])
+        self.assertEqual(first["created_at"],second["created_at"])
+        self.assertEqual(first["assets"],second["assets"])
+        self.assertEqual("新原文",second["evidence"]["context"]["text"]["full_text"])
+        self.assertEqual(1,len(self.store.list()))
+        self.assertEqual(body["id"],self.store.search("新想法")[0]["id"])
+        self.assertEqual([],self.store.search("旧摘录"))
+        retry=self.store.put(body["id"],changed,base_revision=first["revision"])
+        self.assertEqual(2,retry["revision"])
+        with self.assertRaises(CaptureConflict):
+            self.store.put(body["id"],{**changed,"comment":"过期的更新"},base_revision=1)
+        self.assertEqual("新想法",self.store.get(body["id"])["comment"])
 
     def test_context_assets_and_selected_text_remain_separate_through_changes_and_export(self):
         import zipfile

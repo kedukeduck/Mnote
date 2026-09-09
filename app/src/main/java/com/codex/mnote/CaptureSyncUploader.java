@@ -87,15 +87,18 @@ final class CaptureSyncUploader {
             writeUtf8(output, encoded.substring(0, encoded.length() - 1));
             writeUtf8(output, ",\"assets\":{");
             boolean wroteAsset = false;
-            if (record.hasImage && record.originalFile != null) {
+            JSONObject stored=CaptureStore.readRecordObject(record.metadataFile);
+            // Existing screenshots are untouched by text editing; preserve their server asset roles too.
+            boolean metadataOnly=record.serverRevision>0 && stored!=null && stored.optBoolean("textOnlyEdit");
+            if (!metadataOnly && record.hasImage && record.originalFile != null) {
                 writeAsset(output, "original", record.originalFile, false);
                 wroteAsset = true;
             }
-            if (record.hasImage && record.annotatedFile != null) {
+            if (!metadataOnly && record.hasImage && record.annotatedFile != null) {
                 writeAsset(output, "annotated", record.annotatedFile, wroteAsset);
                 wroteAsset = true;
             }
-            if (record.contextFile != null) writeAsset(output,"context",record.contextFile,wroteAsset);
+            if (!metadataOnly && record.contextFile != null) writeAsset(output,"context",record.contextFile,wroteAsset);
             writeUtf8(output, "}}");
             output.getFD().sync();
             if (payload.length() > MAX_PAYLOAD_BYTES) {
@@ -140,7 +143,7 @@ final class CaptureSyncUploader {
                         "ocr",
                         new JSONObject().put("status", "not_requested")
                 );
-        return new JSONObject()
+        JSONObject generated = new JSONObject()
                 .put("schema_version", 1)
                 .put("id", record.id)
                 .put("created_at", isoUtc(record.createdAt))
@@ -152,6 +155,27 @@ final class CaptureSyncUploader {
                 .put("ai_access", record.aiAccess)
                 .put("origin", origin)
                 .put("evidence", evidence);
+        JSONObject stored=CaptureStore.readRecordObject(record.metadataFile);
+        JSONObject canonical=stored==null ? null : stored.optJSONObject("canonicalBase");
+        JSONObject result=canonical==null ? generated : new JSONObject(canonical.toString());
+        result.put("comment",record.comment);
+        JSONObject resultSource=result.optJSONObject("source");
+        if(resultSource==null) resultSource=source;
+        resultSource.put("text",record.sourceText);
+        JSONObject resultEvidence=result.optJSONObject("evidence");
+        if(resultEvidence==null) resultEvidence=new JSONObject();
+        resultEvidence.put("context",record.captureContext);
+        JSONObject edits=record.captureContext.optJSONObject("text_edit");
+        if(edits!=null && edits.optBoolean("quote_modified")) {
+            resultSource.put("text_origin","user_edited");
+            JSONObject selectors=resultSource.optJSONObject("selectors");
+            if(selectors!=null) selectors.put("validation_status","invalidated_by_manual_edit");
+            resultEvidence.put("exact_text",record.sourceText.isEmpty() ? JSONObject.NULL
+                    : new JSONObject().put("text",record.sourceText).put("delivered_by","user_edited"));
+        }
+        result.put("source",resultSource).put("evidence",resultEvidence);
+        if(record.serverRevision>0) result.put("base_revision",record.serverRevision);
+        return result;
     }
 
     private static String acquisition(String sourceType) {

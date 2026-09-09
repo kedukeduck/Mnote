@@ -350,7 +350,7 @@ final class CaptureStore {
     }
 
     static CaptureRecord find(Context context, String id) {
-        if (id == null || !id.matches("[0-9]{8}T[0-9]{9}-[a-f0-9]{8}")) {
+        if (id == null || !id.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,127}") || id.contains("..")) {
             return null;
         }
         File root = inboxDirectory(context);
@@ -446,6 +446,13 @@ final class CaptureStore {
     }
 
     static CaptureRecord readRecord(File directory) {
+        File pointer = new File(directory, "current.json");
+        if (pointer.exists()) {
+            JSONObject current = readRecordObject(pointer);
+            String version = current == null ? "" : current.optString("version");
+            if (!version.matches("[a-f0-9-]{36}")) return null;
+            directory = new File(directory, "edits/" + version);
+        }
         File metadata = new File(directory, RECORD_FILENAME);
         JSONObject object = readRecordObject(metadata);
         if (object == null) {
@@ -467,7 +474,7 @@ final class CaptureStore {
         }
     }
 
-    private static JSONObject readRecordObject(File metadata) {
+    static JSONObject readRecordObject(File metadata) {
         if (metadata == null || !metadata.isFile() || metadata.length() <= 0L
                 || metadata.length() > 512 * 1024L) {
             return null;
@@ -571,7 +578,7 @@ final class CaptureStore {
         }
     }
 
-    private static void writeJson(JSONObject object, File destination) throws IOException {
+    static void writeJson(JSONObject object, File destination) throws IOException {
         File partial = new File(destination.getParentFile(), destination.getName() + ".part");
         byte[] bytes;
         try {
@@ -631,7 +638,7 @@ final class CaptureStore {
         }
     }
 
-    private static File inboxDirectory(Context context) {
+    static File inboxDirectory(Context context) {
         String scope = CaptureAccountSession.scope(context);
         File directory = new File(context.getApplicationContext().getFilesDir(),
                 "guest".equals(scope) ? INBOX_DIRECTORY : "account_inbox/" + scope);
