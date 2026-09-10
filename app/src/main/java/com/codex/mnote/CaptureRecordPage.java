@@ -69,7 +69,7 @@ final class CaptureRecordPage {
             if(crop==null) modes.check(R.id.capture_preview_full);
             if(pageContext) {
                 preview.setContent(full!=null ? full : crop,record.captureContext.optJSONObject("image"));
-                add(body,text(activity,"完整页面上下文 · 未推断剪贴板摘录的位置",12),12);
+                add(body,text(activity,record.sourceText.isEmpty() ? "完整页面上下文" : "完整页面上下文 · 未推断剪贴板摘录的位置",12),12);
             } else add(body,modes,12);
             if(full==null) add(body,text(activity,"未保留完整截图",12),8);
         } else if(record.hasImage) {

@@ -232,7 +232,8 @@ final class CaptureStore {
             throw new IOException("Incomplete capture image pair");
         }
         if (!hasImage && safeText(sourceText, 100_000).isEmpty()
-                && safeText(comment, 20_000).isEmpty() && safeUrl.isEmpty()) {
+                && safeText(comment, 20_000).isEmpty() && safeUrl.isEmpty()
+                && (textContext == null || textContext.optString("full_text", "").trim().isEmpty())) {
             throw new IOException("Capture record has no content");
         }
 

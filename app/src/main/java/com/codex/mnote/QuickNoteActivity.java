@@ -23,6 +23,10 @@ public final class QuickNoteActivity extends Activity {
     static final String CONTEXT_TITLE = "Mnote explicit quick-note context bridge";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    // Accessibility Binder queries and image decoding must not stall window/input dispatch.
+    private final ExecutorService pageExecutor = Executors.newSingleThreadExecutor();
+    private java.util.concurrent.Future<?> pageTask;
+    private Runnable settleCallback, timeoutCallback;
     private EditText comment, quote, original;
     private CompoundButton clipboard;
     private TextView status, contextLabel;
@@ -30,6 +34,7 @@ public final class QuickNoteActivity extends Activity {
     private View root, material;
     private SourceLinkField link;
     private File draft;
+    private File pendingDraft;
     private Bitmap preview;
     private CaptureSourceContext source = CaptureSourceContext.EMPTY;
     private String ownerScope, contextMode = "none";
@@ -53,6 +58,11 @@ public final class QuickNoteActivity extends Activity {
         comment = findViewById(R.id.capture_comment_input);
         quote = findViewById(R.id.quick_note_quote);
         original = findViewById(R.id.quick_note_original);
+        // Bound on-screen layout without truncating the underlying text.
+        comment.setMaxLines(12); quote.setMaxLines(8); original.setMaxLines(8);
+        for (EditText field : new EditText[]{comment, quote, original}) {
+            field.setImeOptions(android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);
+        }
         clipboard = findViewById(R.id.quick_note_clipboard);
         status = findViewById(R.id.quick_note_status);
         contextLabel = findViewById(R.id.quick_note_context_label);
@@ -75,7 +85,8 @@ public final class QuickNoteActivity extends Activity {
             contextMode = state.getString("mode", "none");
             source = new CaptureSourceContext(state.getString("package"), state.getString("page_url"), state.getString("page_origin"));
             draft = CaptureStore.safeDraftFile(this, state.getString("draft"));
-            if (draft != null) preview = CaptureStore.decodeReviewBitmap(draft);
+            try { if (draft != null) preview = CaptureStore.decodeReviewBitmap(draft); }
+            catch (RuntimeException | OutOfMemoryError ignored) { }
             if (contextMode.equals("image") && (draft == null || preview == null)) clearContext();
         }
         clipboard.setOnCheckedChangeListener((button, checked) -> {
@@ -84,12 +95,12 @@ public final class QuickNoteActivity extends Activity {
                 try {
                     if (!resumed || !focused) throw new Exception("请在随手记处于前台时开启摘录。");
                     quote.setText(QuickNoteClipboard.first(this));
-                    status.setText("已读取剪贴板第一条。请确认摘录；页面上下文尚未读取。");
+                    status.setText("已读取剪贴板第一条。页面上下文独立保留，不受此开关影响。");
                 } catch (Exception error) {
                     restoring = true; clipboard.setChecked(false); restoring = false;
                     message(error instanceof SecurityException ? "系统暂不允许读取剪贴板，请先复制文字再试。" : error.getMessage());
                 }
-            } else { quote.setText(""); clearContext(); }
+            } else { quote.setText(""); }
             refreshContext();
         });
         refreshContext();
@@ -112,7 +123,7 @@ public final class QuickNoteActivity extends Activity {
     }
 
     private void requestContext(boolean text) {
-        if (acquiring || saveTask != null || !clipboard.isChecked()) return;
+        if (acquiring || saveTask != null) return;
         if (!resumed || !focused) { message("请返回随手记后再试。"); return; }
         if (!CaptureAccessibilityService.isReady()) {
             message("页面上下文需要启用 Mnote 无障碍服务。随手记和剪贴板摘录不受影响。"); return;
@@ -126,6 +137,7 @@ public final class QuickNoteActivity extends Activity {
         busy(true);
         InputMethodManager ime = getSystemService(InputMethodManager.class);
         if (ime != null) ime.hideSoftInputFromWindow(root.getWindowToken(), 0);
+        if (!valid(request)) return;
         normalWindow = new WindowManager.LayoutParams(); normalWindow.copyFrom(getWindow().getAttributes());
         normalStatusColor = getWindow().getStatusBarColor(); normalNavigationColor = getWindow().getNavigationBarColor();
         WindowManager.LayoutParams bridge = new WindowManager.LayoutParams(); bridge.copyFrom(normalWindow);
@@ -134,11 +146,14 @@ public final class QuickNoteActivity extends Activity {
         bridge.flags &= ~WindowManager.LayoutParams.FLAG_DIM_BEHIND;
         bridge.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN;
         bridge.setTitle(CONTEXT_TITLE);
-        root.setVisibility(View.INVISIBLE);
+        // INVISIBLE still measures long EditTexts at a one-pixel width. GONE does not.
+        root.setVisibility(View.GONE);
         getWindow().setStatusBarColor(Color.TRANSPARENT); getWindow().setNavigationBarColor(Color.TRANSPARENT);
         getWindow().setAttributes(bridge);
-        handler.postDelayed(() -> acquire(request, text), 500);
-        handler.postDelayed(() -> { if (!destroyed && acquiring && generation == request) abortContext("页面读取超时，请重试；未保存上下文。"); }, 10_000);
+        settleCallback = () -> acquire(request, text);
+        timeoutCallback = () -> { if (!destroyed && acquiring && generation == request) abortContext("页面读取超时，请重试；未保存上下文。"); };
+        handler.postDelayed(settleCallback, 500);
+        handler.postDelayed(timeoutCallback, 10_000);
     }
 
     private int bridgeId() {
@@ -159,15 +174,27 @@ public final class QuickNoteActivity extends Activity {
             if (!destroyed && acquiring && generation == request) abortContext("页面读取已取消，账号或窗口发生变化。");
             return;
         }
-        QuickNotePageContext page = CaptureAccessibilityService.readPageOnce(bridgeId(), text);
+        final int ownWindow = bridgeId();
+        pageTask = pageExecutor.submit(() -> {
+            QuickNotePageContext page = readPageSafely(ownWindow, text);
+            handler.post(() -> acceptPage(request, text, page));
+        });
+    }
+    private static QuickNotePageContext readPageSafely(int window, boolean text) {
+        try { return CaptureAccessibilityService.readPageOnce(window, text); }
+        catch (RuntimeException | OutOfMemoryError error) { return QuickNotePageContext.failure("页面读取失败，未附加上下文，请重试。"); }
+    }
+    private void acceptPage(int request, boolean text, QuickNotePageContext page) {
+        if (destroyed || !acquiring || generation != request) return;
         if (!valid(request)) { abortContext("页面读取已取消，账号或窗口发生变化。"); return; }
         if (!page.found()) { abortContext(page.error); return; }
         if (text) {
-            original.setText(page.text); source = page.source; contextMode = "text";
-            finishContext(); message("已附加可访问的页面文字，请检查是否包含所需原文。");
+            source = page.source; contextMode = "text";
+            finishContext(); original.setText(page.text);
+            message("已附加可访问的页面文字，请检查是否包含所需原文。");
             return;
         }
-        CaptureAccessibilityService.captureOnce(new CaptureAccessibilityService.CaptureCallback() {
+        try { CaptureAccessibilityService.captureOnce(new CaptureAccessibilityService.CaptureCallback() {
             @Override public void onCaptured(File captured) {
                 handler.post(() -> {
                     if (!valid(request)) {
@@ -175,25 +202,38 @@ public final class QuickNoteActivity extends Activity {
                         if (!destroyed && acquiring && generation == request) abortContext("页面读取已取消，账号或窗口发生变化。");
                         return;
                     }
-                    QuickNotePageContext after = CaptureAccessibilityService.readPageOnce(bridgeId(), false);
-                    if (!page.samePageWindow(after)) {
-                        CaptureStore.discardDraft(QuickNoteActivity.this, captured);
-                        abortContext("截图期间来源窗口发生变化，未保留截图。"); return;
-                    }
-                    draft = captured; preview = CaptureStore.decodeReviewBitmap(captured);
-                    if (preview == null) { clearContext(); abortContext("截图无法预览，未保留截图。"); return; }
-                    source = page.source; contextMode = "image";
-                    finishContext(); message("已附加完整页面截图，请检查预览后保存。");
+                    final int ownWindow = bridgeId();
+                    pendingDraft = captured;
+                    pageTask = pageExecutor.submit(() -> {
+                        QuickNotePageContext after = readPageSafely(ownWindow, false);
+                        Bitmap decoded = null;
+                        try { if (page.samePageWindow(after)) decoded = CaptureStore.decodeReviewBitmap(captured); }
+                        catch (RuntimeException | OutOfMemoryError ignored) { }
+                        final Bitmap result = decoded;
+                        handler.post(() -> acceptScreenshot(request, page, after, captured, result));
+                    });
                 });
             }
             @Override public void onFailure(CaptureAccessibilityService.Failure failure) {
                 handler.post(() -> { if (valid(request)) abortContext("页面截图失败（" + failure.name() + "），未保存上下文。"); });
             }
-        });
+        }); } catch (RuntimeException error) { abortContext("无法启动页面截图，请重试。"); }
+    }
+    private void acceptScreenshot(int request, QuickNotePageContext before, QuickNotePageContext after, File captured, Bitmap result) {
+        if (captured.equals(pendingDraft)) pendingDraft = null;
+        if (!valid(request) || !before.samePageWindow(after) || result == null) {
+            if (result != null) result.recycle();
+            CaptureStore.discardDraft(this, captured);
+            if (!destroyed && acquiring && generation == request) abortContext("截图未能安全完成或来源已变化，未保留截图，请重试。");
+            return;
+        }
+        draft = captured; preview = result; source = before.source; contextMode = "image";
+        finishContext(); message("已附加完整页面截图，请检查预览后保存。");
     }
     private void abortContext(String message) { finishContext(); message(message); }
     private void finishContext() {
         acquiring = false; generation++;
+        cancelPageWork();
         if (normalWindow != null) {
             normalWindow.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN;
             getWindow().setAttributes(normalWindow); normalWindow = null;
@@ -201,10 +241,20 @@ public final class QuickNoteActivity extends Activity {
         }
         root.setVisibility(View.VISIBLE); busy(false); refreshContext();
     }
+    private void cancelPageWork() {
+        if (settleCallback != null) handler.removeCallbacks(settleCallback);
+        if (timeoutCallback != null) handler.removeCallbacks(timeoutCallback);
+        settleCallback = null; timeoutCallback = null;
+        if (pageTask != null) pageTask.cancel(true);
+        pageTask = null;
+        CaptureStore.discardDraft(this, pendingDraft); pendingDraft = null;
+    }
     private void clearContext() {
         CaptureStore.discardDraft(this, draft); draft = null;
         image.setImageDrawable(null);
-        if (preview != null) { preview.recycle(); preview = null; }
+        // A previous hardware display list may still reference this drawable for a frame.
+        // Drop the UI reference; do not recycle a bitmap that has been bound to a View.
+        preview = null;
         original.setText(""); source = CaptureSourceContext.EMPTY; contextMode = "none";
         refreshContext();
     }
@@ -215,7 +265,7 @@ public final class QuickNoteActivity extends Activity {
         image.setVisibility(screenshot ? View.VISIBLE : View.GONE); image.setImageBitmap(preview);
         findViewById(R.id.quick_note_clear_context).setVisibility(text || screenshot ? View.VISIBLE : View.GONE);
         contextLabel.setText(text ? "页面文字 · " + source.appLabel(this) + "\n仅可访问内容，可能包含界面文字，不保证文章全文。"
-                : screenshot ? "完整页面截图 · " + source.appLabel(this) + "\n这是页面上下文，不代表剪贴板摘录的精确位置。" : "未附加上下文");
+                : screenshot ? "完整页面截图 · " + source.appLabel(this) + "\n作为本条记录的页面背景独立保存。" : "未附加上下文");
     }
     private void busy(boolean value) { setEnabled(root, !value); }
     private static void setEnabled(View view, boolean enabled) {
@@ -239,7 +289,7 @@ public final class QuickNoteActivity extends Activity {
         String url = link.validated(); if (url == null) return;
         if (clipboard.isChecked() && excerpt.trim().isEmpty()) { quote.setError("请输入摘录，或关闭剪贴板摘录。"); return; }
         if (excerpt.length() > 100_000) { quote.setError("摘录不能超过 10 万字。"); return; }
-        if (thought.isEmpty() && excerpt.isEmpty() && url.isEmpty()) { comment.setError(getString(R.string.capture_comment_required)); return; }
+        if (thought.isEmpty() && excerpt.isEmpty() && url.isEmpty() && contextMode.equals("none")) { comment.setError(getString(R.string.capture_comment_required)); return; }
         if (thought.length() > 20_000) { comment.setError("想法不能超过 2 万字。"); return; }
         JSONObject textContext = null;
         try {
@@ -324,15 +374,16 @@ public final class QuickNoteActivity extends Activity {
     @Override public void onBackPressed() {
         if (saveTask != null) return;
         if (acquiring) { abortContext("已取消页面读取。"); return; }
-        if (comment.getText().toString().trim().isEmpty() && quote.getText().toString().trim().isEmpty() && !link.hasInput()) { finish(); return; }
+        if (comment.getText().toString().trim().isEmpty() && quote.getText().toString().trim().isEmpty() && !link.hasInput() && contextMode.equals("none")) { finish(); return; }
         new AlertDialog.Builder(this).setTitle("放弃这条记录？").setMessage("尚未保存的内容将被丢弃。")
                 .setNegativeButton("继续编辑", null).setPositiveButton("放弃", (dialog, which) -> finish()).show();
     }
     @Override protected void onDestroy() {
         destroyed = true; generation++;
+        cancelPageWork(); pageExecutor.shutdownNow();
         if (saveTask != null) saveTask.receiver = null;
         if (!isChangingConfigurations() && saveTask == null) CaptureStore.discardDraft(this, draft);
-        image.setImageDrawable(null); if (preview != null) preview.recycle();
+        image.setImageDrawable(null); preview = null;
         executor.shutdown(); super.onDestroy();
     }
 }

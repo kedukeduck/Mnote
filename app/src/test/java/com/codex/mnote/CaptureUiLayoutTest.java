@@ -126,6 +126,23 @@ public class CaptureUiLayoutTest {
     }
 
     @Test
+    public void contextOnlyRecordShowsItsOriginalAndCanBeFilteredAndSearched() throws Exception {
+        Context context=RuntimeEnvironment.getApplication();
+        CaptureStore.save(context,null,null,null,null,"thought","","quick_note","","","","",false,
+                CaptureContext.text("独立页面的原文内容","accessibility_page",""));
+        try(var controller=Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
+            CaptureInboxActivity activity=controller.get();
+            android.widget.LinearLayout records=activity.findViewById(R.id.capture_records);
+            assertEquals(1,records.getChildCount());
+            assertTrue(records.getChildAt(0).<android.widget.TextView>findViewById(R.id.capture_item_exact_text).getText().toString().contains("独立页面"));
+            activity.<android.widget.RadioGroup>findViewById(R.id.capture_filter_group).check(R.id.capture_filter_excerpt);
+            assertEquals(1,records.getChildCount());
+            activity.<EditText>findViewById(R.id.capture_search).setText("独立页面");assertEquals(1,records.getChildCount());
+            activity.<EditText>findViewById(R.id.capture_search).setText("不匹配");assertEquals(0,records.getChildCount());
+        }
+    }
+
+    @Test
     public void screenshotEditorRetainsCanvasAndCommentComposer() throws Exception {
         Context context = RuntimeEnvironment.getApplication();
         Bitmap sample = Bitmap.createBitmap(390, 620, Bitmap.Config.ARGB_8888);

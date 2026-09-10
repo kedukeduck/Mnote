@@ -24,18 +24,32 @@ import static org.robolectric.Shadows.shadowOf;
 @Config(sdk={30,35},shadows={QuickNoteActivityTest.ServiceShadow.class,QuickNoteActivityTest.ClipboardShadow.class},instrumentedPackages="com.codex.mnote")
 @LooperMode(LooperMode.Mode.PAUSED)
 public class QuickNoteActivityTest {
+    private static QuickNoteActivity current;
     @Before public void reset() {
         shadowOf(RuntimeEnvironment.getApplication()).grantPermissions("com.codex.mnote.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION");
         ServiceShadow.ready=false;ServiceShadow.reads=0;ServiceShadow.captures=0;ServiceShadow.callback=null;
         ServiceShadow.page=new QuickNotePageContext(new CaptureSourceContext("reader.app","https://example.com/page","browser_address_bar"),42,"前文 剪贴板摘录 后文","");
         ClipboardShadow.reads=0;ClipboardShadow.value="  剪贴板摘录  ";ClipboardShadow.fail=false;
+        current=null;
+        ServiceShadow.entered=null;ServiceShadow.release=null;ServiceShadow.failRead=false;ServiceShadow.readOnMain=false;
     }
     private ActivityController<QuickNoteActivity> note() {
         ActivityController<QuickNoteActivity> result=Robolectric.buildActivity(QuickNoteActivity.class,
                 QuickNoteTileService.noteIntent(RuntimeEnvironment.getApplication())).setup();
-        result.get().onWindowFocusChanged(true);return result;
+        current=result.get(); result.get().onWindowFocusChanged(true);return result;
     }
-    private static void idle(long ms) {shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ms));}
+    private static void idle(long ms) {
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ms));
+        // Complete background page queries, then deliver their main-thread results.
+        for(int i=0;i<3;i++) {
+            if(current!=null) {
+                ExecutorService reader=ReflectionHelpers.getField(current,"pageExecutor");
+                if(!reader.isShutdown()) try {reader.submit(()->{}).get(5,TimeUnit.SECONDS);}
+                catch(Exception error) {throw new AssertionError(error);}
+            }
+            shadowOf(Looper.getMainLooper()).idle();
+        }
+    }
     private static void optIn(QuickNoteActivity a) {a.<CompoundButton>findViewById(R.id.quick_note_clipboard).setChecked(true);}
     private static void thought(QuickNoteActivity a) {a.<EditText>findViewById(R.id.capture_comment_input).setText("我的独立想法");}
     private static CaptureStore.CaptureRecord save(QuickNoteActivity a) throws Exception {
@@ -79,7 +93,7 @@ public class QuickNoteActivityTest {
             assertEquals(0,ServiceShadow.captures);assertNotNull(ShadowToast.getTextOfLatestToast());
         }
     }
-    @Test public void contextRequiresOptInAndAccessibilityButClipboardDoesNot() {
+    @Test public void contextRequiresAccessibilityButNotClipboardOptIn() {
         try(var c=note()) {
             QuickNoteActivity a=c.get();a.findViewById(R.id.quick_note_read_page).performClick();assertEquals(0,ServiceShadow.reads);
             optIn(a);a.findViewById(R.id.quick_note_read_page).performClick();assertEquals(0,ServiceShadow.reads);
@@ -93,7 +107,7 @@ public class QuickNoteActivityTest {
             a.findViewById(R.id.quick_note_read_page).performClick();
             WindowManager.LayoutParams p=a.getWindow().getAttributes();
             assertEquals(1,p.width);assertEquals(1,p.height);assertTrue((p.flags&WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)!=0);
-            assertEquals(View.INVISIBLE,a.findViewById(R.id.quick_note_root).getVisibility());assertEquals(0,ServiceShadow.reads);
+            assertEquals(View.GONE,a.findViewById(R.id.quick_note_root).getVisibility());assertEquals(0,ServiceShadow.reads);
             idle(500);assertEquals(1,ServiceShadow.reads);assertEquals(0,ServiceShadow.captures);
             assertEquals(View.VISIBLE,a.findViewById(R.id.quick_note_root).getVisibility());assertNotEquals(1,a.getWindow().getAttributes().width);
             a.<EditText>findViewById(R.id.quick_note_original).setText("编辑后的原文");
@@ -122,7 +136,7 @@ public class QuickNoteActivityTest {
         try(var c=note()) {
             QuickNoteActivity a=c.get();optIn(a);ServiceShadow.ready=true;
             a.findViewById(R.id.quick_note_capture_page).performClick();idle(500);
-            assertEquals(1,ServiceShadow.captures);assertEquals(View.INVISIBLE,a.findViewById(R.id.quick_note_root).getVisibility());
+            assertEquals(1,ServiceShadow.captures);assertEquals(View.GONE,a.findViewById(R.id.quick_note_root).getVisibility());
             File draft=screenshot(a);ServiceShadow.callback.onCaptured(draft);idle(0);
             assertEquals(View.VISIBLE,a.findViewById(R.id.quick_note_image).getVisibility());
             CaptureStore.CaptureRecord record=save(a);
@@ -161,7 +175,7 @@ public class QuickNoteActivityTest {
     @Test public void timeoutRestoresWindowAndLateCallbackCannotAttachImage() throws Exception {
         try(var c=note()) {
             QuickNoteActivity a=c.get();optIn(a);ServiceShadow.ready=true;
-            a.findViewById(R.id.quick_note_capture_page).performClick();idle(10000);
+            a.findViewById(R.id.quick_note_capture_page).performClick();idle(500);idle(9500);
             assertEquals(View.VISIBLE,a.findViewById(R.id.quick_note_root).getVisibility());
             File draft=screenshot(a);ServiceShadow.callback.onCaptured(draft);idle(0);assertFalse(draft.exists());
         }
@@ -175,15 +189,15 @@ public class QuickNoteActivityTest {
             assertEquals(View.VISIBLE,a.findViewById(R.id.quick_note_root).getVisibility());
         }
     }
-    @Test public void optOutRemovesQuoteAndContextButKeepsThought() throws Exception {
+    @Test public void optingOutOfClipboardKeepsIndependentPageContextAndThought() throws Exception {
         try(var c=note()) {
             QuickNoteActivity a=c.get();thought(a);optIn(a);ServiceShadow.ready=true;
             a.findViewById(R.id.quick_note_capture_page).performClick();idle(500);
             File draft=screenshot(a);ServiceShadow.callback.onCaptured(draft);idle(0);
             a.<CompoundButton>findViewById(R.id.quick_note_clipboard).setChecked(false);
-            assertFalse(draft.exists());assertEquals("",a.<EditText>findViewById(R.id.quick_note_quote).getText().toString());
-            CaptureStore.CaptureRecord record=save(a);assertEquals("quick_note",record.sourceType);assertFalse(record.hasImage);
-            assertEquals("我的独立想法",record.comment);assertEquals("",record.sourcePackage);
+            assertTrue(draft.exists());assertEquals("",a.<EditText>findViewById(R.id.quick_note_quote).getText().toString());
+            CaptureStore.CaptureRecord record=save(a);assertEquals("quick_note",record.sourceType);assertTrue(record.hasImage);
+            assertEquals("我的独立想法",record.comment);assertEquals("reader.app",record.sourcePackage);
         }
     }
     @Test public void recreationKeepsEditedExcerptAndOriginalWithoutReadingAgain() {
@@ -263,6 +277,113 @@ public class QuickNoteActivityTest {
         }
         assertFalse(draft.exists());
     }
+    @Test public void contextButtonsAreVisibleWithoutClipboardAndOriginalAloneCanSave() throws Exception {
+        try(var c=note()) {
+            QuickNoteActivity a=c.get();ServiceShadow.ready=true;
+            assertTrue(a.findViewById(R.id.quick_note_context).isShown());
+            assertEquals(View.GONE,a.findViewById(R.id.quick_note_material).getVisibility());
+            ServiceShadow.page=new QuickNotePageContext(new CaptureSourceContext("reader.app","",""),42,"独立页面原文","");
+            a.findViewById(R.id.quick_note_read_page).performClick();idle(500);
+            assertFalse(ServiceShadow.readOnMain);assertEquals(0,ClipboardShadow.reads);
+            idle(20000);
+            assertFalse(a.isFinishing());assertNull(ReflectionHelpers.getField(a,"timeoutCallback"));
+            CaptureStore.CaptureRecord record=save(a);
+            assertEquals("",record.comment);assertEquals("",record.sourceText);assertEquals("",record.sourceUrl);
+            assertEquals("独立页面原文",CaptureRecordEdits.original(record));assertFalse(record.hasImage);
+            File payload=ReflectionHelpers.callStaticMethod(CaptureSyncUploader.class,"createPayload",
+                    ReflectionHelpers.ClassParameter.from(Context.class,a),ReflectionHelpers.ClassParameter.from(CaptureStore.CaptureRecord.class,record));
+            org.json.JSONObject canonical=new org.json.JSONObject(new String(java.nio.file.Files.readAllBytes(payload.toPath()),java.nio.charset.StandardCharsets.UTF_8));
+            assertTrue(canonical.getJSONObject("evidence").isNull("exact_text"));
+            canonical.put("revision",1);
+            String vault="d".repeat(64);
+            byte[] feed=CaptureRemoteCacheTest.page(1,false,CaptureRemoteCacheTest.change(1,"upsert",record.id,canonical));
+            CaptureRemoteCache.pull(a,vault,(path,limit)->feed,()->true);
+            CaptureStore.CaptureRecord remote=CaptureRemoteCache.merged(a,vault,java.util.Collections.emptyList()).get(0);
+            assertEquals("",remote.sourceText);assertEquals("独立页面原文",CaptureRecordEdits.original(remote));
+            assertTrue(payload.delete());
+        }
+    }
+    @Test public void screenshotAloneCanSaveWithoutClipboardThoughtOrUrl() throws Exception {
+        try(var c=note()) {
+            QuickNoteActivity a=c.get();ServiceShadow.ready=true;
+            ServiceShadow.page=new QuickNotePageContext(new CaptureSourceContext("reader.app","",""),42,"","");
+            a.findViewById(R.id.quick_note_capture_page).performClick();idle(500);
+            File draft=screenshot(a);ServiceShadow.callback.onCaptured(draft);idle(0);idle(20000);
+            assertFalse(a.isFinishing());assertFalse(ServiceShadow.readOnMain);assertEquals(0,ClipboardShadow.reads);
+            assertNull(ReflectionHelpers.getField(a,"timeoutCallback"));
+            CaptureStore.CaptureRecord record=save(a);
+            assertTrue(record.hasImage);assertEquals("",record.sourceText);assertEquals("",record.comment);assertEquals("",record.sourceUrl);
+        }
+    }
+    @Test public void clipboardFailureAndOptOutNeverRemoveIndependentOriginal() throws Exception {
+        try(var c=note()) {
+            QuickNoteActivity a=c.get();ServiceShadow.ready=true;
+            a.findViewById(R.id.quick_note_read_page).performClick();idle(500);
+            ClipboardShadow.fail=true;optIn(a);
+            assertEquals(ServiceShadow.page.text,a.<EditText>findViewById(R.id.quick_note_original).getText().toString());
+            ClipboardShadow.fail=false;optIn(a);a.<CompoundButton>findViewById(R.id.quick_note_clipboard).setChecked(false);
+            assertEquals(ServiceShadow.page.text,CaptureRecordEdits.original(save(a)));
+        }
+    }
+    @Test public void removingContextDoesNotRemoveClipboardExcerpt() throws Exception {
+        try(var c=note()) {
+            QuickNoteActivity a=c.get();ServiceShadow.ready=true;optIn(a);
+            a.findViewById(R.id.quick_note_read_page).performClick();idle(500);
+            a.findViewById(R.id.quick_note_clear_context).performClick();
+            CaptureStore.CaptureRecord record=save(a);
+            assertEquals(ClipboardShadow.value,record.sourceText);assertEquals("",CaptureRecordEdits.original(record));
+        }
+    }
+    @Test public void cancelledPreviewIsNotRecycledWhileRenderThreadMayStillUseIt() throws Exception {
+        Bitmap bound;
+        try(var c=note()) {
+            QuickNoteActivity a=c.get();ServiceShadow.ready=true;
+            a.findViewById(R.id.quick_note_capture_page).performClick();idle(500);
+            ServiceShadow.callback.onCaptured(screenshot(a));idle(0);
+            bound=ReflectionHelpers.getField(a,"preview");assertNotNull(bound);
+            a.findViewById(R.id.quick_note_clear_context).performClick();
+            assertFalse(bound.isRecycled());idle(20000);assertFalse(a.isFinishing());
+        }
+        assertFalse(bound.isRecycled());
+    }
+    @Test public void backgroundReadExceptionReturnsToEditableNoteAndDoesNotCrashLater() {
+        try(var c=note()) {
+            QuickNoteActivity a=c.get();ServiceShadow.ready=true;ServiceShadow.failRead=true;thought(a);
+            a.findViewById(R.id.quick_note_read_page).performClick();idle(500);idle(20000);
+            assertFalse(a.isFinishing());assertEquals(View.VISIBLE,a.findViewById(R.id.quick_note_root).getVisibility());
+            assertTrue(a.findViewById(R.id.capture_editor_save).isEnabled());assertEquals(0,ServiceShadow.captures);
+            assertEquals("我的独立想法",a.<EditText>findViewById(R.id.capture_comment_input).getText().toString());
+        }
+    }
+    @Test public void blockedBinderReadCannotFreezeTimeoutOrPreventSavingThought() throws Exception {
+        try(var c=note()) {
+            QuickNoteActivity a=c.get();ServiceShadow.ready=true;thought(a);
+            ServiceShadow.entered=new java.util.concurrent.CountDownLatch(1);ServiceShadow.release=new java.util.concurrent.CountDownLatch(1);
+            a.findViewById(R.id.quick_note_read_page).performClick();
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500));
+            assertTrue(ServiceShadow.entered.await(2,TimeUnit.SECONDS));
+            try {
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(10000));
+                assertEquals(View.VISIBLE,a.findViewById(R.id.quick_note_root).getVisibility());
+                assertFalse(ReflectionHelpers.<Boolean>getField(a,"acquiring"));
+                a.findViewById(R.id.capture_editor_save).performClick();
+                ReflectionHelpers.<ExecutorService>getField(a,"executor").submit(()->{}).get(5,TimeUnit.SECONDS);
+                shadowOf(Looper.getMainLooper()).idle();assertEquals(1,CaptureStore.list(a,10).size());
+            } finally {ServiceShadow.release.countDown();}
+            idle(0);assertEquals("",CaptureRecordEdits.original(CaptureStore.list(a,10).get(0)));
+        }
+    }
+    @Test public void independentContextSurvivesRotationWithoutEnablingOrReadingClipboard() {
+        try(var c=note()) {
+            QuickNoteActivity a=c.get();ServiceShadow.ready=true;
+            a.findViewById(R.id.quick_note_read_page).performClick();idle(500);
+            c.recreate();a=c.get();
+            assertFalse(a.<CompoundButton>findViewById(R.id.quick_note_clipboard).isChecked());
+            assertTrue(a.findViewById(R.id.quick_note_context).isShown());
+            assertEquals(ServiceShadow.page.text,a.<EditText>findViewById(R.id.quick_note_original).getText().toString());
+            assertEquals(0,ClipboardShadow.reads);
+        }
+    }
     @Implements(value=QuickNoteClipboard.class,isInAndroidSdk=false)
     public static class ClipboardShadow {
         static int reads;static String value;static boolean fail;
@@ -273,9 +394,20 @@ public class QuickNoteActivityTest {
     @Implements(value=CaptureAccessibilityService.class,isInAndroidSdk=false)
     public static class ServiceShadow {
         static boolean ready;static int reads,captures;static QuickNotePageContext page;
+        static boolean failRead,readOnMain;
+        static java.util.concurrent.CountDownLatch entered,release;
         static CaptureAccessibilityService.CaptureCallback callback;
         @Implementation protected static boolean isReady(){return ready;}
-        @Implementation protected static QuickNotePageContext readPageOnce(int id,boolean text){reads++;return page;}
+        @Implementation protected static QuickNotePageContext readPageOnce(int id,boolean text){
+            reads++;readOnMain|=Looper.myLooper()==Looper.getMainLooper();
+            if(entered!=null) {
+                entered.countDown();
+                boolean done=false;while(!done) try {done=release.await(5,TimeUnit.SECONDS);}
+                catch(InterruptedException ignored) { /* Model an IPC that ignores cancellation. */ }
+            }
+            if(failRead)throw new IllegalStateException("simulated provider failure");
+            return page;
+        }
         @Implementation protected static void captureOnce(CaptureAccessibilityService.CaptureCallback result){captures++;callback=result;}
     }
 }

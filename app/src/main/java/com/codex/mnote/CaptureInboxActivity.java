@@ -374,10 +374,10 @@ public final class CaptureInboxActivity extends Activity {
         int filter = filterGroup.getCheckedRadioButtonId();
         for (CaptureStore.CaptureRecord record : libraryRecords) {
             boolean match = filter == R.id.capture_filter_excerpt
-                    ? record.hasImage || !record.sourceText.isEmpty()
+                    ? record.hasImage || !record.sourceText.isEmpty() || !CaptureRecordEdits.original(record).isEmpty()
                     : filter == R.id.capture_filter_thought ? "thought".equals(record.kind)
                     : filter == R.id.capture_filter_todo ? "todo".equals(record.kind) : true;
-            String searchable = record.comment + "\n" + record.sourceText + "\n" + record.sourceUrl;
+            String searchable = record.comment + "\n" + record.sourceText + "\n" + CaptureRecordEdits.original(record) + "\n" + record.sourceUrl;
             if (match && searchable.toLowerCase(java.util.Locale.ROOT).contains(query)) allRecords.add(record);
         }
         List<CaptureStore.CaptureRecord> records = allRecords.size() <= RECORD_LIMIT
@@ -439,11 +439,12 @@ public final class CaptureInboxActivity extends Activity {
         } else {
             sync.setTextColor(getColor(R.color.ink_muted));
         }
-        if (record.sourceText.isEmpty()) {
+        String original = CaptureRecordEdits.original(record);
+        if (record.sourceText.isEmpty() && original.isEmpty()) {
             exactText.setVisibility(View.GONE);
         } else {
             exactText.setVisibility(View.VISIBLE);
-            exactText.setText(ellipsize(record.sourceText, 420));
+            exactText.setText(record.sourceText.isEmpty() ? "页面原文 · " + ellipsize(original, 420) : ellipsize(record.sourceText, 420));
         }
         image.setVisibility(record.hasImage ? View.VISIBLE : View.GONE);
         if (record.hasImage) {

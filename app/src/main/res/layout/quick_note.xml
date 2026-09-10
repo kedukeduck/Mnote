@@ -21,8 +21,10 @@
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="8dp" android:text="仅开启时读取一次，不访问剪贴板历史。" android:textSize="12sp" android:textColor="@color/ink_muted" />
             <LinearLayout android:id="@+id/quick_note_material" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
                 <EditText android:id="@+id/quick_note_quote" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="100dp" android:gravity="top|start" android:inputType="textMultiLine" android:hint="剪贴板摘录，可编辑" android:importantForAutofill="no" android:saveEnabled="false" />
+            </LinearLayout>
+            <LinearLayout android:id="@+id/quick_note_context" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="20dp" android:text="同时保留页面上下文（可选）" android:textSize="14sp" android:fontFamily="sans-serif-medium" />
-                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="8dp" android:paddingBottom="8dp" android:text="读取随手记下方的当前页面，不一定是剪贴板文字的原始出处。页面文字与截图二选一。" android:textSize="12sp" android:textColor="@color/ink_muted" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="8dp" android:paddingBottom="8dp" android:text="无需摘录剪贴板，也可单独保留当前页面文字或截图。附加页面不一定是剪贴板文字的原始出处。" android:textSize="12sp" android:textColor="@color/ink_muted" />
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content">
                     <Button android:id="@+id/quick_note_read_page" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="读取页面文字" />
                     <Button android:id="@+id/quick_note_capture_page" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp" android:text="保存页面截图" />
