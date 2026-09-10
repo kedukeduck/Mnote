@@ -22,11 +22,11 @@ Mnote 是一个独立的本地优先个人知识捕获项目，用于在 Android
 
 ## Android 构建
 
-当前 Android 增量测试版：[1.5.0-test APK](https://github.com/kedukeduck/Mnote/releases/download/mnote-android-v1.5.0-test/Mnote-Android-1.5.0-test.apk)。
+当前 Android 增量测试版：[1.5.1-test APK](https://github.com/kedukeduck/Mnote/releases/download/mnote-android-v1.5.1-test/Mnote-Android-1.5.1-test.apk)。
 
 Android 全部页面及应用弹窗采用 A「轻盈极简」主题；首页提供搜索、摘录/想法/待办筛选及固定底部操作区。账号登录后自动同步，支持刷新拉取和删除记录。来源与无障碍说明位于首页“快捷方式与权限设置”。
 
-单次摘录只走截图，不读取选区或剪贴板，继续使用“圈选 → 下一步 → 想法”的原地悬浮流程，可选择保留完整截图上下文。随手记默认只写想法 / TODO；主动开启后才读取剪贴板第一条，并可另外选择读取当前页面文字或保存完整页面截图作为上下文。页面上下文不一定是剪贴板文字的原始出处；不保证任意应用的全文或链接均可读取，失败不自动转截图，也不提供 OCR 选字。详见 [1.5.0 剪贴板与上下文](docs/android-1.5.0-clipboard-context.md)。系统权限页和键盘保留系统样式。
+单次摘录只走截图，不读取选区或剪贴板，继续使用“圈选 → 下一步 → 想法”的原地悬浮流程，可选择保留完整截图上下文。随手记默认只写想法 / TODO；剪贴板摘录与页面上下文各自独立、主动选择，不开启剪贴板也能保留页面文字或截图。关闭剪贴板摘录不会移除上下文。页面上下文不一定是剪贴板文字的原始出处；不保证任意应用的全文或链接均可读取，失败不自动转截图，也不提供 OCR 选字。详见 [1.5.1 独立上下文与稳定性修复](docs/android-1.5.1-independent-context.md)。系统权限页和键盘保留系统样式。
 
 记录页提供大预览、圈选区域 / 完整截图切换与独立想法区；详情为完整阅读页，点击“编辑”可修改想法、摘录文字和保留的原文，并按账号同步。详见[1.4.0 编辑已保存记录](docs/android-1.4.0-edit-records.md)、[记录与阅读页说明](docs/android-1.3.1-compose-review.md)及 [A 视觉规范](docs/android-1.3.0-style-a.md)。覆盖安装前先保存草稿，不要卸载；此包沿用测试签名。
 ```bash

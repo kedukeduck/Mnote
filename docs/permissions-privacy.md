@@ -1,7 +1,7 @@
 # 全局摘录 V1 权限与隐私说明
 
 - 文档状态：V1 设计与验收基线
-- 更新日期：2026-09-10（补充 Android 1.5.0 剪贴板摘录与独立上下文选择）
+- 更新日期：2026-09-10（补充 Android 1.5.1 独立页面上下文）
 - 适用范围：Windows 11、Android 11+、Chrome/Edge 扩展、同步与 AI 只读服务
 - 相关文档：[产品规格](universal-capture-v1-product-spec.md)、[记录结构](capture-record-schema.md)、[同步 API](sync-api.md)、[验收清单](acceptance-checklist.md)
 
