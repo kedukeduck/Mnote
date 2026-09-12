@@ -22,7 +22,9 @@ Mnote 是一个独立的本地优先个人知识捕获项目，用于在 Android
 
 ## Android 构建
 
-当前 Android 增量测试版：[1.5.1-test APK](https://github.com/kedukeduck/Mnote/releases/download/mnote-android-v1.5.1-test/Mnote-Android-1.5.1-test.apk)。
+当前 Android 增量测试版：[1.6.0-test APK](https://github.com/kedukeduck/Mnote/releases/download/mnote-android-v1.6.0-test/Mnote-Android-1.6.0-test.apk)。
+
+1.6.0 新增所有安卓记录入口的多标签、已有记录补改标签、首页标签 / 未分类筛选及标签账号同步。长文支持内部滚动、全屏展开编辑及到文末，页面读取改善嵌套段落顺序并支持可见叶节点描述。修正 UI 位图提前回收风险，新增仅本机的异常诊断；尚未真机复现用户报告的偶发闪退。详见 [1.6.0 标签、长文与稳定性说明](docs/android-1.6.0-tags-readable-context.md)。
 
 Android 全部页面及应用弹窗采用 A「轻盈极简」主题；首页提供搜索、摘录/想法/待办筛选及固定底部操作区。账号登录后自动同步，支持刷新拉取和删除记录。来源与无障碍说明位于首页“快捷方式与权限设置”。
 

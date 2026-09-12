@@ -35,4 +35,13 @@ Android 本地 `record.json.tags` 和同步顶层 `tags` 均为字符串数组�
 
 现有服务端保留扩展元数据，无需数据库迁移或线上服务修改。测试覆盖创建 → 上传元数据 → 拉取 → 编辑 / 清空 → 再上传；Windows / 浏览器客户端本次未增加标签编辑或筛选界面。
 
-本版使用 Robolectric / 原生 Skia 做自动回归和布局检查，不等同于真机测试。最终构建、签名和发布校验证据将在发布时追加。
+本版使用 Robolectric / 原生 Skia 做自动回归和布局检查，不等同于真机测试。
+
+## 发布验证（2026-09-12）
+
+`bash scripts/verify-mnote-v1.sh` 七步全部通过。Android 429 项测试，0 失败 / 0 跳过；lint 0 errors / 65 warnings（含现有告警及新增文案国际化、返回原生触摸处理的静态提示）。Windows 构建、GUI / 同步冒烟、浏览器扩展、服务端含 MCP 的 22 项测试通过。没有连接手机，也未用个人账号向线上写入测试记录。
+
+- 代码回滚点：`976d75b`，分支 `agent/tags-readable-context-stability`。
+- 安装包：[Mnote-Android-1.6.0-test.apk](https://github.com/kedukeduck/Mnote/releases/download/mnote-android-v1.6.0-test/Mnote-Android-1.6.0-test.apk)。
+- APK SHA-256：`bf494a9d78acef7eb6ec1809d790e906d3c3017e85d4a66fadc0e59f9a9bc2f7`。
+- 测试签名证书 SHA-256：`b8facf6a55636be9138264aaf85f4462cd8b25ba00a49e46b2defe3ee83182ae`，与 1.5.1 一致。
