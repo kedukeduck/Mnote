@@ -3,7 +3,6 @@ package com.codex.mnote;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.os.Bundle;
-import android.text.InputFilter;
 import android.text.InputType;
 import android.view.*;
 import android.widget.*;
@@ -79,8 +78,8 @@ final class CaptureTextExcerpt {
     private void editOriginal() {
         EditText input=new EditText(activity); input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         input.setMinLines(5); input.setMaxLines(10); input.setGravity(Gravity.TOP);
+        CaptureLongText.enableScrolling(input);
         input.setSaveEnabled(false); input.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
-        input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(CaptureContext.MAX_TEXT)});
         input.setHint(R.string.capture_context_paste_hint); input.setText(original);
         FrameLayout inset = new FrameLayout(activity);
         int margin = Math.round(20 * activity.getResources().getDisplayMetrics().density);
@@ -88,15 +87,18 @@ final class CaptureTextExcerpt {
         inset.addView(input, new FrameLayout.LayoutParams(-1, -2));
         AlertDialog dialog=new AlertDialog.Builder(activity).setTitle(R.string.capture_text_context_edit)
                 .setMessage(R.string.capture_context_provenance_help).setView(inset)
-                .setPositiveButton(R.string.capture_context_use,(d,which)-> {
-                    String value=input.getText().toString();
-                    if(!value.equals(original)) { origin="user_supplied"; selectedStart=-1; }
-                    original=value; retain.setChecked(!original.isEmpty()); updatePreviewAvailability();
-                    if(previewModes!=null && previewModes.getCheckedRadioButtonId()==R.id.capture_text_preview_original)
-                        text.setText(original);
-                }).setNegativeButton(R.string.capture_cancel,null).create();
+                .setPositiveButton(R.string.capture_context_use,null)
+                .setNegativeButton(R.string.capture_cancel,null).create();
         dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            String value=input.getText().toString();
+            if(value.length()>CaptureContext.MAX_TEXT) {input.setError("原文最多 4 万字；未截断，请缩短后再使用。");return;}
+            if(!value.equals(original)) { origin="user_supplied"; selectedStart=-1; }
+            original=value; retain.setChecked(!original.isEmpty()); updatePreviewAvailability();
+            if(previewModes!=null && previewModes.getCheckedRadioButtonId()==R.id.capture_text_preview_original) text.setText(original);
+            dialog.dismiss();
+        });
     }
     JSONObject context(String quote) throws org.json.JSONException {
         if(!retain.isChecked() || original.isEmpty()) return null;

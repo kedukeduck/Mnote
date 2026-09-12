@@ -1,0 +1,12 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="vertical" android:layout_marginTop="16dp">
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="标签 · 可选" android:textSize="13sp" android:textColor="@color/ink"
+        android:fontFamily="sans-serif-medium" />
+    <EditText android:id="@+id/capture_tags_input" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:layout_marginTop="8dp"
+        android:hint="例如：灵感，工作，待读" android:inputType="text" android:singleLine="true"
+        android:importantForAutofill="no" android:saveEnabled="false"
+        android:background="@drawable/bg_input" android:padding="16dp" android:textSize="14sp" />
+</LinearLayout>

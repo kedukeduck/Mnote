@@ -141,6 +141,7 @@ public class CaptureOverlayEditorTest {
         assertTrue(root().findViewById(R.id.capture_preview_modes).isShown());
         assertFalse(root().findViewById(R.id.capture_editor_status).isShown());
         ((EditText) root().findViewById(R.id.capture_comment_input)).setText("先选区域，再写想法");
+        ((EditText) root().findViewById(R.id.capture_tags_input)).setText("截图，灵感");
         render("overlay-compose.png");
         android.widget.CompoundButton retain=root().findViewById(R.id.capture_retain_image_context);
         assertFalse(retain.isChecked());
@@ -163,6 +164,7 @@ public class CaptureOverlayEditorTest {
         root().findViewById(R.id.capture_editor_save).performClick();
         drain();
         CaptureStore.CaptureRecord record = CaptureStore.list(service, 10).get(0);
+        assertEquals("截图，灵感",CaptureTags.input(record.tags));
         Bitmap crop = android.graphics.BitmapFactory.decodeFile(record.originalFile.getAbsolutePath());
         assertEquals(200, crop.getWidth());
         assertEquals(250, crop.getHeight());

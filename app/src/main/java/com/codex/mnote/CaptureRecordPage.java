@@ -97,6 +97,7 @@ final class CaptureRecordPage {
         source.setOnClickListener(view->openSource.accept(record.sourceUrl));
         if(!record.sourceUrl.isEmpty()) add(body,source,16);
         add(body,text(activity,"我的想法",13),24);
+        if(record.tags.length()>0) add(body,text(activity,CaptureTags.display(record.tags),14),12);
         TextView thought=block(activity,record.comment.isEmpty() ? "这条记录没有附加想法。" : record.comment,16);
         thought.setMinHeight(dp(activity,144)); add(body,thought,8);
         TextView details=text(activity,android.text.format.DateFormat.format("yyyy-MM-dd HH:mm",record.createdAt)
@@ -117,10 +118,7 @@ final class CaptureRecordPage {
         close.setOnClickListener(view->dialog.dismiss());
         editButton.setOnClickListener(view->{dialog.dismiss();if(edit!=null) edit.run();});
         remove.setOnClickListener(view->{dialog.dismiss();delete.run();});
-        dialog.setOnDismissListener(ignored->{
-            if(crop!=null && !crop.isRecycled()) crop.recycle();
-            if(full!=null && full!=crop && !full.isRecycled()) full.recycle();
-        });
+        // UI-bound images are released by GC once the final rendered frame is gone.
         dialog.show();
         dialog.getWindow().setBackgroundDrawable(new ColorDrawable(activity.getColor(R.color.cream)));
         dialog.getWindow().setLayout(WindowManager.LayoutParams.MATCH_PARENT,WindowManager.LayoutParams.MATCH_PARENT);

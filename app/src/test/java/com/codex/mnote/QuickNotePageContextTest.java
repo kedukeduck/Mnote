@@ -40,6 +40,14 @@ public class QuickNotePageContextTest {
         assertThrows(Exception.class,()->QuickNotePageContext.visibleText(root,APP));
         assertTrue(info(root).queries<=1024);
     }
+    @Test public void nestedParagraphsFollowDocumentOrderAndLeafDescriptionsFillMissingText() throws Exception {
+        AccessibilityNodeInfo root=node("标题"), section=node(""), first=node("第一段");
+        AccessibilityNodeInfo label=node("");label.setContentDescription("只提供描述的第二段");
+        info(section).children.addAll(Arrays.asList(first,label));
+        section.setContentDescription("不重复容器摘要");
+        info(root).children.addAll(Arrays.asList(section,node("尾段")));
+        assertEquals("标题\n第一段\n只提供描述的第二段\n尾段",QuickNotePageContext.visibleText(root,APP));
+    }
     @Test @Config(sdk=35) public void systemSensitiveTextIsNeverRead() {
         AccessibilityNodeInfo root=node("敏感内容");root.setAccessibilityDataSensitive(true);
         assertThrows(Exception.class,()->QuickNotePageContext.visibleText(root,APP));

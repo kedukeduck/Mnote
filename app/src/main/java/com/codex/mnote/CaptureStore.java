@@ -216,6 +216,17 @@ final class CaptureStore {
             String sourceText, String sourcePackage, String sourceUrl, String sourceUrlOrigin,
             boolean retainImageContext, JSONObject textContext
     ) throws IOException {
+        return save(context, sourceDraft, originalCrop, annotatedCrop, annotationLayer, kind, comment,
+                sourceType, sourceText, sourcePackage, sourceUrl, sourceUrlOrigin, retainImageContext, textContext, null);
+    }
+
+    static CaptureRecord save(
+            Context context, File sourceDraft, Bitmap originalCrop, Bitmap annotatedCrop,
+            JSONObject annotationLayer, String kind, String comment, String sourceType,
+            String sourceText, String sourcePackage, String sourceUrl, String sourceUrlOrigin,
+            boolean retainImageContext, JSONObject textContext, org.json.JSONArray tags
+    ) throws IOException {
+        org.json.JSONArray normalizedTags = CaptureTags.normalize(tags);
         String safeUrl = CaptureSourceUrl.clean(sourceUrl);
         if (sourceUrl != null && !sourceUrl.trim().isEmpty() && safeUrl.isEmpty()) {
             throw new IOException("Invalid source URL");
@@ -271,6 +282,7 @@ final class CaptureStore {
                 } else if (retainImageContext) throw new IOException("context_coordinates_missing");
             }
             JSONObject object = new JSONObject()
+                    .put("tags", normalizedTags)
                     .put("captureContext",captureContext)
                     .put("schemaVersion", 1)
                     .put("id", id)
@@ -523,7 +535,8 @@ final class CaptureStore {
                 hasImage ? new File(directory, ANNOTATED_FILENAME) : null,
                 new File(directory, RECORD_FILENAME),
                 new File(directory,"context.png").isFile() ? new File(directory,"context.png") : null,
-                object.optJSONObject("captureContext") == null ? new JSONObject() : object.optJSONObject("captureContext")
+                object.optJSONObject("captureContext") == null ? new JSONObject() : object.optJSONObject("captureContext"),
+                object.optJSONArray("tags")
         );
     }
 
@@ -719,6 +732,7 @@ final class CaptureStore {
         final File metadataFile;
         final File contextFile;
         final JSONObject captureContext;
+        final org.json.JSONArray tags;
 
         CaptureRecord(
                 String id,
@@ -742,6 +756,16 @@ final class CaptureStore {
                 File contextFile,
                 JSONObject captureContext
         ) {
+            this(id, createdAt, kind, comment, sourceType, sourceText, sourcePackage, sourceUrl, sourceUrlOrigin,
+                    fidelityLevel, aiAccess, syncState, syncLastError, serverRevision, hasImage, originalFile,
+                    annotatedFile, metadataFile, contextFile, captureContext, null);
+        }
+
+        CaptureRecord(String id, long createdAt, String kind, String comment, String sourceType,
+                String sourceText, String sourcePackage, String sourceUrl, String sourceUrlOrigin,
+                String fidelityLevel, String aiAccess, String syncState, String syncLastError,
+                int serverRevision, boolean hasImage, File originalFile, File annotatedFile,
+                File metadataFile, File contextFile, JSONObject captureContext, org.json.JSONArray tags) {
             this.id = id;
             this.createdAt = createdAt;
             this.kind = kind;
@@ -762,6 +786,7 @@ final class CaptureStore {
             this.metadataFile = metadataFile;
             this.contextFile = contextFile;
             this.captureContext = captureContext;
+            this.tags = CaptureTags.normalize(tags);
         }
     }
 }

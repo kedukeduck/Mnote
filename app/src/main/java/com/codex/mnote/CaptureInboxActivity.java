@@ -74,6 +74,8 @@ public final class CaptureInboxActivity extends Activity {
     private List<CaptureStore.CaptureRecord> libraryRecords = new ArrayList<>();
     private EditText searchInput;
     private RadioGroup filterGroup;
+    private String tagFilter, filterScope;
+    private int visibleLimit = RECORD_LIMIT;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -82,6 +84,9 @@ public final class CaptureInboxActivity extends Activity {
         CaptureStore.cleanupStaleDrafts(this);
         bindViews();
         bindActions();
+        filterScope = CaptureAccountSession.scope(this);
+        if (savedInstanceState != null && filterScope.equals(savedInstanceState.getString("tag_scope")))
+            tagFilter = savedInstanceState.getString("tag_filter");
     }
 
     @Override
@@ -144,7 +149,10 @@ public final class CaptureInboxActivity extends Activity {
     }
 
     private void bindActions() {
-        filterGroup.setOnCheckedChangeListener((group, id) -> renderFilteredRecords());
+        filterGroup.setOnCheckedChangeListener((group, id) -> { visibleLimit=RECORD_LIMIT; renderFilteredRecords(); });
+        findViewById(R.id.capture_tag_filter).setOnClickListener(view -> chooseTag());
+        findViewById(R.id.capture_load_more).setOnClickListener(view -> { visibleLimit+=RECORD_LIMIT; renderFilteredRecords(); });
+        findViewById(R.id.capture_crash_diagnostic).setOnClickListener(view -> MnoteApplication.showDiagnostic(this));
         searchInput.setOnEditorActionListener((view, actionId, event) -> {
             if (actionId != android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) return false;
             getSystemService(android.view.inputmethod.InputMethodManager.class)
@@ -155,6 +163,7 @@ public final class CaptureInboxActivity extends Activity {
         searchInput.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                visibleLimit=RECORD_LIMIT;
                 renderFilteredRecords();
             }
             @Override public void afterTextChanged(Editable s) { }
@@ -355,7 +364,38 @@ public final class CaptureInboxActivity extends Activity {
         }
     }
 
+    private void chooseTag() {
+        final String scope=CaptureAccountSession.scope(this);
+        java.util.Map<String,String> names=new java.util.TreeMap<>();
+        java.util.Map<String,Integer> counts=new java.util.HashMap<>();
+        int untagged=0;
+        for(CaptureStore.CaptureRecord record:libraryRecords) {
+            if(record.tags.length()==0) untagged++;
+            for(int i=0;i<record.tags.length();i++) {
+                String name=record.tags.optString(i), key=name.toLowerCase(java.util.Locale.ROOT);
+                names.putIfAbsent(key,name); counts.put(key,counts.getOrDefault(key,0)+1);
+            }
+        }
+        List<String> values=new ArrayList<>(); values.add(null); values.add(""); values.addAll(names.values());
+        List<String> labels=new ArrayList<>(); labels.add("全部标签 · "+libraryRecords.size()); labels.add("未分类 · "+untagged);
+        for(String key:names.keySet()) labels.add("#"+names.get(key)+" · "+counts.get(key));
+        int selected=0;
+        for(int i=0;i<values.size();i++) if(java.util.Objects.equals(values.get(i),tagFilter)) selected=i;
+        new AlertDialog.Builder(this).setTitle("按标签查看")
+                .setSingleChoiceItems(labels.toArray(new String[0]),selected,(dialog,which)->{
+                    dialog.dismiss(); if(!scope.equals(CaptureAccountSession.scope(this))) return;
+                    tagFilter=values.get(which);visibleLimit=RECORD_LIMIT;renderFilteredRecords();
+                }).setNegativeButton("取消",null).show();
+    }
+
+    @Override protected void onSaveInstanceState(Bundle state) {
+        state.putString("tag_filter",tagFilter);state.putString("tag_scope",filterScope);
+        super.onSaveInstanceState(state);
+    }
+
     private void renderRecords() {
+        String currentScope=CaptureAccountSession.scope(this);
+        if (!currentScope.equals(filterScope)) { tagFilter=null; filterScope=currentScope; visibleLimit=RECORD_LIMIT; }
         List<CaptureStore.CaptureRecord> allRecords = CaptureStore.list(
                 this,
                 Integer.MAX_VALUE
@@ -366,6 +406,8 @@ public final class CaptureInboxActivity extends Activity {
     }
 
     private void renderFilteredRecords() {
+        ((Button)findViewById(R.id.capture_tag_filter)).setText("标签 · "
+                +(tagFilter==null ? "全部" : tagFilter.isEmpty() ? "未分类" : "#"+tagFilter)+"  ▾");
         int generation = ++renderGeneration;
         clearThumbnails();
         recordsContainer.removeAllViews();
@@ -377,16 +419,19 @@ public final class CaptureInboxActivity extends Activity {
                     ? record.hasImage || !record.sourceText.isEmpty() || !CaptureRecordEdits.original(record).isEmpty()
                     : filter == R.id.capture_filter_thought ? "thought".equals(record.kind)
                     : filter == R.id.capture_filter_todo ? "todo".equals(record.kind) : true;
-            String searchable = record.comment + "\n" + record.sourceText + "\n" + CaptureRecordEdits.original(record) + "\n" + record.sourceUrl;
-            if (match && searchable.toLowerCase(java.util.Locale.ROOT).contains(query)) allRecords.add(record);
+            String searchable = record.comment + "\n" + record.sourceText + "\n" + CaptureRecordEdits.original(record) + "\n" + record.sourceUrl
+                    + "\n" + CaptureTags.input(record.tags);
+            if (match && CaptureTags.matches(record.tags,tagFilter)
+                    && searchable.toLowerCase(java.util.Locale.ROOT).contains(query)) allRecords.add(record);
         }
-        List<CaptureStore.CaptureRecord> records = allRecords.size() <= RECORD_LIMIT
+        List<CaptureStore.CaptureRecord> records = allRecords.size() <= visibleLimit
                 ? allRecords
-                : new ArrayList<>(allRecords.subList(0, RECORD_LIMIT));
+                : new ArrayList<>(allRecords.subList(0, visibleLimit));
+        findViewById(R.id.capture_load_more).setVisibility(allRecords.size()>visibleLimit ? View.VISIBLE : View.GONE);
         recordCount.setText(getString(R.string.capture_filtered_count, allRecords.size(), libraryRecords.size()));
         TextView emptyTitle = (TextView) ((LinearLayout) emptyState).getChildAt(1);
         TextView emptyDetail = (TextView) ((LinearLayout) emptyState).getChildAt(2);
-        boolean filtered = !query.isEmpty() || filter != R.id.capture_filter_all;
+        boolean filtered = !query.isEmpty() || filter != R.id.capture_filter_all || tagFilter!=null;
         emptyTitle.setText(filtered ? R.string.capture_search_empty_title : R.string.capture_empty_title);
         emptyDetail.setText(filtered ? R.string.capture_search_empty_detail : R.string.capture_empty_detail);
         emptyState.setVisibility(records.isEmpty() ? View.VISIBLE : View.GONE);
@@ -419,6 +464,7 @@ public final class CaptureInboxActivity extends Activity {
         image.setClipToOutline(true);
 
         kind.setText(kindLabel(record.kind));
+        setOptionalText(card.findViewById(R.id.capture_item_tags),CaptureTags.display(record.tags));
         time.setText(DateFormat.format(
                 "yyyy-MM-dd HH:mm",
                 new Date(record.createdAt)
@@ -597,11 +643,7 @@ public final class CaptureInboxActivity extends Activity {
     }
 
     private void clearThumbnails() {
-        for (Bitmap thumbnail : thumbnails) {
-            if (thumbnail != null && !thumbnail.isRecycled()) {
-                thumbnail.recycle();
-            }
-        }
+        // Dropping references is safe; recycling while old cards still draw is not.
         thumbnails.clear();
     }
 

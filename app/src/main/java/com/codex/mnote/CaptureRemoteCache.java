@@ -173,6 +173,7 @@ final class CaptureRemoteCache {
                 .put("createdAt", Instant.parse(remote.getString("created_at")).toEpochMilli())
                 .put("kind", remote.optString("kind", "comment")).put("comment", remote.optString("comment", ""))
                 .put("sourceType", sourceType).put("sourceText", source.optString("text", ""))
+                .put("tags", CaptureTags.normalize(remote.optJSONArray("tags")))
                 .put("sourcePackage", source.optString("app_id", ""))
                 .put("sourceUrl", CaptureSourceUrl.clean(source.optString("url", "")))
                 .put("sourceUrlOrigin", source.optString("url_origin", ""))

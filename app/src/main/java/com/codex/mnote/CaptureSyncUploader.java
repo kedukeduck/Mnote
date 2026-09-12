@@ -158,6 +158,7 @@ final class CaptureSyncUploader {
         JSONObject stored=CaptureStore.readRecordObject(record.metadataFile);
         JSONObject canonical=stored==null ? null : stored.optJSONObject("canonicalBase");
         JSONObject result=canonical==null ? generated : new JSONObject(canonical.toString());
+        result.put("tags",CaptureTags.normalize(record.tags));
         result.put("comment",record.comment);
         JSONObject resultSource=result.optJSONObject("source");
         if(resultSource==null) resultSource=source;

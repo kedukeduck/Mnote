@@ -180,6 +180,7 @@ public class CaptureUiLayoutTest {
             input.requestRectangleOnScreen(new android.graphics.Rect(0,0,input.getWidth(),input.getHeight()),true);
             assertInside(root, root.findViewById(R.id.capture_comment_input));
             ((EditText) root.findViewById(R.id.capture_comment_input)).setText("这段话提醒我定期回顾。");
+            ((EditText) root.findViewById(R.id.capture_tags_input)).setText("截图，待读");
             root.findViewById(R.id.capture_editor_save).performClick();
             writer.submit(() -> {}).get(5, TimeUnit.SECONDS);
             shadowOf(Looper.getMainLooper()).idle();
@@ -189,6 +190,7 @@ public class CaptureUiLayoutTest {
             assertTrue(record.annotatedFile.isFile());
             assertEquals("screen", record.sourceType);
             assertEquals("这段话提醒我定期回顾。", record.comment);
+            assertEquals("截图，待读",CaptureTags.input(record.tags));
             assertFalse("Temporary full-screen draft is removed after saving", draft.exists());
         } finally {
             CaptureStore.discardDraft(context, draft);

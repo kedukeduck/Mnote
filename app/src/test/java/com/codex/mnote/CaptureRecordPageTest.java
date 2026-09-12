@@ -22,7 +22,7 @@ public class CaptureRecordPageTest {
         org.robolectric.Shadows.shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(
                 "com.codex.mnote.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION");
     }
-    @Test public void readingPageSwitchesSavedContextWithoutChangingRecordAndReleasesImages() throws Exception {
+    @Test public void readingPageSwitchesSavedContextWithoutRecyclingImagesStillUsedByRenderThread() throws Exception {
         CaptureContextTest fixture=new CaptureContextTest();fixture.setup();
         CaptureStore.CaptureRecord record=fixture.screenshot(true);
         String metadata=record.captureContext.toString();
@@ -46,7 +46,10 @@ public class CaptureRecordPageTest {
             assertEquals(metadata,record.captureContext.toString());
             dialog.findViewById(R.id.capture_review_close).performClick();
             org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
-            assertTrue(crop.isRecycled());assertTrue(full.isRecycled());
+            assertFalse(crop.isRecycled());assertFalse(full.isRecycled());
+            // A retained display list must still be safe to draw after dismiss.
+            Bitmap frame=Bitmap.createBitmap(390,844,Bitmap.Config.ARGB_8888);
+            preview.draw(new Canvas(frame));frame.recycle();
             assertNotNull(CaptureStore.readRecord(record.metadataFile.getParentFile()));
         }
     }
@@ -63,7 +66,7 @@ public class CaptureRecordPageTest {
             assertEquals(R.id.capture_preview_crop,dialog.<RadioGroup>findViewById(R.id.capture_preview_modes).getCheckedRadioButtonId());
             dialog.findViewById(R.id.capture_review_delete).performClick();
             org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
-            assertEquals(1,requests[0]); assertFalse(dialog.isShowing()); assertTrue(crop.isRecycled());
+            assertEquals(1,requests[0]); assertFalse(dialog.isShowing()); assertFalse(crop.isRecycled());
             // The page requests confirmation; it does not mutate the store itself.
             assertNotNull(CaptureStore.readRecord(record.metadataFile.getParentFile()));
         }

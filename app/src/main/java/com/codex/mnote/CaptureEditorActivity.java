@@ -54,6 +54,7 @@ public final class CaptureEditorActivity extends Activity {
     private TextView wholeImageTool;
     private Button saveButton;
     private EditText commentInput;
+    private CaptureTags.Field tags;
     private RadioGroup kindGroup;
 
     private File draft;
@@ -91,6 +92,8 @@ public final class CaptureEditorActivity extends Activity {
         setContentView(R.layout.activity_capture_editor);
         CaptureStore.cleanupStaleDrafts(this);
         bindViews();
+        tags = new CaptureTags.Field(getWindow().getDecorView());
+        if (savedInstanceState != null) tags.input.setText(savedInstanceState.getString("tags", ""));
         textExcerpt = new CaptureTextExcerpt(this, value -> sourceText=value);
         bindActions();
         sourcePackage = resolveSourcePackage();
@@ -119,6 +122,7 @@ public final class CaptureEditorActivity extends Activity {
 
     @Override protected void onSaveInstanceState(Bundle state) {
         state.putString("capture_owner_scope", ownerScope);
+        state.putString("tags", tags.input.getText().toString());
         state.putString("excerpt_quote",sourceText); textExcerpt.save(state);
         state.putString("excerpt_package",sourcePackage);
         super.onSaveInstanceState(state);
@@ -131,9 +135,8 @@ public final class CaptureEditorActivity extends Activity {
         if (isFinishing() && !saved && draft != null) {
             CaptureStore.discardDraft(this, draft);
         }
-        if (sourceBitmap != null && !sourceBitmap.isRecycled()) {
-            sourceBitmap.recycle();
-        }
+        // The render thread may retain the last frame after Activity teardown.
+        sourceBitmap = null;
         super.onDestroy();
     }
 
@@ -176,6 +179,7 @@ public final class CaptureEditorActivity extends Activity {
         wholeImageTool = findViewById(R.id.capture_tool_whole);
         saveButton = findViewById(R.id.capture_editor_save);
         commentInput = findViewById(R.id.capture_comment_input);
+        CaptureLongText.enableScrolling(commentInput);
         kindGroup = findViewById(R.id.capture_kind_group);
         sourceLink = new SourceLinkField(findViewById(android.R.id.content));
     }
@@ -282,6 +286,13 @@ public final class CaptureEditorActivity extends Activity {
         textContainer.setVisibility(View.GONE);
         toolRow.setVisibility(View.GONE);
         status.setText(R.string.capture_quick_note_detail);
+        // The legacy note route keeps its large writing surface; optional labels live in the header.
+        ((View)tags.input.getParent()).setVisibility(View.GONE);
+        android.widget.Button tagAction=new android.widget.Button(this);
+        tagAction.setText("标签"); tagAction.setMinWidth(0); tagAction.setMinimumWidth(0);tagAction.setTextSize(13);
+        tagAction.setBackgroundResource(android.R.color.transparent);
+        tagAction.setOnClickListener(v->CaptureLongText.show(this,tags.input,"标签 · 用逗号分隔"));
+        ((LinearLayout)title.getParent()).addView(tagAction,2,new LinearLayout.LayoutParams(-2,-2));
         setLoading(false);
         // No invisible screenshot frame above the input: the entire remaining
         // page becomes a writing surface, including when the keyboard opens.
@@ -438,6 +449,7 @@ public final class CaptureEditorActivity extends Activity {
             return;
         }
         String comment = commentInput.getText().toString().trim();
+        org.json.JSONArray savedTags = tags.validated(); if (savedTags == null) return;
         String url = sourceLink.validated();
         if (url == null) {
             Toast.makeText(this, R.string.capture_url_invalid, Toast.LENGTH_LONG).show();
@@ -502,14 +514,14 @@ public final class CaptureEditorActivity extends Activity {
                         sourcePackage,
                         url,
                         urlOrigin,
-                        retainImage, textContext
+                        retainImage, textContext, savedTags
                 );
                 }
                 if (CaptureStore.SYNC_PENDING.equals(record.syncState)) {
                     CaptureSyncWorker.enqueue(this);
                 }
                 runOnUiThread(this::finishSaved);
-            } catch (IOException | RuntimeException error) {
+            } catch (IOException | RuntimeException | OutOfMemoryError error) {
                 runOnUiThread(() -> {
                     saving = false;
                     progress.setVisibility(View.GONE);
@@ -554,7 +566,7 @@ public final class CaptureEditorActivity extends Activity {
             return;
         }
         if (!loading && sourceBitmap == null && sourceText.isEmpty()
-                && commentInput.getText().toString().trim().isEmpty() && !sourceLink.hasInput()) {
+                && commentInput.getText().toString().trim().isEmpty() && tags.input.getText().toString().trim().isEmpty() && !sourceLink.hasInput()) {
             setResult(RESULT_CANCELED);
             finish();
             return;

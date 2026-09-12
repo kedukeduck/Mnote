@@ -64,11 +64,13 @@ public class QuickNoteActivityTest {
     @Test public void pureNoteDoesNotReadClipboardOrPageAndSavesTodoWithoutImages() throws Exception {
         try(var c=note()) {
             QuickNoteActivity a=c.get();thought(a);
+            a.<EditText>findViewById(R.id.capture_tags_input).setText("灵感，待办");
             a.<RadioGroup>findViewById(R.id.capture_kind_group).check(R.id.capture_kind_todo);
             assertFalse(a.<CompoundButton>findViewById(R.id.quick_note_clipboard).isChecked());
             assertEquals(View.GONE,a.findViewById(R.id.quick_note_material).getVisibility());
             CaptureStore.CaptureRecord record=save(a);
             assertEquals("todo",record.kind);assertEquals("quick_note",record.sourceType);assertEquals("我的独立想法",record.comment);
+            assertEquals("灵感，待办",CaptureTags.input(record.tags));
             assertEquals("",record.sourceText);assertEquals("",record.sourcePackage);assertFalse(record.hasImage);
             assertEquals(0,ClipboardShadow.reads);assertEquals(0,ServiceShadow.reads);assertEquals(0,ServiceShadow.captures);
             assertTrue(a.isFinishing());assertNotNull(ShadowToast.getTextOfLatestToast());

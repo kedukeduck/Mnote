@@ -22,23 +22,33 @@ final class CaptureRecordEdits {
         return text==null ? "" : text.optString("full_text","");
     }
     static String fingerprint(CaptureStore.CaptureRecord record) throws Exception {
-        return fingerprint(record.comment,record.sourceText,original(record));
+        return fingerprint(record.comment,record.sourceText,original(record),record.tags);
     }
     static String fingerprint(String comment,String quote,String original) throws Exception {
+        return fingerprint(comment,quote,original,new org.json.JSONArray());
+    }
+    static String fingerprint(String comment,String quote,String original,org.json.JSONArray tags) throws Exception {
         return CaptureRemoteCache.digest(new JSONObject().put("comment",comment)
-                .put("quote",quote).put("original",original).toString().getBytes(StandardCharsets.UTF_8));
+                .put("quote",quote).put("original",original).put("tags",CaptureTags.normalize(tags))
+                .toString().getBytes(StandardCharsets.UTF_8));
     }
     static CaptureStore.CaptureRecord save(Context context,String scope,String id,String baseline,
             String comment,String quote,String original) throws Exception {
+        return save(context,scope,id,baseline,comment,quote,original,null);
+    }
+    static CaptureStore.CaptureRecord save(Context context,String scope,String id,String baseline,
+            String comment,String quote,String original,org.json.JSONArray tags) throws Exception {
         CaptureStore.CaptureRecord result;
         synchronized(CaptureAccountSession.LOCK) {
             CaptureStore.CaptureRecord current=latest(context,scope,id);
+            org.json.JSONArray normalizedTags=CaptureTags.normalize(tags==null ? current.tags : tags);
             if(!fingerprint(current).equals(baseline)) throw new IOException("record_changed");
             if(comment.length()>20_000 || quote.length()>100_000 || original.length()>CaptureContext.MAX_TEXT)
                 throw new IOException("text_too_long");
             if(!current.hasImage && comment.trim().isEmpty() && quote.trim().isEmpty()
                     && original.trim().isEmpty() && current.sourceUrl.isEmpty()) throw new IOException("empty_record");
-            if(comment.equals(current.comment) && quote.equals(current.sourceText) && original.equals(original(current))) return current;
+            if(comment.equals(current.comment) && quote.equals(current.sourceText) && original.equals(original(current))
+                    && normalizedTags.toString().equals(current.tags.toString())) return current;
             JSONObject metadata=CaptureStore.readRecordObject(current.metadataFile);
             if(metadata==null) throw new IOException("record_unavailable");
             File canonicalFile=new File(current.metadataFile.getParentFile(),"remote.json");
@@ -68,6 +78,7 @@ final class CaptureRecordEdits {
                 evidence.put("text_edit",edits.put("edited_at",System.currentTimeMillis()));
             }
             metadata.put("comment",comment).put("sourceText",quote).put("captureContext",evidence)
+                    .put("tags",normalizedTags)
                     .put("textOnlyEdit",true)
                     .put("editedAt",System.currentTimeMillis()).put("syncLastError",JSONObject.NULL)
                     .put("syncState",CaptureAccountSession.hasAccount(context) ? CaptureStore.SYNC_PENDING : CaptureStore.SYNC_LOCAL_ONLY);

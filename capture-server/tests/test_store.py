@@ -57,6 +57,18 @@ class CaptureStoreTest(unittest.TestCase):
         self.assertEqual(minimal_png(), path.read_bytes())
         self.assertEqual(64, len(digest))
 
+    def test_tags_survive_changes_feed_and_explicit_clear(self) -> None:
+        body = self.record()
+        body["tags"] = ["灵感", "工作"]
+        created = self.store.put("capture-test-001", body)
+        self.assertEqual(body["tags"], created["tags"])
+        self.assertEqual(body["tags"], self.store.changes()["changes"][0]["record"]["tags"])
+        body["tags"] = []
+        cleared = self.store.put("capture-test-001", body, base_revision=1)
+        self.assertEqual([], cleared["tags"])
+        self.assertEqual(created["assets"], cleared["assets"])
+        self.assertEqual([], self.store.get("capture-test-001")["tags"])
+
     def test_revision_conflict_and_idempotent_retry(self) -> None:
         first = self.store.put("capture-test-001", self.record())
         same_with_assets = self.store.put("capture-test-001", self.record())

@@ -97,5 +97,6 @@
             <RadioButton android:id="@+id/capture_kind_thought" style="@style/CaptureSegment" android:text="@string/capture_kind_thought" />
             <RadioButton android:id="@+id/capture_kind_todo" style="@style/CaptureSegment" android:text="@string/capture_kind_todo" />
         </RadioGroup>
+        <include layout="@layout/capture_tags" />
     </LinearLayout>
 </LinearLayout>

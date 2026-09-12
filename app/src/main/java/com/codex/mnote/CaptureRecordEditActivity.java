@@ -13,6 +13,7 @@ public final class CaptureRecordEditActivity extends Activity {
     static final String ID="record_id", SCOPE="record_scope";
     private final ExecutorService executor=Executors.newSingleThreadExecutor();
     private EditText comment,quote,original;
+    private CaptureTags.Field tags;
     private TextView status;
     private Button save,cancel;
     private String id,scope,baseline="";
@@ -27,6 +28,7 @@ public final class CaptureRecordEditActivity extends Activity {
         if(state!=null && state.containsKey("baseline")) {
             baseline=state.getString("baseline","");comment.setText(state.getString("comment",""));
             quote.setText(state.getString("quote",""));original.setText(state.getString("original",""));
+            tags.input.setText(state.getString("tags",""));
         }
         executor.execute(()->{
             try {
@@ -40,9 +42,10 @@ public final class CaptureRecordEditActivity extends Activity {
                     quote.setText(state==null ? record.sourceText : state.getString("quote",record.sourceText));
                     original.setText(state==null ? CaptureRecordEdits.original(record)
                             : state.getString("original",CaptureRecordEdits.original(record)));
+                    tags.input.setText(state==null ? CaptureTags.input(record.tags) : state.getString("tags",CaptureTags.input(record.tags)));
                     try {
                         if(fingerprint.equals(CaptureRecordEdits.fingerprint(comment.getText().toString(),
-                                quote.getText().toString(),original.getText().toString()))) baseline=fingerprint;
+                                quote.getText().toString(),original.getText().toString(),CaptureTags.parse(tags.input.getText().toString())))) baseline=fingerprint;
                     } catch(Exception ignored) { }
                     loading=false;setBusy(false);
                     status.setText("http_409".equals(record.syncLastError)
@@ -80,6 +83,7 @@ public final class CaptureRecordEditActivity extends Activity {
         comment=field(body,"我的想法","写下你的想法（最多 2 万字）",R.id.record_edit_comment);
         quote=field(body,"摘录文字","当时摘录的文字，可补充或修改（最多 10 万字）",R.id.record_edit_quote);
         original=field(body,"保留的原文","可补充原文；留空则从当前记录移除原文（最多 4 万字）",R.id.record_edit_original);
+        getLayoutInflater().inflate(R.layout.capture_tags,body,true); tags=new CaptureTags.Field(body);
         TextView help=label("原文与摘录修改后会标记为手动编辑；历史截图保持不变。",12);
         LinearLayout.LayoutParams helpParams=new LinearLayout.LayoutParams(-1,-2);helpParams.topMargin=dp(16);body.addView(help,helpParams);
         setContentView(root);setBusy(true);cancel.setEnabled(true);
@@ -95,6 +99,7 @@ public final class CaptureRecordEditActivity extends Activity {
         input.setImeOptions(android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);
         input.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);input.setSaveEnabled(false);
         LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(-1,-2);ip.topMargin=dp(8);body.addView(input,ip);
+        CaptureLongText.attach(this,input,title);
         return input;
     }
     private TextView label(String text,int size) {
@@ -104,14 +109,16 @@ public final class CaptureRecordEditActivity extends Activity {
     private void setBusy(boolean busy) {
         save.setEnabled(!busy);cancel.setEnabled(!busy);
         for(EditText input:new EditText[]{comment,quote,original}) if(input!=null) input.setEnabled(!busy);
+        if(tags!=null) tags.input.setEnabled(!busy);
     }
     private void save() {
         if(loading || saving) return;
         String note=comment.getText().toString(),selected=quote.getText().toString(),full=original.getText().toString();
+        org.json.JSONArray savedTags=tags.validated(); if(savedTags==null) return;
         saving=true;setBusy(true);status.setText("正在保存…");
         executor.execute(()->{
             try {
-                CaptureRecordEdits.save(this,scope,id,baseline,note,selected,full);
+                CaptureRecordEdits.save(this,scope,id,baseline,note,selected,full,savedTags);
                 runOnUiThread(()->{
                     if(destroyed) return;
                     Toast.makeText(this,"修改已保存"+("guest".equals(scope) ? "" : "，联网后同步"),Toast.LENGTH_SHORT).show();
@@ -126,7 +133,7 @@ public final class CaptureRecordEditActivity extends Activity {
     }
     private boolean dirty() {
         try {return !loading && !baseline.equals(CaptureRecordEdits.fingerprint(comment.getText().toString(),
-                quote.getText().toString(),original.getText().toString()));}
+                quote.getText().toString(),original.getText().toString(),CaptureTags.parse(tags.input.getText().toString())));}
         catch(Exception error) {return true;}
     }
     private void requestClose() {
@@ -138,6 +145,7 @@ public final class CaptureRecordEditActivity extends Activity {
     @Override public void onBackPressed() {requestClose();}
     @Override protected void onSaveInstanceState(Bundle state) {
         if(!loading) {state.putString("baseline",baseline);state.putString("comment",comment.getText().toString());
+            state.putString("tags",tags.input.getText().toString());
             state.putString("quote",quote.getText().toString());state.putString("original",original.getText().toString());}
         super.onSaveInstanceState(state);
     }

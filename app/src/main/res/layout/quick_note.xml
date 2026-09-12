@@ -34,6 +34,7 @@
                 <EditText android:id="@+id/quick_note_original" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="120dp" android:gravity="top|start" android:inputType="textMultiLine" android:hint="页面原文，可编辑" android:importantForAutofill="no" android:saveEnabled="false" android:visibility="gone" />
                 <Button android:id="@+id/quick_note_clear_context" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="移除页面上下文" android:visibility="gone" />
             </LinearLayout>
+            <include layout="@layout/capture_tags" />
             <include layout="@layout/capture_source_link" />
         </LinearLayout>
     </ScrollView>

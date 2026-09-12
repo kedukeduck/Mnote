@@ -48,12 +48,14 @@ public class CaptureRecordEditActivityTest {
             activity.<EditText>findViewById(R.id.record_edit_comment).setText("新的判断");
             activity.<EditText>findViewById(R.id.record_edit_quote).setText("新的摘录");
             activity.<EditText>findViewById(R.id.record_edit_original).setText("这里是新的摘录及其上下文");
+            activity.<EditText>findViewById(R.id.capture_tags_input).setText("灵感，工作");
             activity.findViewById(R.id.record_edit_save).performClick();drain(activity);
             assertTrue(activity.isFinishing());assertEquals(Activity.RESULT_OK,shadowOf(activity).getResultCode());
             assertEquals(record.id,shadowOf(activity).getResultIntent().getStringExtra(CaptureRecordEditActivity.ID));
             CaptureStore.CaptureRecord updated=CaptureStore.find(context,record.id);
             assertEquals("新的判断",updated.comment);assertEquals("新的摘录",updated.sourceText);
             assertEquals("这里是新的摘录及其上下文",CaptureRecordEdits.original(updated));
+            assertEquals("灵感，工作",CaptureTags.input(updated.tags));
             assertEquals("修改已保存",org.robolectric.shadows.ShadowToast.getTextOfLatestToast());
             assertEquals(1,CaptureStore.list(context,10).size());
         }
@@ -75,10 +77,12 @@ public class CaptureRecordEditActivityTest {
         try(ActivityController<CaptureRecordEditActivity> controller=open()) {
             controller.get().<EditText>findViewById(R.id.record_edit_comment).setText("旋转前输入");
             controller.get().<EditText>findViewById(R.id.record_edit_original).setText("新的原文");
+            controller.get().<EditText>findViewById(R.id.capture_tags_input).setText("旋转前标签");
             controller.recreate();drain(controller.get());
             CaptureRecordEditActivity activity=controller.get();
             assertEquals("旋转前输入",activity.<EditText>findViewById(R.id.record_edit_comment).getText().toString());
             assertEquals("新的原文",activity.<EditText>findViewById(R.id.record_edit_original).getText().toString());
+            assertEquals("旋转前标签",activity.<EditText>findViewById(R.id.capture_tags_input).getText().toString());
             activity.findViewById(R.id.record_edit_save).performClick();drain(activity);
             assertEquals("旋转前输入",CaptureStore.find(context,record.id).comment);
         }

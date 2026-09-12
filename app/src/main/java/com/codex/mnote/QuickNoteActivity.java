@@ -33,6 +33,7 @@ public final class QuickNoteActivity extends Activity {
     private ImageView image;
     private View root, material;
     private SourceLinkField link;
+    private CaptureTags.Field tags;
     private File draft;
     private File pendingDraft;
     private Bitmap preview;
@@ -44,6 +45,7 @@ public final class QuickNoteActivity extends Activity {
     private int normalStatusColor, normalNavigationColor;
     private SaveTask saveTask;
     private Toast feedback;
+    private Button expandOriginal;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -58,8 +60,12 @@ public final class QuickNoteActivity extends Activity {
         comment = findViewById(R.id.capture_comment_input);
         quote = findViewById(R.id.quick_note_quote);
         original = findViewById(R.id.quick_note_original);
+        tags = new CaptureTags.Field(root);
         // Bound on-screen layout without truncating the underlying text.
         comment.setMaxLines(12); quote.setMaxLines(8); original.setMaxLines(8);
+        CaptureLongText.attach(this, comment, "我的想法");
+        CaptureLongText.attach(this, quote, "剪贴板摘录");
+        expandOriginal = CaptureLongText.attach(this, original, "页面原文");
         for (EditText field : new EditText[]{comment, quote, original}) {
             field.setImeOptions(android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);
         }
@@ -76,6 +82,7 @@ public final class QuickNoteActivity extends Activity {
         findViewById(R.id.quick_note_capture_page).setOnClickListener(v -> requestContext(false));
         findViewById(R.id.quick_note_clear_context).setOnClickListener(v -> clearContext());
         if (state != null) {
+            tags.input.setText(state.getString("tags", ""));
             comment.setText(state.getString("comment", ""));
             quote.setText(state.getString("quote", ""));
             original.setText(state.getString("original", ""));
@@ -190,7 +197,8 @@ public final class QuickNoteActivity extends Activity {
         if (!page.found()) { abortContext(page.error); return; }
         if (text) {
             source = page.source; contextMode = "text";
-            finishContext(); original.setText(page.text);
+            // Populate while GONE. Restore normal window bounds before any article layout.
+            original.setText(page.text); finishContext();
             message("已附加可访问的页面文字，请检查是否包含所需原文。");
             return;
         }
@@ -262,6 +270,7 @@ public final class QuickNoteActivity extends Activity {
         material.setVisibility(clipboard.isChecked() ? View.VISIBLE : View.GONE);
         boolean text = contextMode.equals("text"), screenshot = contextMode.equals("image");
         original.setVisibility(text ? View.VISIBLE : View.GONE);
+        expandOriginal.setVisibility(text ? View.VISIBLE : View.GONE);
         image.setVisibility(screenshot ? View.VISIBLE : View.GONE); image.setImageBitmap(preview);
         findViewById(R.id.quick_note_clear_context).setVisibility(text || screenshot ? View.VISIBLE : View.GONE);
         contextLabel.setText(text ? "页面文字 · " + source.appLabel(this) + "\n仅可访问内容，可能包含界面文字，不保证文章全文。"
@@ -285,6 +294,7 @@ public final class QuickNoteActivity extends Activity {
     private void save() {
         if (saveTask != null || acquiring) return;
         String thought = comment.getText().toString().trim();
+        org.json.JSONArray savedTags = tags.validated(); if (savedTags == null) return;
         String excerpt = clipboard.isChecked() ? quote.getText().toString() : "";
         String url = link.validated(); if (url == null) return;
         if (clipboard.isChecked() && excerpt.trim().isEmpty()) { quote.setError("请输入摘录，或关闭剪贴板摘录。"); return; }
@@ -329,7 +339,7 @@ public final class QuickNoteActivity extends Activity {
                 synchronized (CaptureAccountSession.LOCK) {
                     CaptureAccountSession.requireScope(app, scope);
                     record = CaptureStore.save(app, snapshot, bitmap, bitmap, layer, kind, thought, type, excerpt,
-                            pkg, savedUrl, savedOrigin, snapshot != null, savedText);
+                            pkg, savedUrl, savedOrigin, snapshot != null, savedText, savedTags);
                 }
                 if (CaptureStore.SYNC_PENDING.equals(record.syncState)) {
                     try { CaptureSyncWorker.enqueue(app); }
@@ -364,6 +374,7 @@ public final class QuickNoteActivity extends Activity {
     @Override protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
         out.putString("owner", ownerScope); out.putString("comment", comment.getText().toString());
+        out.putString("tags", tags.input.getText().toString());
         out.putString("quote", quote.getText().toString()); out.putString("original", original.getText().toString());
         out.putBoolean("clipboard", clipboard.isChecked()); out.putString("url", link.input.getText().toString());
         out.putInt("kind", ((RadioGroup)findViewById(R.id.capture_kind_group)).getCheckedRadioButtonId());
@@ -374,7 +385,8 @@ public final class QuickNoteActivity extends Activity {
     @Override public void onBackPressed() {
         if (saveTask != null) return;
         if (acquiring) { abortContext("已取消页面读取。"); return; }
-        if (comment.getText().toString().trim().isEmpty() && quote.getText().toString().trim().isEmpty() && !link.hasInput() && contextMode.equals("none")) { finish(); return; }
+        if (comment.getText().toString().trim().isEmpty() && quote.getText().toString().trim().isEmpty()
+                && tags.input.getText().toString().trim().isEmpty() && !link.hasInput() && contextMode.equals("none")) { finish(); return; }
         new AlertDialog.Builder(this).setTitle("放弃这条记录？").setMessage("尚未保存的内容将被丢弃。")
                 .setNegativeButton("继续编辑", null).setPositiveButton("放弃", (dialog, which) -> finish()).show();
     }

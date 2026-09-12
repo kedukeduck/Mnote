@@ -65,14 +65,19 @@ final class QuickNotePageContext {
                             || node.isPassword() || node.isEditable() || !node.isVisibleToUser()
                             || (android.os.Build.VERSION.SDK_INT>=34 && node.isAccessibilityDataSensitive())) continue;
                     CharSequence value=node.getText();
+                    // Some apps expose their visible paragraph only as an accessibility label.
+                    // Leaf-only fallback avoids repeating a container's aggregate description.
+                    if((value==null || value.toString().trim().isEmpty()) && node.getChildCount()==0)
+                        value=node.getContentDescription();
                     if(value!=null && !value.toString().trim().isEmpty()) {
                         length+=value.length()+(parts.isEmpty() ? 0 : 1);
                         if(length>CaptureContext.MAX_TEXT) throw new Exception("可读页面文字超过 4 万字，本次未截断保存；可以选择截图。");
                         parts.add(value.toString());
                     }
-                    for(int i=0;i<node.getChildCount();i++) {
+                    // Depth-first document order keeps nested paragraphs before following siblings.
+                    for(int i=node.getChildCount()-1;i>=0;i--) {
                         if(++queries>1024 || SystemClock.uptimeMillis()>deadline) throw new Exception("页面读取达到上限，本次未保存原文。");
-                        AccessibilityNodeInfo child=node.getChild(i);if(child!=null) nodes.addLast(child);
+                        AccessibilityNodeInfo child=node.getChild(i);if(child!=null) nodes.addFirst(child);
                     }
                 } finally {if(node!=root) node.recycle();}
             }

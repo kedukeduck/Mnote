@@ -9,6 +9,8 @@
 
 V1 Core 当前线上交换使用 `schema_version: 1` 的精简记录，实际字段与兼容规则以 [`capture-server/README.md`](../capture-server/README.md) 为准；本文的 `capture-record.v1` 是后续无损扩展目标。
 
+Android 1.6.0 已实现增量：本地及线上精简模型均使用顶层 `tags: ["灵感", "工作"]`（缺省为空，清空时明确发送 `[]`）。标签不写入来源文字 / 原文证据；每条最多 20 个、每个最多 32 个 UTF-16 字符，大小写不敏感去重，按原记录账号和修订号同步。详见 [1.6.0 标签说明](android-1.6.0-tags-readable-context.md)。这不是下方完整目标示例的 schema 迁移。
+
 ## 1. 设计目标
 
 1. 原始证据、用户表达、OCR、批注、任务和 AI 派生内容可独立追溯。

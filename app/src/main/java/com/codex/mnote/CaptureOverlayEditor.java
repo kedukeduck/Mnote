@@ -50,6 +50,7 @@ final class CaptureOverlayEditor {
     private final FrameLayout root;
     private final CaptureMarkupView markup;
     private final EditText comment;
+    private final CaptureTags.Field tags;
     private final RadioGroup kind;
     private final TextView status;
     private final Button save;
@@ -224,6 +225,8 @@ final class CaptureOverlayEditor {
         markup = root.findViewById(R.id.capture_markup_view);
         root.findViewById(R.id.capture_markup_container).setBackground(null);
         comment = root.findViewById(R.id.capture_comment_input);
+        tags = new CaptureTags.Field(root);
+        CaptureLongText.enableScrolling(comment);
         // Keep the lower panel compact when the keyboard or link field opens.
         comment.setMaxLines(6);
         comment.setMinHeight(dp(144));
@@ -370,7 +373,7 @@ final class CaptureOverlayEditor {
             try { nextPreview = markup.renderAnnotatedSelection(); }
             catch (RuntimeException | OutOfMemoryError ignored) { }
             preview.setImageBitmap(nextPreview);
-            recycle(previewBitmap);
+            // Previously displayed bitmaps can still be referenced by a hardware frame.
             previewBitmap = nextPreview;
         }
         preview.setVisibility(value ? View.VISIBLE : View.GONE);
@@ -492,9 +495,7 @@ final class CaptureOverlayEditor {
         if (closed) return;
         closed = true;
         detach();
-        recycle(sourceBitmap);
         preview.setImageDrawable(null);
-        recycle(previewBitmap);
         previewBitmap = null;
         sourceBitmap = null;
         // Let an in-flight atomic save finish; it still owns its image copies and draft.
@@ -552,6 +553,7 @@ final class CaptureOverlayEditor {
             return;
         }
         String note = comment.getText().toString().trim();
+        org.json.JSONArray savedTags = tags.validated(); if (savedTags == null) return;
         String urlOrigin = sourceLink.origin(url);
         int selected = kind.getCheckedRadioButtonId();
         String recordKind = selected == R.id.capture_kind_thought ? "thought"
@@ -585,11 +587,11 @@ final class CaptureOverlayEditor {
                     CaptureAccountSession.requireScope(context, ownerScope);
                     record = CaptureStore.save(context, draft,
                             originalCopy, annotatedCopy, annotations, recordKind, note, "screen", "", source.appPackage, url, urlOrigin,
-                            retainImage, null);
+                            retainImage, null, savedTags);
                 }
                 success = true;
                 if (CaptureStore.SYNC_PENDING.equals(record.syncState)) CaptureSyncWorker.enqueue(context);
-            } catch (Exception error) {
+            } catch (Exception | OutOfMemoryError error) {
                 // Keep the session editable when the atomic local write fails.
             } finally {
                 recycle(originalCopy);
