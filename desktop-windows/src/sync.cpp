@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <stdexcept>
 
 namespace PersonalCaptureSync {
 namespace {
@@ -364,6 +365,48 @@ Result PutCapture(
     }
     result.succeeded = true;
     return result;
+}
+
+Response Request(const Settings& settings,const std::wstring& method,const std::wstring& path,
+                 const std::string& payload,std::size_t limit,int revision) {
+    ParsedUrl parsed;std::wstring ignored;
+    if(!ParseAndValidateUrl(settings.serverUrl,parsed,ignored)) throw std::runtime_error("invalid_server");
+    if((method!=L"GET" && method!=L"POST" && method!=L"PUT" && method!=L"DELETE")
+        || path.rfind(L"/v1/",0)!=0 || path.find(L"..")!=std::wstring::npos
+        || path.find_first_of(L"\r\n\\#")!=std::wstring::npos || payload.size()>kMaximumPayloadBytes
+        || limit>32U*1024U*1024U) throw std::runtime_error("invalid_request");
+    for(wchar_t c:settings.writeToken) if(c<33 || c>126) throw std::runtime_error("invalid_token");
+    InternetHandle session(WinHttpOpen(L"Mnote/1.6.0",parsed.secure ? WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY
+        : WINHTTP_ACCESS_TYPE_NO_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0));
+    if(!session) throw std::runtime_error("network_io");
+    WinHttpSetTimeouts(session.get(),3000,5000,10000,10000);
+    InternetHandle connection(WinHttpConnect(session.get(),parsed.host.c_str(),parsed.port,0));
+    if(!connection) throw std::runtime_error("network_io");
+    InternetHandle request(WinHttpOpenRequest(connection.get(),method.c_str(),(parsed.basePath+path).c_str(),
+        nullptr,WINHTTP_NO_REFERER,WINHTTP_DEFAULT_ACCEPT_TYPES,parsed.secure ? WINHTTP_FLAG_SECURE : 0));
+    if(!request) throw std::runtime_error("network_io");
+    DWORD redirect=WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
+    DWORD features=WINHTTP_DISABLE_COOKIES|WINHTTP_DISABLE_AUTHENTICATION;
+    if(!WinHttpSetOption(request.get(),WINHTTP_OPTION_REDIRECT_POLICY,&redirect,sizeof(redirect))
+       || !WinHttpSetOption(request.get(),WINHTTP_OPTION_DISABLE_FEATURE,&features,sizeof(features)))
+        throw std::runtime_error("network_security");
+    std::wstring headers=L"Content-Type: application/json\r\nCache-Control: no-store";
+    if(!settings.writeToken.empty()) headers+=L"\r\nAuthorization: Bearer "+settings.writeToken;
+    if(revision>0) headers+=L"\r\nIf-Match: "+std::to_wstring(revision);
+    DWORD bytes=static_cast<DWORD>(payload.size());
+    if(!WinHttpSendRequest(request.get(),headers.c_str(),static_cast<DWORD>(-1),
+        payload.empty() ? WINHTTP_NO_REQUEST_DATA : const_cast<char*>(payload.data()),bytes,bytes,0)
+        || !WinHttpReceiveResponse(request.get(),nullptr)) throw std::runtime_error("network_io");
+    Response response;DWORD size=sizeof(response.status);
+    if(!WinHttpQueryHeaders(request.get(),WINHTTP_QUERY_STATUS_CODE|WINHTTP_QUERY_FLAG_NUMBER,
+        WINHTTP_HEADER_NAME_BY_INDEX,&response.status,&size,WINHTTP_NO_HEADER_INDEX)) throw std::runtime_error("network_io");
+    char buffer[16384];DWORD read=0;
+    do {
+        if(!WinHttpReadData(request.get(),buffer,sizeof(buffer),&read)) throw std::runtime_error("network_io");
+        if(response.body.size()+read>limit) throw std::runtime_error("response_too_large");
+        response.body.append(buffer,read);
+    } while(read>0);
+    return response;
 }
 
 } // namespace PersonalCaptureSync

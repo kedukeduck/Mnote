@@ -1,11 +1,26 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(MnoteWindows VERSION 0.1.0 LANGUAGES CXX)
+project(MnoteWindows VERSION 1.6.0 LANGUAGES CXX)
+
+# Pinned, hash-verified build dependency; no third-party runtime is installed.
+set(JSON_HEADER "${CMAKE_CURRENT_BINARY_DIR}/deps/json.hpp")
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/deps")
+if(NOT EXISTS "${JSON_HEADER}")
+    file(DOWNLOAD "https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp"
+        "${JSON_HEADER}" TLS_VERIFY ON
+        EXPECTED_HASH SHA256=9bea4c8066ef4a1c206b2be5a36302f8926f7fdc6087af5d20b417d0cf103ea6)
+endif()
+file(SHA256 "${JSON_HEADER}" JSON_HASH)
+if(NOT JSON_HASH STREQUAL "9bea4c8066ef4a1c206b2be5a36302f8926f7fdc6087af5d20b417d0cf103ea6")
+    message(FATAL_ERROR "Unexpected JSON dependency hash")
+endif()
 
 add_executable(mnote WIN32
     src/main.cpp
     src/sync.cpp
+    src/library.cpp
 )
+target_include_directories(mnote SYSTEM PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/deps")
 
 target_compile_features(mnote PRIVATE cxx_std_17)
 target_compile_definitions(mnote PRIVATE
@@ -47,6 +62,8 @@ target_link_libraries(mnote PRIVATE
     user32
     winhttp
     ws2_32
+    crypt32
+    bcrypt
 )
 
 install(TARGETS mnote RUNTIME DESTINATION .)

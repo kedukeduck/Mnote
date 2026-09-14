@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <cstddef>
 
 namespace PersonalCaptureSync {
 
@@ -17,6 +18,15 @@ struct Result {
     bool succeeded = false;
     std::wstring error;
 };
+
+struct Response {
+    unsigned long status = 0;
+    std::string body;
+};
+// Throws only fixed, credential-free error codes. Reads bounded responses and never follows redirects.
+Response Request(const Settings& settings, const std::wstring& method, const std::wstring& path,
+                 const std::string& payload = {}, std::size_t limit = 8U*1024U*1024U,
+                 int revision = 0);
 
 // Reads [sync] from %LOCALAPPDATA%\PersonalCapture\settings.ini.  An absent
 // file is a valid, disabled configuration.  Credentials are kept in memory
