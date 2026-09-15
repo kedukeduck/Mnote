@@ -31,12 +31,16 @@ xvfb-run -a bash -c '
         sleep 0.1
     done
     [[ "$ready" == true ]]
-    wine "$1" /UPDATE /S "/D=C:\Mnote-Installer-Test" &
+    old_pid="$(wine "$2/desktop-windows/build-installer-tests/handoff.exe" pid | tr -d "\r")"
+    [[ "$old_pid" =~ ^[0-9]+$ ]]
+    wine "$1" /UPDATE "/UPDATEPID=$old_pid" /S "/D=C:\Mnote-Installer-Test" &
     update_pid=$!
     sleep 2
     kill -0 "$update_pid"
     wine "$2/desktop-windows/build-installer-tests/handoff.exe" ready
     wine "$2/desktop-windows/build-installer-tests/handoff.exe" close
+    sleep 0.5
+    kill -0 "$update_pid"
     wait "$host_pid"
     wait "$update_pid"
     cmp "$2/desktop-windows/build-mingw/mnote.exe" "${WINEPREFIX}/drive_c/Mnote-Installer-Test/mnote.exe"

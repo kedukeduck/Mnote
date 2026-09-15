@@ -38,6 +38,17 @@ Function .onInit
   ClearErrors
   ${GetOptions} $1 "/UPDATE" $2
   IfErrors notUpdating
+  ClearErrors
+  ${GetOptions} $1 "/UPDATEPID=" $2
+  IfErrors waitForWindow
+  System::Call 'kernel32::OpenProcess(i 0x00100000, i 0, i r2) p.r4'
+  StrCmp $4 0 waitForWindow
+  System::Call 'kernel32::WaitForSingleObject(p r4, i 30000) i.r5'
+  System::Call 'kernel32::CloseHandle(p r4)'
+  StrCmp $5 0 waitForWindow
+  MessageBox MB_OK|MB_ICONINFORMATION "Mnote 仍在结束同步或保存，请稍后从旧版重新安装更新。未强制退出应用。" /SD IDOK
+  Abort
+  waitForWindow:
   StrCpy $3 0
   waitForOldVersion:
     FindWindow $0 "PersonalCapture.MessageWindow" ""

@@ -75,6 +75,10 @@ int wmain(int argc, wchar_t **argv) {
         auto w = Window(L"Mnote · 版本与更新");
         if (!w || !IsWindowEnabled(GetDlgItem(w, 24001)))
             return 23;
+        wchar_t status[512]{};
+        GetDlgItemTextW(w, 2300, status, 512);
+        if (!status[0] || std::wstring(status).find(L"正在") != std::wstring::npos)
+            return 23;
         if (!GetDlgItem(w, 24002) || !GetDlgItem(w, 24003) || !GetDlgItem(w, 24005))
             return 23;
         if (action == L"close-updates")

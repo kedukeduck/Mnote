@@ -237,7 +237,10 @@ void Launch(const fs::path &path, const Release &release) {
     launch.fMask = SEE_MASK_NOCLOSEPROCESS;
     launch.lpVerb = L"open";
     launch.lpFile = path.c_str();
-    launch.lpParameters = L"/UPDATE";
+    // The main window can disappear before background sync finishes shutting down.
+    // Wait for the process, not just its window, before replacing the mapped executable.
+    auto parameters = L"/UPDATE /UPDATEPID=" + std::to_wstring(GetCurrentProcessId());
+    launch.lpParameters = parameters.c_str();
     launch.nShow = SW_SHOWNORMAL;
     if (!ShellExecuteExW(&launch))
         throw std::runtime_error("update_launch");
