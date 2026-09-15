@@ -21,6 +21,7 @@ from .store import (
     CaptureValidationError,
 )
 from .accounts import Accounts, AuthError
+from .markdown_export import MarkdownExports
 
 
 WEB_ROOT = Path(__file__).with_name("web")
@@ -63,11 +64,14 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
 
     def end_headers(self) -> None:
         # Applied to UI, API, assets and errors. No Access-Control-Allow-Origin
-        # header is emitted: this personal vault is same-origin by default.
+        # header is emitted for private resources. Explicit export images are the sole exception.
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header("Cross-Origin-Resource-Policy", "cross-origin" if getattr(self, "public_image", False) else "same-origin")
+        if getattr(self, "public_image", False):
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("X-Robots-Tag", "noindex, nofollow, noarchive")
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")
         self.send_header("X-Permitted-Cross-Domain-Policies", "none")
         self.send_header(
@@ -128,6 +132,7 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
         return value
 
     def _scope(self) -> str | None:
+        self.account = None
         self.store = self.accounts.legacy
         authorization = self.headers.get("Authorization", "")
         if not authorization.startswith("Bearer "):
@@ -202,11 +207,28 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
         self.do_GET()
 
     def do_GET(self) -> None:  # noqa: N802
+        self.public_image = False
         parsed = urlparse(self.path)
         if self._web_asset(parsed.path):
             return
         if parsed.path == "/health":
             self._json(HTTPStatus.OK, {"status": "ok"})
+            return
+        if parsed.path.startswith("/s/"):
+            try:
+                parts = self._parts(parsed.path)
+                if len(parts) != 3:
+                    raise CaptureNotFound(parsed.path)
+                data, content_type = self.exports.image(parts[1], parts[2])
+                self.public_image = True
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                if self.command != "HEAD": self.wfile.write(data)
+            except CaptureNotFound:
+                self._problem(404, "not_found", "Shared image unavailable")
             return
         # Reading is intentionally separated from upload authority. A leaked
         # device write token can submit captures, but cannot enumerate or
@@ -218,6 +240,12 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
         parts = self._parts(parsed.path)
         ai_only = scope == "ai"
         try:
+            if parts == ["v1", "exports"]:
+                if scope != "account":
+                    self._problem(403, "forbidden", "Account required")
+                else:
+                    self._json(200, {"exports": self.exports.list(self.account["id"])})
+                return
             if parts == ["v1", "captures"]:
                 records = self.store.list(
                     limit=self._integer(query, "limit", 50),
@@ -351,6 +379,17 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
             return
         parts = self._parts(urlparse(self.path).path)
         try:
+            if parts == ["v1", "exports", "markdown"]:
+                if not getattr(self, "account", None):
+                    self._problem(403, "forbidden", "Account required")
+                    return
+                try:
+                    result = self.exports.create(self.account["id"], self.store, self._body())
+                except OSError:
+                    self._problem(503, "export_storage_unavailable", "Export storage is unavailable")
+                    return
+                self._json(200, result)
+                return
             if parts == ["v1", "captures"]:
                 body = self._body()
                 capture_id = body.get("id")
@@ -387,6 +426,16 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
         if self._require("write") is None:
             return
         parts = self._parts(urlparse(self.path).path)
+        if len(parts) == 3 and parts[:2] == ["v1", "exports"]:
+            if not getattr(self, "account", None):
+                self._problem(403, "forbidden", "Account required")
+                return
+            try:
+                self.exports.revoke(self.account["id"], parts[2])
+                self._json(200, {"revoked": parts[2]})
+            except CaptureNotFound:
+                self._problem(404, "not_found", "Export unavailable")
+            return
         if len(parts) != 3 or parts[:2] != ["v1", "captures"]:
             self._problem(HTTPStatus.NOT_FOUND, "not_found", "Unknown endpoint")
             return
@@ -448,11 +497,12 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid_request"})
 
 
-def create_server(host: str, port: int, store: CaptureStore, tokens: Tokens) -> ThreadingHTTPServer:
+def create_server(host: str, port: int, store: CaptureStore, tokens: Tokens, public_base: str | None = None) -> ThreadingHTTPServer:
     handler = type(
         "ConfiguredCaptureRequestHandler",
         (CaptureRequestHandler,),
-        {"store": store, "tokens": tokens, "accounts": Accounts(store)},
+        {"store": store, "tokens": tokens, "accounts": Accounts(store),
+         "exports": MarkdownExports(store.root, os.environ.get("MNOTE_PUBLIC_BASE_URL", "") if public_base is None else public_base)},
     )
     return ThreadingHTTPServer((host, port), handler)
 

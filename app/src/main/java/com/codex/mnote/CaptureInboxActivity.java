@@ -149,6 +149,15 @@ public final class CaptureInboxActivity extends Activity {
     }
 
     private void bindActions() {
+        findViewById(R.id.capture_export_markdown).setOnClickListener(view -> {
+            int filter = filterGroup.getCheckedRadioButtonId();
+            int type = filter == R.id.capture_filter_excerpt ? 1
+                    : filter == R.id.capture_filter_thought ? 2
+                    : filter == R.id.capture_filter_todo ? 3 : 0;
+            startActivity(new Intent(this, MarkdownExportActivity.class)
+                    .putExtra("query", searchInput.getText().toString().trim())
+                    .putExtra("tag", tagFilter).putExtra("type", type));
+        });
         findViewById(R.id.app_update_button).setOnClickListener(view -> startActivity(new Intent(this,AppUpdateActivity.class)));
         filterGroup.setOnCheckedChangeListener((group, id) -> { visibleLimit=RECORD_LIMIT; renderFilteredRecords(); });
         findViewById(R.id.capture_tag_filter).setOnClickListener(view -> chooseTag());

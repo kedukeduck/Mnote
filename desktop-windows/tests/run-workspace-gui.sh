@@ -9,6 +9,12 @@ if [[ -d /root/.cache/mnote-build-tools/root/usr/share/fonts/truetype/wqy ]]; th
     export WINEFONTPATH=/root/.cache/mnote-build-tools/root/usr/share/fonts/truetype/wqy
 fi
 cleanup() {
+    test_status=$?
+    if [[ "$test_status" != 0 ]]; then
+        for log_name in app.log server.log source.log; do
+            if [[ -f "${test_dir}/${log_name}" ]]; then cp "${test_dir}/${log_name}" "${build_dir}/failed-${log_name}"; fi
+        done
+    fi
     env WINEPREFIX="${test_dir}/wine" wineserver -k >/dev/null 2>&1 || true
     env WINEPREFIX="${test_dir}/wine" wineserver -w >/dev/null 2>&1 || true
     case "${test_dir}" in /tmp/mnote-workspace-gui.*) rm -rf -- "${test_dir}" ;; esac

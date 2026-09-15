@@ -39,6 +39,9 @@
                 android:layout_height="wrap_content" android:layout_marginTop="12dp"
                 android:background="@drawable/bg_button_secondary" android:gravity="start|center_vertical"
                 android:text="标签 · 全部  ▾" android:textSize="14sp" />
+            <Button android:id="@+id/capture_export_markdown" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="8dp"
+                android:background="@drawable/bg_button_secondary" android:text="批量选择 · 导出 Markdown" />
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="16dp" android:gravity="center_vertical" android:orientation="horizontal">
                 <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"

@@ -18,6 +18,7 @@ Json Note(const std::string& id="") {
     if(!id.empty()) data["id"]=id;return data;
 }
 struct FakeServer {
+    int exports=0, revoked=0;
     Json cloud=Json::object(),events=Json::array();bool conflict=false,badAsset=false;int puts=0;
     std::function<void()> duringFeed;
     std::string bytes=std::string("\x89PNG\r\n\x1a\n",8)+std::string(16,'\0');
@@ -26,6 +27,14 @@ struct FakeServer {
     Response call(const PersonalCaptureSync::Settings&,const std::wstring& method,const std::wstring& path,const std::string& body,std::size_t,int revision) {
         if(path==L"/v1/auth/login" || path==L"/v1/auth/activate") return {200,session().dump()};
         if(path==L"/v1/auth/logout") return {200,"{}"};
+        if(path==L"/v1/exports/markdown") {
+            auto payload=Parse(body);Expect(payload.at("publish_images")==true);
+            for(const auto& r:payload.at("records"))
+                if(!cloud.contains(r.at("id")) || cloud.at(r.at("id")).at("revision")!=r.at("revision")) return {409,"{}"};
+            ++exports;return {200,Json{{"id",std::string(32,'e')},{"markdown","# Mnote 记录导出\n\n我的想法\n"}}.dump()};
+        }
+        if(path==L"/v1/exports") return {200,Json{{"exports",Json::array({{{"id",std::string(32,'e')}}})}}.dump()};
+        if(path==L"/v1/exports/"+std::wstring(32,L'e')) {++revoked;return {200,"{}"};}
         if(path.rfind(L"/v1/changes?",0)==0) {
             if(duringFeed) {auto action=std::move(duringFeed);action();}
             auto start=path.find(L"after=")+6;std::int64_t after=std::stoll(path.substr(start));
@@ -86,8 +95,24 @@ void Cases(const fs::path& folder) {
     Expect(library.importGuest(account.scope)==1);Expect(library.importGuest(account.scope)==0);
     library.sync();auto synced=library.list(account.scope)[0];Expect(synced.state=="synced");Expect(synced.revision==1);
     Expect(server.cloud.at(synced.id).at("tags").size()==2);
+    Expect(Library::exportable(synced));
+    auto denied=synced;denied.data["ai_access"]="deny";Expect(!Library::exportable(denied));
+    auto pending=synced;pending.state="pending";Expect(!Library::exportable(pending));
+    library.exportMarkdown(account.scope,{synced},folder/L"export.md");
+    Expect(Read(folder/L"export.md")=="# Mnote 记录导出\n\n我的想法\n");Expect(server.exports==1);
+    Expect(library.markdownExports(account.scope).size()==1);
+    library.revokeMarkdownExport(account.scope,std::string(32,'e'));Expect(server.revoked==1);
+    Throws([&]{library.exportMarkdown(account.scope,{},folder/L"export.md");},"export_selection");
+    Throws([&]{library.exportMarkdown(account.scope,{synced,synced},folder/L"export.md");},"export_changed");
+    Throws([&]{library.exportMarkdown(account.scope,{pending},folder/L"export.md");},"export_changed");
+    Throws([&]{library.exportMarkdown("guest",{synced},folder/L"export.md");},"account_changed");
+    Throws([&]{library.revokeMarkdownExport(account.scope,"../bad");},"invalid_export");
+    fs::create_directory(folder/L"cannot-overwrite-directory.md");
+    Throws([&]{library.exportMarkdown(account.scope,{synced},folder/L"cannot-overwrite-directory.md");});
+    Expect(server.revoked==2);
     auto clear=synced.data;clear["tags"]=Json::array();
     auto cleared=library.save(account.scope,clear,{},Library::fingerprint(synced));library.sync();
+    Throws([&]{library.exportMarkdown(account.scope,{synced},folder/L"export.md");},"export_changed");
     Expect(server.cloud.at(synced.id).at("tags").empty());Expect(library.list(account.scope)[0].revision==2);
     auto stale=library.list(account.scope)[0];auto conflict=stale.data;conflict["comment"]="本机新修改";
     library.save(account.scope,conflict,{},Library::fingerprint(stale));server.conflict=true;

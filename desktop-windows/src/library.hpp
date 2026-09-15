@@ -61,6 +61,11 @@ class Library {
     int importGuest(const std::string &scope);
     fs::path root() const { return root_; }
     static std::string fingerprint(const Record &record);
+    static bool exportable(const Record &record);
+    void exportMarkdown(const std::string &scope, const std::vector<Record> &records,
+                        const fs::path &destination);
+    Json markdownExports(const std::string &scope);
+    void revokeMarkdownExport(const std::string &scope, const std::string &id);
 
   private:
     fs::path root_;

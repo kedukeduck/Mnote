@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(MnoteWindows VERSION 1.7.0 LANGUAGES CXX RC)
+project(MnoteWindows VERSION 1.8.0 LANGUAGES CXX RC)
 
 # Pinned, hash-verified build dependency; no third-party runtime is installed.
 set(JSON_HEADER "${CMAKE_CURRENT_BINARY_DIR}/deps/json.hpp")
@@ -58,6 +58,7 @@ if(MINGW)
 endif()
 
 target_link_libraries(mnote PRIVATE
+    comdlg32
     comctl32
     gdiplus
     gdi32

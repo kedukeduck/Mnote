@@ -2,6 +2,7 @@
 #include "updater.hpp"
 #include <cmath>
 #include <commctrl.h>
+#include <commdlg.h>
 #include <condition_variable>
 #include <deque>
 #include <set>
@@ -62,9 +63,13 @@ enum Control {
     UpdateDownload,
     UpdateInstall,
     UpdatePage,
-    UpdateNotes
+    UpdateNotes,
+    BatchExport = 25000,
+    SelectAll,
+    ClearSelection,
+    ExportShares
 };
-enum class Mode { Library, Editor, Account, Image, Toast, Update };
+enum class Mode { Library, Editor, Account, Image, Toast, Update, Markdown, Shares };
 struct Placement {
     HWND control;
     int x, y, w, h;
@@ -84,6 +89,7 @@ struct Window {
     Draft draft;
     Record record;
     std::vector<Record> records, filtered;
+    Json shares = Json::array();
     std::shared_ptr<Gdiplus::Bitmap> preview;
     std::wstring previewRole, status;
     double zoom = 1;
@@ -149,11 +155,12 @@ void Enqueue(std::function<void()> job) {
 }
 void Busy(Window &w, bool value) {
     w.busy = value;
-    for (int id :
-         {Save,        Delete,        Login,         Logout,      Import,         Clipboard,
-          ReadContext, ScreenContext, RemoveContext, Full,        Note,           Quote,
-          Original,    TagsInput,     Url,           Kind,        Server,         Username,
-          Password,    Invitation,    AiAccess,      UpdateCheck, UpdateDownload, UpdateInstall})
+    for (int id : {Save,      Delete,         Login,          Logout,        Import,
+                   Clipboard, ReadContext,    ScreenContext,  RemoveContext, Full,
+                   Note,      Quote,          Original,       TagsInput,     Url,
+                   Kind,      Server,         Username,       Password,      Invitation,
+                   AiAccess,  UpdateCheck,    UpdateDownload, UpdateInstall, BatchExport,
+                   SelectAll, ClearSelection, ExportShares})
         if (auto c = ControlOf(w, id))
             EnableWindow(c, !value);
 }
@@ -301,8 +308,25 @@ void Layout(Window &w) {
         move(KindFilter, width - 226, 174, 198, 280);
         move(List, 28, 230, width - 56, std::max(80, height - 326));
         move(Trash, 28, height - 80, 120, 36);
+        move(BatchExport, 160, height - 80, 180, 36);
         move(OpenRecord, width - 176, height - 80, 148, 36);
         move(Status, 28, height - 36, width - 56, 24);
+        return;
+    }
+    if (w.mode == Mode::Markdown || w.mode == Mode::Shares) {
+        auto move = [&](int id, int x, int y, int ww, int hh) {
+            MoveWindow(ControlOf(w, id), Scale(w, x), Scale(w, y), Scale(w, ww), Scale(w, hh),
+                       TRUE);
+        };
+        move(Title, 28, 24, width - 56, 40);
+        move(Subtitle, 28, 76, width - 56, 78);
+        move(SelectAll, 28, 164, 180, 36);
+        move(ClearSelection, 220, 164, 120, 36);
+        move(ExportShares, width - 244, 164, 216, 36);
+        move(List, 28, 216, width - 56, std::max(80, height - 330));
+        move(Save, width - 228, height - 96, 200, 40);
+        move(Cancel, 28, height - 96, 120, 40);
+        move(Status, 28, height - 44, width - 56, 36);
         return;
     }
     if (w.mode == Mode::Image) {
@@ -947,8 +971,172 @@ void OpenUpdate() {
     SetForegroundWindow(w.hwnd);
     CheckUpdate(w);
 }
+void ShareList(Window &w) {
+    auto scope = w.scope;
+    auto result = std::make_shared<Json>();
+    Run(
+        w, [scope, result] { *result = library->markdownExports(scope); },
+        [result](Window &form) {
+            form.shares = *result;
+            SendMessageW(ControlOf(form, List), LB_RESETCONTENT, 0, 0);
+            for (const auto &e : form.shares) {
+                auto label = Wide(e.at("created").get<std::string>()) + L" · " +
+                             std::to_wstring(e.at("record_count").get<int>()) + L" 条 / " +
+                             std::to_wstring(e.at("image_count").get<int>()) + L" 张图";
+                SendMessageW(ControlOf(form, List), LB_ADDSTRING, 0,
+                             reinterpret_cast<LPARAM>(label.c_str()));
+            }
+            StatusText(form, form.shares.empty() ? L"没有有效的导出分享。"
+                                                 : L"选择一次导出，可撤销其全部图片链接。");
+        });
+}
+void OpenMarkdown(Window &source, bool shares = false) {
+    if (source.scope != library->account().scope) {
+        StatusText(source, L"账号已变化，请关闭此页并在首页重新选择。");
+        return;
+    }
+    if (!library->account().signedIn()) {
+        StatusText(source, L"请先登录并刷新同步，再导出当前账号的记录。");
+        return;
+    }
+    if (source.showTrash && !shares) {
+        StatusText(source, L"请返回正常记录列表后选择导出。");
+        return;
+    }
+    auto &w = Create(shares ? Mode::Shares : Mode::Markdown,
+                     shares ? L"Mnote · 导出链接管理" : L"Mnote · 导出给 AI", 800, 720);
+    Label(w, Title, shares ? L"管理图片分享链接" : L"把记录带入下一次对话", 24);
+    Label(w, Subtitle,
+          shares
+              ? L"撤销只影响这次导出的图片链接，原始记录不删除。\r\n已导出的文字和已下载的图片无法"
+                L"收回。"
+              : L"当前筛选中已同步、允许导出的记录。按 Ctrl 多选、Shift 连选，最多 100 "
+                L"条。\r\n导出一个 Markdown 文件；选中图片生成无需登录、持有链接即可访问的快照。",
+          76);
+    Add(w, List, L"LISTBOX", L"",
+        WS_BORDER | WS_TABSTOP | WS_VSCROLL | WS_HSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT |
+            (shares ? 0 : LBS_EXTENDEDSEL),
+        28, 216, 700, 340);
+    if (!shares) {
+        for (const auto &r : source.filtered)
+            if (Library::exportable(r))
+                w.records.push_back(r);
+        for (const auto &r : w.records) {
+            auto body = r.data.value("comment", std::string());
+            if (body.empty())
+                body = r.data.value("source", Json::object()).value("text", std::string());
+            auto label = Wide(r.data.value("created_at", std::string())) + L"  " + TagText(r.data) +
+                         L"  " + Wide(body);
+            std::replace(label.begin(), label.end(), L'\n', L' ');
+            std::replace(label.begin(), label.end(), L'\r', L' ');
+            if (label.size() > 220)
+                label.resize(220);
+            SendMessageW(ControlOf(w, List), LB_ADDSTRING, 0,
+                         reinterpret_cast<LPARAM>(label.c_str()));
+        }
+        Button(w, SelectAll, L"全选可用记录", 28, 164, 180);
+        Button(w, ClearSelection, L"清空选择", 220, 164, 120);
+        Button(w, ExportShares, L"管理导出图片链接", 0, 164, 216);
+    } else
+        Button(w, ExportShares, L"刷新分享列表", 0, 164, 216);
+    Button(w, Save, shares ? L"撤销选中导出链接" : L"导出 Markdown", 0, 0, 200);
+    Button(w, Cancel, L"关闭", 28, 0, 120);
+    Label(w, Status, L"已选择 0 条 · 可导出 " + std::to_wstring(w.records.size()) + L" 条", 0);
+    SendMessageW(ControlOf(w, List), LB_SETHORIZONTALEXTENT, Scale(w, 1500), 0);
+    Layout(w);
+    ShowWindow(w.hwnd, SW_SHOW);
+    SetForegroundWindow(w.hwnd);
+    if (shares)
+        ShareList(w);
+}
+void MarkdownCommand(Window &w, int id) {
+    if (w.mode == Mode::Shares) {
+        if (id == ExportShares)
+            ShareList(w);
+        if (id != Save)
+            return;
+        auto index = SendMessageW(ControlOf(w, List), LB_GETCURSEL, 0, 0);
+        if (index < 0 || static_cast<std::size_t>(index) >= w.shares.size())
+            return;
+        if (MessageBoxW(w.hwnd,
+                        L"撤销本次导出的全部图片链接？原始记录不删除。已下载的副本无法收回。",
+                        L"Mnote · 撤销链接", MB_YESNO | MB_ICONQUESTION) != IDYES)
+            return;
+        std::string exportId = w.shares.at(static_cast<std::size_t>(index)).at("id");
+        auto scope = w.scope;
+        Run(
+            w, [scope, exportId] { library->revokeMarkdownExport(scope, exportId); },
+            [](Window &form) {
+                notify(L"图片链接已撤销，原记录保留。", false);
+                ShareList(form);
+            });
+        return;
+    }
+    if (id == ExportShares) {
+        OpenMarkdown(w, true);
+        return;
+    }
+    auto list = ControlOf(w, List);
+    if (id == SelectAll) {
+        if (w.records.size() > 100) {
+            StatusText(w, L"超过 100 条，请缩小首页筛选范围或手动多选。");
+            return;
+        }
+        SendMessageW(list, LB_SETSEL, TRUE, -1);
+    }
+    if (id == ClearSelection)
+        SendMessageW(list, LB_SETSEL, FALSE, -1);
+    int count = static_cast<int>(SendMessageW(list, LB_GETSELCOUNT, 0, 0));
+    StatusText(w, L"已选择 " + std::to_wstring(count) + L" / " + std::to_wstring(w.records.size()) +
+                      L" 条");
+    if (id != Save)
+        return;
+    if (count < 1 || count > 100) {
+        StatusText(w, L"请选择 1 至 100 条记录。");
+        return;
+    }
+    std::vector<int> indices(static_cast<std::size_t>(count));
+    SendMessageW(list, LB_GETSELITEMS, static_cast<WPARAM>(count),
+                 reinterpret_cast<LPARAM>(indices.data()));
+    std::vector<Record> records;
+    for (int index : indices)
+        records.push_back(w.records.at(static_cast<std::size_t>(index)));
+    if (MessageBoxW(w.hwnd,
+                    L"导出所选记录的想法、摘录、原文和截图链接？\r\n\r\n仅这些图片生成独立分享快照"
+                    L"，任何持有链接的人均可访问。请确认截图可分享。\r\n原笔记权限不变。链接可在管"
+                    L"理中撤销，但已下载的副本无法收回。",
+                    L"Mnote · 确认导出", MB_YESNO | MB_ICONQUESTION) != IDYES)
+        return;
+    wchar_t path[32768] = L"Mnote-export.md";
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = w.hwnd;
+    dialog.lpstrFilter = L"Markdown (*.md)\0*.md\0\0";
+    dialog.lpstrFile = path;
+    dialog.nMaxFile = 32768;
+    dialog.lpstrDefExt = L"md";
+    dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    if (!GetSaveFileNameW(&dialog))
+        return;
+    fs::path target(path);
+    if (target.extension() != L".md") {
+        StatusText(w, L"请使用 .md 文件扩展名。");
+        return;
+    }
+    auto scope = w.scope;
+    Run(
+        w, [scope, records, target] { library->exportMarkdown(scope, records, target); },
+        [target](Window &form) {
+            StatusText(form, L"已保存：" + target.wstring());
+            notify(L"Markdown 导出成功，图片链接可在管理中撤销。", false);
+        });
+}
 void Command(Window &w, int id, int event) {
     if (w.mode == Mode::Library) {
+        if (id == BatchExport) {
+            OpenMarkdown(w);
+            return;
+        }
         if (id == Updates) {
             OpenUpdate();
             return;
@@ -1004,6 +1192,10 @@ void Command(Window &w, int id, int event) {
     }
     if (w.busy)
         return;
+    if (w.mode == Mode::Markdown || w.mode == Mode::Shares) {
+        MarkdownCommand(w, id);
+        return;
+    }
     if (w.mode == Mode::Update) {
         if (id == UpdateCheck)
             CheckUpdate(w);
@@ -1584,6 +1776,7 @@ void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> ca
             WS_TABSTOP,
         28, 230, 900, 400);
     Button(w, Trash, L"回收站", 28, 0, 120);
+    Button(w, BatchExport, L"批量导出 Markdown", 160, 0, 180);
     Button(w, OpenRecord, L"查看 / 修改", 0, 0, 148);
     Label(w, Status, L"Ctrl+Shift+F8 随手记  ·  Ctrl+Shift+F9 截图摘录", 0);
     Layout(w);

@@ -342,6 +342,14 @@ Json TextContext(const std::wstring &text, const std::string &origin, const std:
 }
 std::wstring ErrorText(const std::exception &error) {
     std::string code = error.what();
+    if (code == "export_changed")
+        return L"所选记录已修改、删除或尚未同步，请返回首页刷新同步后重新选择。";
+    if (code == "export_selection")
+        return L"请选择 1 至 100 条已同步的记录。";
+    if (code == "export_cleanup_failed")
+        return L"文件保存失败，自动撤销未完成。请到导出链接管理撤销此次分享。";
+    if (code == "http_400")
+        return L"服务器拒绝操作，请检查内容权限、缩小导出范围或撤销旧导出释放配额。";
     if (code == "source_changed")
         return L"原应用窗口已变化或未在前台，请回到原页面后重新打开随手记。";
     if (code == "context_unavailable")
@@ -403,6 +411,73 @@ Library::Library(fs::path root, Transport transport)
 Account Library::account() {
     std::lock_guard<std::recursive_mutex> guard(mutex_);
     return account_;
+}
+bool Library::exportable(const Record &r) {
+    return !r.deleted && r.state == "synced" && r.revision > 0 &&
+           r.data.value("ai_access", std::string()) != "deny";
+}
+void Library::exportMarkdown(const std::string &scope, const std::vector<Record> &records,
+                             const fs::path &destination) {
+    std::lock_guard<std::recursive_mutex> guard(mutex_);
+    require(scope);
+    if (!account_.signedIn())
+        throw std::runtime_error("login_required");
+    if (records.empty() || records.size() > 100)
+        throw std::runtime_error("export_selection");
+    auto current = list(scope);
+    Json selection = Json::array();
+    std::set<std::string> ids;
+    for (const auto &r : records) {
+        auto found = std::find_if(current.begin(), current.end(),
+                                  [&](const Record &v) { return v.id == r.id; });
+        if (!exportable(r) || !ids.insert(r.id).second || found == current.end() ||
+            !exportable(*found) || found->revision != r.revision ||
+            fingerprint(*found) != fingerprint(r))
+            throw std::runtime_error("export_changed");
+        selection.push_back({{"id", r.id}, {"revision", r.revision}});
+    }
+    auto response =
+        request(account_, L"POST", L"/v1/exports/markdown",
+                Json{{"records", selection},
+                     {"publish_images", true},
+                     {"scope", "首页筛选后手动选择，共 " + std::to_string(records.size()) + " 条"}}
+                    .dump());
+    Success(response);
+    auto result = Parse(response.body);
+    std::string id = result.at("id");
+    if (!Hex(id, 32))
+        throw std::runtime_error("invalid_export");
+    try {
+        std::string markdown = result.at("markdown");
+        if (markdown.rfind("# Mnote 记录导出", 0) != 0)
+            throw std::runtime_error("invalid_export");
+        AtomicWrite(destination, markdown);
+    } catch (...) {
+        try {
+            revokeMarkdownExport(scope, id);
+        } catch (...) {
+            throw std::runtime_error("export_cleanup_failed");
+        }
+        throw;
+    }
+}
+Json Library::markdownExports(const std::string &scope) {
+    std::lock_guard<std::recursive_mutex> guard(mutex_);
+    require(scope);
+    if (!account_.signedIn())
+        throw std::runtime_error("login_required");
+    auto response = request(account_, L"GET", L"/v1/exports");
+    Success(response);
+    return Parse(response.body).at("exports");
+}
+void Library::revokeMarkdownExport(const std::string &scope, const std::string &id) {
+    std::lock_guard<std::recursive_mutex> guard(mutex_);
+    require(scope);
+    if (!account_.signedIn())
+        throw std::runtime_error("login_required");
+    if (!Hex(id, 32))
+        throw std::runtime_error("invalid_export");
+    Success(request(account_, L"DELETE", L"/v1/exports/" + Wide(id)));
 }
 void Library::interrupt() {
     std::lock_guard<std::recursive_mutex> guard(mutex_);

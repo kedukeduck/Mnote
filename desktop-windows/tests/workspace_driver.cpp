@@ -65,6 +65,30 @@ int wmain(int argc, wchar_t **argv) {
     }
     if (action == L"ready")
         return main && home ? 0 : 10;
+    if (action == L"markdown") { Click(home,25000);return 0; }
+    if (action == L"markdown-select" || action == L"markdown-save" || action == L"markdown-close" || action == L"markdown-shares") {
+        auto w=Window(L"Mnote · 导出给 AI");if(!w)return 30;
+        if(action==L"markdown-select") {if(SendDlgItemMessageW(w,2005,LB_GETCOUNT,0,0)!=3)return 31;Click(w,25001);}
+        if(action==L"markdown-save") Click(w,2106);
+        if(action==L"markdown-close") PostMessageW(w,WM_CLOSE,0,0);
+        if(action==L"markdown-shares") Click(w,25003);
+        return 0;
+    }
+    if(action==L"markdown-file" && argc==3) {
+        auto dialog=FindWindowW(L"#32770",nullptr);if(!dialog)return 32;
+        auto name=GetDlgItem(dialog,0x047c); // edt1 in the system save-file dialog.
+        if(!name) {auto combo=GetDlgItem(dialog,0x0470);if(combo)name=FindWindowExW(combo,nullptr,L"Edit",nullptr);}
+        if(!name)return 33;
+        SetWindowTextW(name,argv[2]);PostMessageW(dialog,WM_COMMAND,IDOK,0);return 0;
+    }
+    if(action==L"shares-revoke" || action==L"shares-empty" || action==L"shares-close") {
+        auto w=Window(L"Mnote · 导出链接管理");if(!w)return 34;
+        auto list=GetDlgItem(w,2005);
+        if(action==L"shares-revoke") {if(SendMessageW(list,LB_GETCOUNT,0,0)!=1)return 35;SendMessageW(list,LB_SETCURSEL,0,0);Click(w,2106);}
+        if(action==L"shares-empty" && SendMessageW(list,LB_GETCOUNT,0,0)!=0)return 36;
+        if(action==L"shares-close") PostMessageW(w,WM_CLOSE,0,0);
+        return 0;
+    }
     if (action == L"updates") {
         if (!home || !GetDlgItem(home, 24000))
             return 23;

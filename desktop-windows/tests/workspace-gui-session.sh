@@ -120,9 +120,9 @@ server_pid=$!
 for _ in $(seq 1 100); do [[ -f "${test_dir}/fixture/port.txt" ]] && break; sleep 0.1; done
 drive account
 sleep 0.3
-drive login "http://127.0.0.1:$(<"${test_dir}/fixture/port.txt")" "$(<"${test_dir}/fixture/invitation.txt")"
+until_drive login "http://127.0.0.1:$(<"${test_dir}/fixture/port.txt")" "$(<"${test_dir}/fixture/invitation.txt")"
 until_drive count 0
-drive import
+until_drive import
 until_drive confirm
 until_drive count 3
 for _ in $(seq 1 100); do
@@ -135,10 +135,45 @@ PY
     then break; fi
     sleep 0.2
 done
-drive close-account
+until_drive close-account
 drive show
 sleep 0.3
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/library-preview.png"
+drive markdown
+until_drive markdown-select
+drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/markdown-preview.png"
+drive markdown-save
+until_drive confirm
+until_drive markdown-file "Z:${test_dir}/export.md"
+for _ in $(seq 1 100); do [[ -s "${test_dir}/export.md" ]] && break; sleep 0.15; done
+python3 - "${test_dir}" <<'PY'
+import pathlib,re,sqlite3,sys,urllib.request
+root=pathlib.Path(sys.argv[1]);text=(root/'export.md').read_text()
+assert text.startswith('# Mnote 记录导出') and '3 条' in text and 'original END' in text
+assert 'mns_' not in text
+paths=re.findall(r'https://images.example.test/capture(/s/[^)]+)',text)
+assert len(paths)==4,paths
+port=(root/'fixture/port.txt').read_text()
+for path in paths:
+    with urllib.request.urlopen('http://127.0.0.1:'+port+path) as response:
+        assert response.status==200 and response.read().startswith(b'\x89PNG')
+print('GUI: three selected records exported with full original and four accessible snapshot images')
+PY
+drive markdown-shares
+until_drive shares-revoke
+until_drive confirm
+until_drive shares-empty
+drive shares-close
+drive markdown-close
+python3 - "${test_dir}" <<'PY'
+import pathlib,re,sys,urllib.request,urllib.error
+root=pathlib.Path(sys.argv[1]);text=(root/'export.md').read_text();port=(root/'fixture/port.txt').read_text()
+for path in re.findall(r'https://images.example.test/capture(/s/[^)]+)',text):
+    try: urllib.request.urlopen('http://127.0.0.1:'+port+path);raise AssertionError('revoked image accessible')
+    except urllib.error.HTTPError as error: assert error.code==404
+print('GUI: revocation disables all export images and keeps original library')
+PY
+until_drive count 3
 before="$(find "${application_data}/Library" -type f -name '*.json' | wc -l)"
 drive focus-source
 drive capture
