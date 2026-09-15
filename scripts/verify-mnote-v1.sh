@@ -65,6 +65,7 @@ echo "[4/7] Windows sync boundary and WinHTTP smoke test"
   bash desktop-windows/tests/run-sync-smoke.sh
   bash desktop-windows/tests/run-library-tests.sh
   bash desktop-windows/tests/run-library-live.sh
+  bash desktop-windows/tests/run-updater-tests.sh
 )
 
 echo "[5/7] Browser extension manifest and module smoke tests"
@@ -111,6 +112,8 @@ for component in \
   CaptureQuickSettingsTileService \
   CaptureTriggerActivity \
   CaptureEditorActivity \
+  AppUpdateActivity \
+  AppUpdateProvider \
   CaptureInboxActivity; do
   if ! grep -q "${component}" <<<"${manifest_dump}"; then
     echo "Android manifest is missing ${component}" >&2

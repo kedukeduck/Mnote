@@ -16,6 +16,8 @@
                 <Button android:id="@+id/capture_sync_settings_button" android:layout_width="wrap_content"
                     android:layout_height="wrap_content" android:text="@string/capture_account_short"
                     android:contentDescription="@string/capture_sync_settings_button" />
+                <Button android:id="@+id/app_update_button" android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" android:text="@string/app_update_title" />
             </LinearLayout>
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="14dp" android:text="@string/capture_inbox_title"

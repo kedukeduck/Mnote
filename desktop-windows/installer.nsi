@@ -2,13 +2,14 @@ Unicode True
 Target amd64-unicode
 !include "MUI2.nsh"
 !include "x64.nsh"
+!include "FileFunc.nsh"
 !ifndef PAYLOAD
   !error "Pass /DPAYLOAD=absolute payload directory"
 !endif
 !ifndef OUTPUT
   !error "Pass /DOUTPUT=absolute installer path"
 !endif
-Name "Mnote 1.6.0-test"
+Name "Mnote 1.7.0-test"
 OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\Programs\Mnote"
 InstallDirRegKey HKCU "Software\Mnote" "InstallDir"
@@ -26,13 +27,27 @@ BrandingText "Mnote · 你的个人知识库"
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "SimpChinese"
 !insertmacro MUI_LANGUAGE "English"
-VIProductVersion "1.6.0.0"
+VIProductVersion "1.7.0.0"
 VIAddVersionKey "ProductName" "Mnote"
 VIAddVersionKey "FileDescription" "Mnote Windows x64 Installer"
-VIAddVersionKey "FileVersion" "1.6.0-test"
+VIAddVersionKey "FileVersion" "1.7.0-test"
 VIAddVersionKey "LegalCopyright" "Mnote contributors"
 
 Function .onInit
+  ${GetParameters} $1
+  ClearErrors
+  ${GetOptions} $1 "/UPDATE" $2
+  IfErrors notUpdating
+  StrCpy $3 0
+  waitForOldVersion:
+    FindWindow $0 "PersonalCapture.MessageWindow" ""
+    StrCmp $0 0 notUpdating
+    IntOp $3 $3 + 1
+    IntCmp $3 300 notUpdating notYet notUpdating
+    notYet:
+      Sleep 100
+      Goto waitForOldVersion
+  notUpdating:
   ${IfNot} ${RunningX64}
     MessageBox MB_OK|MB_ICONSTOP "此版本需要 64 位 Windows 10 / 11。"
     Abort
@@ -58,7 +73,7 @@ Section "Mnote" Main
   CreateShortcut "$DESKTOP\Mnote.lnk" "$INSTDIR\mnote.exe"
   WriteRegStr HKCU "Software\Mnote" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mnote" "DisplayName" "Mnote"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mnote" "DisplayVersion" "1.6.0-test"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mnote" "DisplayVersion" "1.7.0-test"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mnote" "Publisher" "Mnote"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mnote" "UninstallString" '$\"$INSTDIR\Uninstall.exe$\"'
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mnote" "DisplayIcon" "$INSTDIR\mnote.exe"

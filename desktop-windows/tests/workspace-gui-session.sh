@@ -146,5 +146,10 @@ until_drive cancel-capture
 sleep 0.3
 after="$(find "${application_data}/Library" -type f -name '*.json' | wc -l)"
 [[ "${before}" == "${after}" ]]
+drive show
+drive updates
+until_drive updates-ready
+drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/updates-preview.png"
+drive close-updates
 drive exit
 echo 'workspace GUI: passed (real account server, explicit import, upload, cancellation)'

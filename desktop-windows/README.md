@@ -1,6 +1,14 @@
-# Mnote Windows 1.6.0-test
+# Mnote Windows 1.7.0-test
 
-Windows 10 / 11 x64 的原生客户端，与 Android 1.6.0 使用相同账号、记录格式和同步服务。安装版不需要管理员权限；便携版解压运行 `mnote.exe`，不需要安装其他运行时。
+Windows 10 / 11 x64 的原生客户端，与 Android 使用相同账号、记录格式和同步服务。安装版不需要管理员权限；便携版解压运行 `mnote.exe`，不需要安装其他运行时。
+
+## 检查与安装更新
+
+首页右上角“更新” → 查看版本说明 → 下载更新 → 安装更新。打开更新页时会查询官方 GitHub Release，也可以手动重新检查；不需要填写 URL / Token，不使用笔记账号凭据。
+
+首次需要手动安装 1.7.0-test，后续版本使用上述入口。测试版接收测试及正式更新，正式版只接收正式更新；不降级、不静默安装。下载验证大小、SHA-256 和 x64 安装包格式，安装前再次校验。网络失败可重试或打开官方发布页。GitHub 在部分网络下可能无法访问。
+
+安装前保存或明确放弃尚未保存的想法。确认后 Mnote 正常退出，安装器等待旧版退出再继续，账号、记录和附件不删除。**取消安装后需重新打开旧版**。便携版通过此入口更新会转为安装版：请从新桌面快捷方式启动，不再使用旧便携文件。安装器当前未做 Authenticode 签名，系统可能提示来源未知；SHA-256 校验不等同于发行者代码签名。
 
 ## 两个记录入口
 
@@ -31,6 +39,7 @@ Windows 10 / 11 x64 的原生客户端，与 Android 1.6.0 使用相同账号、
   Library\<account-scope>\     当前服务器 + 账号的独立记录与附件
   account.session               Windows 用户级 DPAPI 加密会话
   Drafts\                      编辑期间临时图片，正常保存/取消后移除
+  Updates\                     校验后的更新安装包缓存
 ```
 
 - 账号会话用 Windows 当前用户密钥加密；不保存密码。**记录和图片本身不是端到端加密**，磁盘访问安全由 Windows 用户权限 / 磁盘加密保障。
@@ -59,6 +68,9 @@ bash desktop-windows/tests/run-library-tests.sh
 bash desktop-windows/tests/run-library-live.sh
 bash desktop-windows/tests/run-workspace-gui.sh
 bash desktop-windows/tests/run-sync-smoke.sh
+bash desktop-windows/tests/run-updater-tests.sh
+# 可选：公开 GitHub Release 的真实下载校验，不启动安装
+bash desktop-windows/tests/run-updater-tests.sh --live
 bash scripts/verify-mnote-v1.sh
 # 安装 NSIS 后，或设置 MAKENSIS / NSISDIR
 bash scripts/package-mnote-windows.sh

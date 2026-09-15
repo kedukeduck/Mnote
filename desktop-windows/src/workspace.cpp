@@ -1,4 +1,5 @@
 #include "workspace.hpp"
+#include "updater.hpp"
 #include <cmath>
 #include <commctrl.h>
 #include <condition_variable>
@@ -55,15 +56,23 @@ enum Control {
     Status = 2300,
     ImageRole,
     ZoomReset,
-    AiAccess = 2320
+    AiAccess = 2320,
+    Updates = 24000,
+    UpdateCheck,
+    UpdateDownload,
+    UpdateInstall,
+    UpdatePage,
+    UpdateNotes
 };
-enum class Mode { Library, Editor, Account, Image, Toast };
+enum class Mode { Library, Editor, Account, Image, Toast, Update };
 struct Placement {
     HWND control;
     int x, y, w, h;
     bool stretch = false;
 };
 struct Window {
+    std::optional<Updater::Release> release;
+    fs::path updateFile;
     HWND hwnd = nullptr;
     std::uint64_t serial = 0;
     Mode mode = Mode::Library;
@@ -87,6 +96,7 @@ std::unique_ptr<Library> library;
 std::map<HWND, std::unique_ptr<Window>> windows;
 std::uint64_t nextSerial = 0;
 std::function<void()> captureAction;
+std::function<void()> exitForUpdateAction;
 std::function<void(const std::wstring &, bool)> notify;
 HBRUSH backgroundBrush = nullptr, whiteBrush = nullptr;
 HFONT defaultFont = nullptr;
@@ -140,9 +150,10 @@ void Enqueue(std::function<void()> job) {
 void Busy(Window &w, bool value) {
     w.busy = value;
     for (int id :
-         {Save,          Delete,        Login,  Logout,   Import,   Clipboard,  ReadContext,
-          ScreenContext, RemoveContext, Full,   Note,     Quote,    Original,   TagsInput,
-          Url,           Kind,          Server, Username, Password, Invitation, AiAccess})
+         {Save,        Delete,        Login,         Logout,      Import,         Clipboard,
+          ReadContext, ScreenContext, RemoveContext, Full,        Note,           Quote,
+          Original,    TagsInput,     Url,           Kind,        Server,         Username,
+          Password,    Invitation,    AiAccess,      UpdateCheck, UpdateDownload, UpdateInstall})
         if (auto c = ControlOf(w, id))
             EnableWindow(c, !value);
 }
@@ -281,6 +292,7 @@ void Layout(Window &w) {
         move(Title, 28, 24, width - 270, 40);
         move(Subtitle, 28, 70, width - 56, 24);
         move(AccountButton, width - 206, 28, 178, 36);
+        move(Updates, width - 340, 28, 120, 36);
         move(NewNote, 28, 110, 132, 40);
         move(Capture, 170, 110, 132, 40);
         move(Refresh, width - 152, 110, 124, 40);
@@ -862,8 +874,85 @@ void OpenSelected(Window &w) {
     draft.scope = w.scope;
     OpenEditor(std::move(draft), &record);
 }
+void UpdateButtons(Window &w) {
+    EnableWindow(ControlOf(w, UpdateCheck), !w.busy);
+    EnableWindow(ControlOf(w, UpdateDownload), !w.busy && w.release.has_value());
+    EnableWindow(ControlOf(w, UpdateInstall), !w.busy && !w.updateFile.empty());
+}
+void CheckUpdate(Window &w) {
+    if (w.busy)
+        return;
+    w.release.reset();
+    w.updateFile.clear();
+    Busy(w, true);
+    UpdateButtons(w);
+    Set(w, UpdateNotes, L"");
+    StatusText(w, L"正在查询官方发布…");
+    auto hwnd = w.hwnd;
+    auto serial = w.serial;
+    Enqueue([hwnd, serial] {
+        try {
+            auto release = Updater::Check();
+            Post([hwnd, serial, release] {
+                if (auto form = Find(hwnd, serial)) {
+                    Busy(*form, false);
+                    form->release = release;
+                    StatusText(*form, release ? L"发现新版本：" + Wide(release->version)
+                                              : L"当前已是最新可用版本。");
+                    if (release)
+                        Set(*form, UpdateNotes,
+                            L"安装包：" + std::to_wstring(release->size / 1024) + L" KiB\r\n\r\n" +
+                                Wide(release->notes));
+                    UpdateButtons(*form);
+                }
+            });
+        } catch (const std::exception &error) {
+            auto text = Updater::Error(error);
+            Post([hwnd, serial, text] {
+                if (auto form = Find(hwnd, serial)) {
+                    Busy(*form, false);
+                    StatusText(*form, text);
+                    UpdateButtons(*form);
+                }
+            });
+        }
+    });
+}
+void OpenUpdate() {
+    for (const auto &entry : windows)
+        if (entry.second->mode == Mode::Update) {
+            ShowWindow(entry.first, SW_SHOW);
+            SetForegroundWindow(entry.first);
+            return;
+        }
+    auto &w = Create(Mode::Update, L"Mnote · 版本与更新", 740, 790);
+    Label(w, Title, L"让 Mnote 保持最新", 24);
+    w.placements.back().h = 44;
+    Label(w, Subtitle, L"当前版本：" + std::wstring(Updater::Current), 80);
+    Label(w, 2420, L"从官方 GitHub 获取版本，不使用你的笔记账号或 Token。", 116);
+    Button(w, UpdateCheck, L"检查更新", 28, 160, 160);
+    Button(w, UpdateDownload, L"下载更新", 204, 160, 160);
+    Button(w, UpdateInstall, L"安装更新", 380, 160, 160);
+    Label(w, 2421, L"安装会先退出旧版；未保存内容会提醒。账号和笔记保留。", 216);
+    Label(w, 2422, L"便携版使用安装器升级后将转为安装版，请从新快捷方式启动。", 250);
+    Label(w, 2423, L"目前为未签名测试版，系统可能询问确认；不会静默安装。", 284);
+    Edit(w, UpdateNotes, L"", 330, 220, 20000);
+    SendMessageW(ControlOf(w, UpdateNotes), EM_SETREADONLY, TRUE, 0);
+    Button(w, UpdatePage, L"打开官方发布页", 28, 570, 200);
+    w.extent = 625;
+    Button(w, Cancel, L"关闭", 28, 0, 120);
+    Label(w, Status, L"", 0);
+    Layout(w);
+    ShowWindow(w.hwnd, SW_SHOW);
+    SetForegroundWindow(w.hwnd);
+    CheckUpdate(w);
+}
 void Command(Window &w, int id, int event) {
     if (w.mode == Mode::Library) {
+        if (id == Updates) {
+            OpenUpdate();
+            return;
+        }
         if (id == Search && event == EN_CHANGE)
             Populate(w);
         else if ((id == TagFilter || id == KindFilter) && event == CBN_SELCHANGE)
@@ -915,6 +1004,67 @@ void Command(Window &w, int id, int event) {
     }
     if (w.busy)
         return;
+    if (w.mode == Mode::Update) {
+        if (id == UpdateCheck)
+            CheckUpdate(w);
+        else if (id == UpdatePage)
+            ShellExecuteW(w.hwnd, L"open", Updater::Page, nullptr, nullptr, SW_SHOWNORMAL);
+        else if (id == UpdateDownload && w.release) {
+            if (MessageBoxW(w.hwnd,
+                            L"从 GitHub 下载更新？可能产生网络流量。校验通过后仍需你点击安装。",
+                            L"Mnote · 下载更新", MB_YESNO | MB_ICONQUESTION) != IDYES)
+                return;
+            auto release = *w.release;
+            auto hwnd = w.hwnd;
+            auto serial = w.serial;
+            Busy(w, true);
+            UpdateButtons(w);
+            Enqueue([release, hwnd, serial] {
+                try {
+                    auto path =
+                        Updater::Download(library->root(), release, [hwnd, serial](int percent) {
+                            Post([hwnd, serial, percent] {
+                                if (auto form = Find(hwnd, serial))
+                                    StatusText(*form, L"正在下载并校验… " +
+                                                          std::to_wstring(percent) + L"%");
+                            });
+                        });
+                    Post([path, hwnd, serial] {
+                        if (auto form = Find(hwnd, serial)) {
+                            Busy(*form, false);
+                            form->updateFile = path;
+                            StatusText(*form, L"下载和校验完成，点击安装更新。");
+                            UpdateButtons(*form);
+                        }
+                    });
+                } catch (const std::exception &error) {
+                    auto text = Updater::Error(error);
+                    Post([hwnd, serial, text] {
+                        if (auto form = Find(hwnd, serial)) {
+                            Busy(*form, false);
+                            StatusText(*form, text);
+                            UpdateButtons(*form);
+                        }
+                    });
+                }
+            });
+        } else if (id == UpdateInstall && w.release && !w.updateFile.empty()) {
+            if (!CanExit())
+                return;
+            if (MessageBoxW(
+                    w.hwnd,
+                    L"现在退出 Mnote 并启动安装器？更新后请从安装器或新的桌面快捷方式打开。",
+                    L"Mnote · 安装更新", MB_YESNO | MB_ICONQUESTION) != IDYES)
+                return;
+            try {
+                Updater::Launch(w.updateFile, *w.release);
+                exitForUpdateAction();
+            } catch (const std::exception &error) {
+                StatusText(w, Updater::Error(error));
+            }
+        }
+        return;
+    }
     if (w.mode == Mode::Account) {
         if (id == Login) {
             if (editor && IsWindow(editor)) {
@@ -1386,9 +1536,11 @@ void Toast(const std::wstring &text, bool error) {
     SetTimer(w.hwnd, 4, error ? 6500 : 3600, nullptr);
 }
 void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> capture,
-           std::function<void(const std::wstring &, bool)> notice) {
+           std::function<void(const std::wstring &, bool)> notice,
+           std::function<void()> exitForUpdate) {
     instance = appInstance;
     captureAction = std::move(capture);
+    exitForUpdateAction = std::move(exitForUpdate);
     notify = [notice = std::move(notice)](const std::wstring &text, bool error) {
         notice(text, error);
         try {
@@ -1415,6 +1567,7 @@ void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> ca
     Label(w, Title, L"我的知识库", 24);
     Label(w, Subtitle, L"把遇见的内容，变成自己的思考。", 70);
     Button(w, AccountButton, L"登录账号", 0, 0, 178);
+    Button(w, Updates, L"版本更新", 0, 0, 120);
     Button(w, NewNote, L"＋ 随手记", 28, 110, 132);
     Button(w, Capture, L"单次摘录", 170, 110, 132);
     Button(w, Refresh, L"刷新与同步", 0, 110, 124);

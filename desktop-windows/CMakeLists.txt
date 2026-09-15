@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(MnoteWindows VERSION 1.6.0 LANGUAGES CXX RC)
+project(MnoteWindows VERSION 1.7.0 LANGUAGES CXX RC)
 
 # Pinned, hash-verified build dependency; no third-party runtime is installed.
 set(JSON_HEADER "${CMAKE_CURRENT_BINARY_DIR}/deps/json.hpp")
@@ -21,6 +21,7 @@ add_executable(mnote WIN32
     src/library.cpp
     src/context.cpp
     src/workspace.cpp
+    src/updater.cpp
     src/mnote.rc
 )
 target_include_directories(mnote SYSTEM PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/deps")

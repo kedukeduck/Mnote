@@ -149,6 +149,7 @@ public final class CaptureInboxActivity extends Activity {
     }
 
     private void bindActions() {
+        findViewById(R.id.app_update_button).setOnClickListener(view -> startActivity(new Intent(this,AppUpdateActivity.class)));
         filterGroup.setOnCheckedChangeListener((group, id) -> { visibleLimit=RECORD_LIMIT; renderFilteredRecords(); });
         findViewById(R.id.capture_tag_filter).setOnClickListener(view -> chooseTag());
         findViewById(R.id.capture_load_more).setOnClickListener(view -> { visibleLimit+=RECORD_LIMIT; renderFilteredRecords(); });

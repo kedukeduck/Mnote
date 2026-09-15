@@ -10,7 +10,7 @@ struct Draft {
     std::string scope;
 };
 void Start(HINSTANCE instance, const fs::path &root, std::function<void()> capture,
-           std::function<void(const std::wstring &, bool)> notice);
+           std::function<void(const std::wstring &, bool)> notice,std::function<void()> exitForUpdate);
 void Stop();
 bool CanExit();
 bool HasEditor();

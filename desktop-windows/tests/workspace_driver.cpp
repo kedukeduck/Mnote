@@ -65,6 +65,22 @@ int wmain(int argc, wchar_t **argv) {
     }
     if (action == L"ready")
         return main && home ? 0 : 10;
+    if (action == L"updates") {
+        if (!home || !GetDlgItem(home, 24000))
+            return 23;
+        Click(home, 24000);
+        return 0;
+    }
+    if (action == L"updates-ready" || action == L"close-updates") {
+        auto w = Window(L"Mnote · 版本与更新");
+        if (!w || !IsWindowEnabled(GetDlgItem(w, 24001)))
+            return 23;
+        if (!GetDlgItem(w, 24002) || !GetDlgItem(w, 24003) || !GetDlgItem(w, 24005))
+            return 23;
+        if (action == L"close-updates")
+            PostMessageW(w, WM_CLOSE, 0, 0);
+        return 0;
+    }
     if (action == L"capture" || action == L"quick" || action == L"sync" || action == L"show" ||
         action == L"exit") {
         if (!main)

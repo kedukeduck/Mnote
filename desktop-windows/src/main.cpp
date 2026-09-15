@@ -1202,7 +1202,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         std::wstring root;if(!GetApplicationDirectory(root))throw std::runtime_error("storage_write");
         Mnote::Workspace::Start(instance,root,[]{BeginCapture();},[](const std::wstring& text,bool error){
             ShowTrayNotice(error ? L"Mnote · 操作提示" : L"Mnote · 已保存",text.c_str(),error ? NIIF_WARNING : NIIF_INFO);
-        });
+        },[]{DestroyWindow(g_mainWindow);});
     } catch(const std::exception& error) {MessageBoxW(nullptr,Mnote::ErrorText(error).c_str(),kAppName,MB_OK|MB_ICONERROR);return 1;}
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {

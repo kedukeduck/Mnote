@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-version="1.6.0-test"
+version="1.7.0-test"
 output="${repo_dir}/deliverables/mnote-windows-${version}"
 payload="${output}/Mnote-Windows-${version}"
 makensis="${MAKENSIS:-makensis}"
