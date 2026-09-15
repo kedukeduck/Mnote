@@ -14,11 +14,17 @@ Mnote 是一个独立的本地优先个人知识捕获项目，用于在 Android
 ## 目录
 
 - `app/`：Android 11+ 单次系统截图、分享/处理文字、批注、本地 Inbox 和同步。
-- `desktop-windows/`：Windows 11 x64 全局快捷键截图和本地 Inbox。
+- `desktop-windows/`：Windows 10 / 11 x64 截图、随手记、应用内知识库和账号双向同步。
 - `browser-extension/`：Chrome/Edge 网页划线、截图批注和同步。
 - `capture-server/`：SQLite、图片 Blob、Web Inbox、REST API 和只读 MCP。
 - `docs/`：产品、隐私、协议、安装和验收文档。
 - `scripts/`：完整验证与交付打包。
+
+## Windows 下载
+
+当前 Windows 测试版 **1.6.0-test**：[安装包](https://github.com/kedukeduck/Mnote/releases/download/mnote-windows-v1.6.0-test/Mnote-Windows-1.6.0-test-Setup.exe) · [便携包](https://github.com/kedukeduck/Mnote/releases/download/mnote-windows-v1.6.0-test/Mnote-Windows-1.6.0-test-Portable.zip)。使用 Android 上同一账号登录，自动同步；旧本机记录需要明确导入。
+
+Windows 已补齐应用内查看 / 编辑 / 删除、标签 / 未分类筛选、两步截图与完整上下文、随手记的可选剪贴板和独立页面上下文，并统一 A 风格。Ctrl+Shift+F9 截图，Ctrl+Shift+F8 随手记。安装包不需要管理员权限，升级和卸载保留数据。未做 Authenticode 签名，尚需真实 Windows 多屏、输入法与浏览器读取能力验收。[使用说明](desktop-windows/README.md) · [功能与测试](docs/windows-1.6.0-android-parity.md) · [交付校验](docs/windows-1.6.0-release-verification.md)。
 
 ## Android 构建
 
