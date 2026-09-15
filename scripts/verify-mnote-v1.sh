@@ -63,6 +63,8 @@ echo "[4/7] Windows sync boundary and WinHTTP smoke test"
 (
   cd "${repo_dir}"
   bash desktop-windows/tests/run-sync-smoke.sh
+  bash desktop-windows/tests/run-library-tests.sh
+  bash desktop-windows/tests/run-library-live.sh
 )
 
 echo "[5/7] Browser extension manifest and module smoke tests"

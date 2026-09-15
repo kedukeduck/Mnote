@@ -1,161 +1,69 @@
-# Mnote for Windows 11 (V1)
+# Mnote Windows 1.6.0-test
 
-Mnote 是 Mnote 的便携 Windows 客户端。它不依赖第三方运行时，常驻系统托盘；在普通桌面应用上按全局快捷键即可冻结整个虚拟桌面，框选内容、自由笔或荧光笔标注，再把原图、批注图、评论和来源信息保存到本地 Inbox。同步是可选能力，关闭或失败都不会影响本地记录成功。
+Windows 10 / 11 x64 的原生客户端，与 Android 1.6.0 使用相同账号、记录格式和同步服务。安装版不需要管理员权限；便携版解压运行 `mnote.exe`，不需要安装其他运行时。
 
-## V1 能力
+## 两个记录入口
 
-- 全局快捷键 `Ctrl+Shift+F9`，或双击托盘图标开始采集。
-- 一次捕获完整 Windows 虚拟桌面，支持扩展屏以及负坐标排列的显示器。
-- 冻结覆盖层支持矩形区域、红色自由笔、半透明黄色荧光笔、撤销、评论，以及 `thought`、`later`、`todo` 三种类型。
-- 每条记录始终先在本地保存三份同 ID 文件：
-  - `<id>-original.png`：框选区域的未批注原图；
-  - `<id>-annotated.png`：合成笔迹后的批注图；
-  - `<id>.json`：规范元数据、矢量笔迹、本地文件引用、屏幕坐标及同步状态。
-- 可选用同一个 EXE 通过 WinHTTP 将元数据和两张图片同步到 Mnote Server。
-- 托盘右键菜单可新建采集、重新同步最多 50 条未完成记录、打开 Inbox 或退出。
-- 不录屏、不在后台持续读取屏幕；只有用户主动触发时才采集一帧。
+- **Ctrl+Shift+F9 · 单次摘录**：冻结桌面 → 圈选 → 自由笔 / 荧光笔 / 撤销 → 下一步 → 填写想法、标签、类型、摘录和原文 → 保存。可勾选同时保留完整截图。
+- **Ctrl+Shift+F8 · 随手记**：默认仅记录想法。可主动读取剪贴板当前第一条文字，或独立保留页面文字 / 页面截图；不要求先打开剪贴板摘录。
+- 托盘右键有同样的两个入口；双击托盘打开知识库。关闭知识库窗口后仍在托盘运行，退出请使用托盘菜单。
+- 圈选界面数字键 1 / 2 / 3 切换工具，Ctrl+Z 撤销，Ctrl+Enter 下一步，Esc 取消。记录编辑器 Ctrl+S 保存。
+- 所有采集都由用户主动触发；不监听剪贴板历史、不持续截图、不模拟 Ctrl+C。
 
-## 使用方法
+## 在哪里看、如何同步
 
-1. 运行 `mnote.exe`，确认托盘出现 Mnote 图标。
-2. 在任意普通应用中按 `Ctrl+Shift+F9`。
-3. 拖动鼠标框选要保留的区域。
-4. 可选点击“自由笔”或“荧光笔”继续标注，填写评论并选择类型。
-5. 点击“保存”。`Esc` 或“取消”会放弃本次采集，`Ctrl+Enter` 可直接保存。
+启动应用即可看到“我的知识库”。可搜索想法、摘录、原文、来源窗口标题和标签，按标签 / 类型筛选，双击记录查看与修改；图片可切换圈选原图、批注图和完整上下文，滚轮缩放、拖动平移。
 
-本地数据默认保存在：
+点击右上角账号，使用 **Android 上相同的用户名和密码**。默认服务器为 `https://chenyu.online/heartnote-capture`，已有账号不填写激活码。登录后自动上传和增量拉取；应用激活、每分钟和本地保存后会尝试同步。首页“刷新与同步”或 F5 可主动刷新。
 
-```text
-%LOCALAPPDATA%\PersonalCapture\Inbox
-```
+同步失败不丢失本机内容，恢复网络后重试。删除移入回收站并同步到其他设备，可在回收站恢复。修订号冲突不会自动覆盖云端；本机修改会保留并提示待处理，可先复制记录 JSON 备份后核对另一台设备。
 
-`PersonalCapture` 是 V1 为兼容既有数据保留的本地目录名；产品和 EXE 名称均为 Mnote。
+旧 `settings.ini` 的 Token 不再用于新界面。登录不会自动上传旧 Inbox 或未登录记录：需要在账号页面明确点击“导入本机旧记录”。导入保留原 ID，旧文件不删除。
 
-## 可选同步
+## 数据与隐私
 
-把 [`settings.example.ini`](settings.example.ini) 复制为：
+本地目录仍使用旧名称以兼容既有记录：
 
 ```text
-%LOCALAPPDATA%\PersonalCapture\settings.ini
+%LOCALAPPDATA%\PersonalCapture\
+  Inbox\                       旧版原始文件，保留不动
+  Library\guest\               未登录时的记录
+  Library\<account-scope>\     当前服务器 + 账号的独立记录与附件
+  account.session               Windows 用户级 DPAPI 加密会话
+  Drafts\                      编辑期间临时图片，正常保存/取消后移除
 ```
 
-按实际服务配置编辑：
+- 账号会话用 Windows 当前用户密钥加密；不保存密码。**记录和图片本身不是端到端加密**，磁盘访问安全由 Windows 用户权限 / 磁盘加密保障。
+- 默认 AI 权限 `local_only`；账号同步不等于授权远程 AI。可在每条记录的编辑器中显式选择 AI 访问级别，扩大远程权限需确认。
+- `source.text` 是摘录，`comment` 是自己的想法，`evidence.context.text.full_text` 是保留的原文；`tags` 是顶层字符串数组。
+- 完整截图以 `context` 附件保存，`evidence.context.image.selection` 描述圈选区域。Windows 笔画相对裁剪图，元数据明确标记坐标系；Android 的已有坐标和其他未知元数据会原样保留。
+- 页面上下文与摘录的关系标记为未验证，不能据此声称剪贴板摘录一定来自该页。
+- 附件只向同源的固定角色路径下载，并验证大小、PNG 头和 SHA-256；不信任服务器提供的外站附件链接。禁止同步请求重定向。
+- 正常关闭前会提醒未保存内容。意外断电或强制结束进程仍可能丢失未保存草稿；请及时保存。
+- 卸载只删除程序和快捷方式，不删除笔记。备份时先退出应用，再复制整个 `PersonalCapture` 目录；加密会话不能直接迁移到其他 Windows 用户，重新登录即可。
 
-```ini
-[sync]
-server_url=http://127.0.0.1:8787
-write_token=服务端单独生成的写入令牌
-ai_access=local_only
-```
+## 能力边界
 
-配置规则：
+- 应用名取自前台进程，浏览器链接尝试读取 Chrome / Edge / Firefox / Brave 已知地址栏；不保证所有语言、版本或第三方应用可提供链接。支持手动修改链接；只有 HTTP(S) 链接可直接打开。
+- 页面文字通过 Windows UI Automation 在独立辅助进程读取，检查窗口身份、跳过密码/隐藏节点和普通输入框，限制节点数与时间；约 4.5 秒超时结束自己的辅助进程。**不保证整篇文章完整**，遇到不支持的应用请手动粘贴或保留截图。
+- 不绕过 UAC、安全桌面、受保护视频、DRM 或应用的防截图策略。
+- 图片每张最多 16 MiB / 3200 万像素，请求最多 32 MiB；想法 2 万、摘录 10 万、原文 4 万 UTF-16 代码单元。标签最多 20 个，每个最多 32 个 UTF-16 代码单元；超限明确失败，不静默截断保存。
+- 这是**未做 Authenticode 签名的测试版**，Windows 可能提示来源未知。仅从项目 GitHub Release 下载并核对 SHA-256。
+- 已进行 Linux / Wine 自动化；尚未替代真实 Windows 10 / 11、多屏高 DPI、浏览器 UIA 和系统通知的人工验收。
 
-- `server_url` 和 `write_token` 必须同时存在；两者都为空表示禁用同步。
-- `server_url` 可以带部署路径前缀，但不能包含账号、密码、查询参数或片段。
-- 明文 HTTP 只允许 `localhost` 或数字形式的回环、私有/链路本地 IP（如 `127.0.0.1`、`192.168.1.20`）；普通域名或公网地址必须用 HTTPS。
-- `ai_access` 可取 `deny`、`local_only`、`remote_no_memory`、`remote_memory`，缺省为 `local_only`。只有显式选择后两项，服务端 AI 令牌才可读取该记录；非法值会按最保守的 `deny` 保存且跳过同步。
-- 客户端向 `PUT /v1/captures/{id}` 发送 `application/json`，使用 `Authorization: Bearer <write_token>`。
-- 重定向被禁用，避免 Authorization 头被转发到其他来源；连接、发送和接收均有短超时。
-- 令牌只从 `settings.ini` 读入内存，不会写进记录 JSON、错误信息或日志。请限制该文件的 Windows ACL，不要把真实配置提交到版本库。
-
-可在 PowerShell 中把配置收紧为仅当前账号和 `SYSTEM` 可访问：
-
-```powershell
-$settings = "$env:LOCALAPPDATA\PersonalCapture\settings.ini"
-$account = "$env:USERDOMAIN\$env:USERNAME"
-icacls $settings /inheritance:r
-icacls $settings /grant:r "${account}:(F)" "SYSTEM:(F)"
-```
-
-执行后可用 `icacls $settings` 复核 ACL。若电脑由组织管理，请先遵循组织的管理员/备份账号策略，避免移除其必需访问项。
-
-保存顺序固定为“原图 -> 批注图 -> 原子写入 `pending` JSON -> 尝试同步 -> 原子替换为 `synced/error` JSON”。两张 PNG 和 JSON 都先写入同目录临时文件、刷新落盘，再通过 `MoveFileEx(..., MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)` 完成；若最后一次状态替换本身失败，完整的 `pending` JSON 仍保留，不会出现半截记录。因此即使服务没启动、网络断开、证书不受信任、令牌错误或服务器拒绝请求，三份本地文件仍会保留。JSON 的状态含义：
-
-- `disabled`：没有配置同步；
-- `pending`：本地已成功，正在尝试同步；若进程意外退出，记录会安全地保留为此状态；
-- `synced`：服务返回 2xx；
-- `error`：配置、图片编码或网络请求失败，`sync_error` 只保存无凭据的简短原因。
-
-恢复网络或修正配置后，在托盘图标上点右键并选择“同步待处理记录”。应用会重新处理 `pending`、`error`、`disabled` 等尚未成功的记录，每批最多 50 条；服务端按记录 ID 幂等接收，丢失响应后再次提交不会创建重复条目。
-
-V1 每张同步图片上限 16 MiB，整个 JSON 请求上限 32 MiB；超过上限时只影响同步，不影响本地保存。
-
-## 数据格式
-
-记录与 Capture Server 使用同一份 `schema_version: 1` 语义。`source` 是采集时前台窗口的来源信息；`capture.selection_screen` 使用 Windows 虚拟桌面的绝对物理像素坐标；笔画点以裁剪后图片左上角为原点。示意：
-
-```json
-{
-  "schema_version": 1,
-  "id": "20260830-142233-127-1234-0001",
-  "created_at": "2026-08-30T06:22:33.127Z",
-  "kind": "thought",
-  "comment": "这段内容让我想到……",
-  "source": {
-    "type": "screen",
-    "app_name": "example.exe",
-    "app_id": "C:\\Apps\\example.exe",
-    "window_title": "示例窗口",
-    "text": ""
-  },
-  "capture": {
-    "virtual_screen": { "x": -1920, "y": 0, "width": 4480, "height": 1440 },
-    "selection_screen": { "x": 81, "y": 114, "width": 960, "height": 540 },
-    "coordinate_space": "windows_virtual_desktop_physical_pixels"
-  },
-  "annotations": [],
-  "ai_access": "local_only",
-  "local_files": {
-    "original": "20260830-142233-127-1234-0001-original.png",
-    "annotated": "20260830-142233-127-1234-0001-annotated.png"
-  },
-  "sync_state": "synced",
-  "sync_error": ""
-}
-```
-
-上传请求使用相同的规范字段，另含 `assets.original` 和 `assets.annotated` 的 PNG base64；本地路径和本地同步状态不会上传。Capture Server 可直接规范化和索引该请求。
-
-## 构建
-
-Linux 交叉构建需要 CMake 3.20+ 和 64 位 MinGW-w64 C++ 工具链：
+## 构建与测试
 
 ```bash
-bash build-mingw.sh
+bash desktop-windows/build-mingw.sh
+bash desktop-windows/tests/run-library-tests.sh
+bash desktop-windows/tests/run-library-live.sh
+bash desktop-windows/tests/run-workspace-gui.sh
+bash desktop-windows/tests/run-sync-smoke.sh
+bash scripts/verify-mnote-v1.sh
+# 安装 NSIS 后，或设置 MAKENSIS / NSISDIR
+bash scripts/package-mnote-windows.sh
 ```
 
-也可指定编译器：
+构建使用 MinGW-w64 / CMake，下载并校验固定的 nlohmann/json 3.11.3 头文件；无第三方运行时依赖。测试在独立 Wine 前缀和临时本地 Capture Server 运行，不写入线上服务。界面回归覆盖真实圈选/笔迹、编辑、即时刷新、标签筛选、删除恢复、剪贴板、独立截图上下文、账号激活及显式导入。Wine 下页面文字读取允许安全失败，不等同于真实浏览器兼容性验证。
 
-```bash
-MINGW_CXX=/path/to/x86_64-w64-mingw32-g++ bash build-mingw.sh
-```
-
-产物为 `build-mingw/mnote.exe`。MinGW 构建静态链接 GCC C++ 运行时；GDI+、WinHTTP 等 Windows 系统库仍由 Windows 11 提供。
-
-Visual Studio 2022 Developer PowerShell 本机构建：
-
-```powershell
-cmake -S . -B build-vs -A x64
-cmake --build build-vs --config Release
-```
-
-产物通常位于 `build-vs\Release\mnote.exe`。
-
-### 可复现 Wine smoke tests
-
-Linux 上另需 `wine`、`xvfb-run` 和 `xdotool`。同步测试会交叉编译一个临时控制台程序，启动一个只处理单次请求且不输出凭据的本地 mock 服务，并验证：公网 HTTP 被拒绝、缺省 `ai_access=local_only`、base64 编码、Bearer 鉴权以及 WinHTTP PUT 路径。GUI 测试则会真实启动便携 EXE，在 1280x800 虚拟桌面中触发冻结层，模拟框选、自由笔、评论及保存；它先确认服务离线时三份文件与 `error` 状态保留，再启动 mock 服务、触发托盘重试，并校验同一记录变为 `synced`，最后确认 `Esc` 取消不会新增文件。测试数据只写入一次性 Wine prefix：
-
-```bash
-bash tests/run-sync-smoke.sh
-bash tests/run-gui-smoke.sh
-```
-
-成功时分别输出 `sync smoke: passed` 和 `gui smoke: passed`。同步测试默认使用 `127.0.0.1:18765`，GUI 测试默认使用 `127.0.0.1:18766`；端口冲突时可分别设置 `HEARTNOTE_SMOKE_PORT` 与 `HEARTNOTE_GUI_SMOKE_PORT`。
-
-## 边界与安全说明
-
-- 本程序不会也不能绕过 DRM 视频、密码保护界面、UAC 安全桌面或其他系统保护。此类区域可能变黑、为空，或无法捕获。
-- GDI 桌面捕获覆盖绝大多数普通 Windows 应用；独占全屏、部分硬件覆盖层或远程桌面策略下可能不可用。
-- 未框选的屏幕内容不会写入磁盘或发送到服务端。
-- 来源进程路径只是采集时前台窗口的本地元数据，不保证能取得；权限边界较高的窗口可能只留下标题或空值。启用同步即表示该来源元数据也会发送到所配置服务。
-- 本地数据是当前 Windows 账户下的明文文件。敏感截图应放在启用了设备加密且受保护的账户中；V1 不宣称端到端加密。
+第三方声明见 `THIRD-PARTY-NOTICES.txt`。

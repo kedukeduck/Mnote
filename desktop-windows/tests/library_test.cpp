@@ -62,6 +62,12 @@ void Cases(const fs::path& folder) {
     auto context=TextContext(L"🌱前文摘录后文","user_supplied",L"摘录");Expect(context["start"]==4);Expect(context["end"]==6);
     Throws([]{Parse(std::string(100,'[')+std::string(100,']'));},"invalid_json");
     Expect(!SafeId("../escape"));Expect(!SafeId("bad/id"));
+    Library optional(folder/L"optional");auto nullable=Note();nullable["source"]["url"]=nullptr;nullable["evidence"]=nullptr;
+    auto normalized=optional.save("guest",nullable);Expect(normalized.data["source"]["url"]=="");
+    auto editable=normalized.data;editable["kind"]="todo";editable["ai_access"]="deny";
+    auto permissions=optional.save("guest",editable,{},Library::fingerprint(normalized));
+    Expect(permissions.data["kind"]=="todo" && permissions.data["ai_access"]=="deny");
+    Throws([&]{optional.save("guest",editable,{},Library::fingerprint(normalized));},"record_changed");
     FakeServer server;Library library(folder,server.transport());
     auto note=library.save("guest",Note());Expect(library.list("guest").size()==1);
     auto changed=note.data;changed["tags"]=Tags(L"工作，灵感");

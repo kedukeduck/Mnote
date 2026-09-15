@@ -1,12 +1,13 @@
 #include <windows.h>
 #include <windowsx.h>
 
-#include "sync.hpp"
+#include "workspace.hpp"
 
 #include <commctrl.h>
 #include <gdiplus.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <dwmapi.h>
 
 #include <algorithm>
 #include <atomic>
@@ -30,7 +31,9 @@ constexpr wchar_t kAppName[] = L"Mnote";
 constexpr UINT kTrayIconId = 1;
 constexpr UINT kHotkeyId = 1;
 constexpr UINT kTrayMessage = WM_APP + 1;
-constexpr UINT kToolbarHeight = 92;
+constexpr UINT kToolbarHeight = 0;
+constexpr UINT kQuickHotkeyId = 2;
+constexpr UINT kCommandQuickNote = 40005;
 
 constexpr UINT kCommandNewCapture = 40001;
 constexpr UINT kCommandOpenInbox = 40002;
@@ -113,6 +116,8 @@ bool g_selecting = false;
 bool g_drawing = false;
 std::vector<Stroke> g_strokes;
 std::atomic<unsigned long> g_fileSequence{0};
+std::string g_captureScope;
+Mnote::Context::Source g_captureSource;
 
 LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK OverlayWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -205,8 +210,8 @@ bool CaptureVirtualDesktop(HWND sourceWindow, std::wstring& error) {
     g_capture.sourceWindowTitle = GetWindowCaption(sourceWindow);
     g_capture.sourceProcessPath = GetWindowProcessPath(sourceWindow);
 
-    if (g_capture.width <= 0 || g_capture.height <= 0) {
-        error = L"Windows 返回了无效的虚拟桌面尺寸。";
+    if (g_capture.width <= 0 || g_capture.height <= 0 || static_cast<std::int64_t>(g_capture.width)*g_capture.height>32000000) {
+        error = L"桌面尺寸无效或超过 3200 万像素，请临时减少显示器或分辨率后重试。";
         ResetCaptureFrame();
         return false;
     }
@@ -294,56 +299,6 @@ bool GetApplicationDirectory(std::wstring& result) {
     }
     result = std::move(appDirectory);
     return true;
-}
-
-bool GetInboxDirectory(std::wstring& result) {
-    std::wstring appDirectory;
-    if (!GetApplicationDirectory(appDirectory)) {
-        return false;
-    }
-    std::wstring inboxDirectory = appDirectory + L"\\Inbox";
-    if (!EnsureDirectory(inboxDirectory)) {
-        return false;
-    }
-    result = std::move(inboxDirectory);
-    return true;
-}
-
-void OpenInbox() {
-    std::wstring inbox;
-    if (!GetInboxDirectory(inbox)) {
-        MessageBoxW(
-            g_overlayWindow != nullptr ? g_overlayWindow : g_mainWindow,
-            L"无法创建本地 Inbox 目录。请检查 LOCALAPPDATA 目录权限。",
-            kAppName,
-            MB_OK | MB_ICONERROR);
-        return;
-    }
-    const HINSTANCE opened = ShellExecuteW(
-        nullptr, L"open", inbox.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-    if (reinterpret_cast<INT_PTR>(opened) <= 32) {
-        MessageBoxW(
-            g_overlayWindow != nullptr ? g_overlayWindow : g_mainWindow,
-            L"无法打开 Inbox 目录。",
-            kAppName,
-            MB_OK | MB_ICONERROR);
-    }
-}
-
-std::wstring ReadControlText(HWND control) {
-    if (control == nullptr) {
-        return {};
-    }
-    const int length = GetWindowTextLengthW(control);
-    if (length <= 0) {
-        return {};
-    }
-    std::vector<wchar_t> buffer(static_cast<std::size_t>(length) + 1U, L'\0');
-    const int copied = GetWindowTextW(control, buffer.data(), length + 1);
-    if (copied <= 0) {
-        return {};
-    }
-    return std::wstring(buffer.data(), static_cast<std::size_t>(copied));
 }
 
 std::string WideToUtf8(std::wstring_view value) {
@@ -443,38 +398,6 @@ std::wstring FormatUtcTimestamp() {
     return buffer;
 }
 
-std::wstring MakeCaptureId() {
-    SYSTEMTIME local{};
-    GetLocalTime(&local);
-    const unsigned long sequence = g_fileSequence.fetch_add(1U, std::memory_order_relaxed) & 0xFFFFU;
-    wchar_t buffer[96]{};
-    std::swprintf(
-        buffer,
-        sizeof(buffer) / sizeof(buffer[0]),
-        L"%04u%02u%02u-%02u%02u%02u-%03u-%lu-%04lx",
-        static_cast<unsigned>(local.wYear),
-        static_cast<unsigned>(local.wMonth),
-        static_cast<unsigned>(local.wDay),
-        static_cast<unsigned>(local.wHour),
-        static_cast<unsigned>(local.wMinute),
-        static_cast<unsigned>(local.wSecond),
-        static_cast<unsigned>(local.wMilliseconds),
-        static_cast<unsigned long>(GetCurrentProcessId()),
-        sequence);
-    return buffer;
-}
-
-std::string SelectedKind() {
-    const LRESULT selection = SendMessageW(g_controls.kind, CB_GETCURSEL, 0, 0);
-    if (selection == 1) {
-        return "later";
-    }
-    if (selection == 2) {
-        return "todo";
-    }
-    return "thought";
-}
-
 void ConfigurePen(Gdiplus::Pen& pen) {
     pen.SetLineJoin(Gdiplus::LineJoinRound);
     pen.SetStartCap(Gdiplus::LineCapRound);
@@ -565,7 +488,7 @@ std::string BuildJson(
          << "  \"source\": {\n"
          << "    \"type\": \"screen\",\n"
          << "    \"app_name\": " << JsonString(FileNameFromPath(g_capture.sourceProcessPath)) << ",\n"
-         << "    \"app_id\": " << JsonString(g_capture.sourceProcessPath) << ",\n"
+         << "    \"app_id\": " << JsonString(FileNameFromPath(g_capture.sourceProcessPath)) << ",\n"
          << "    \"window_title\": " << JsonString(g_capture.sourceWindowTitle) << ",\n"
          << "    \"text\": \"\"\n"
          << "  },\n"
@@ -627,613 +550,40 @@ std::string BuildJson(
     return json.str();
 }
 
-bool WriteFileContents(const std::wstring& path, const std::string& contents, std::wstring& error) {
-    HANDLE file = CreateFileW(
-        path.c_str(),
-        GENERIC_WRITE,
-        0,
-        nullptr,
-        CREATE_ALWAYS,
-        FILE_ATTRIBUTE_NORMAL,
-        nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        error = L"无法创建 JSON 临时文件。";
-        return false;
-    }
-
-    std::size_t offset = 0;
-    bool success = true;
-    while (offset < contents.size()) {
-        const std::size_t remaining = contents.size() - offset;
-        const DWORD chunk = static_cast<DWORD>((std::min)(
-            remaining, static_cast<std::size_t>((std::numeric_limits<DWORD>::max)())));
-        DWORD written = 0;
-        if (WriteFile(file, contents.data() + offset, chunk, &written, nullptr) == FALSE ||
-            written == 0U) {
-            success = false;
-            break;
-        }
-        offset += static_cast<std::size_t>(written);
-    }
-    if (success && FlushFileBuffers(file) == FALSE) {
-        success = false;
-    }
-    CloseHandle(file);
-    if (!success) {
-        DeleteFileW(path.c_str());
-        error = L"写入 JSON 文件时发生错误。";
-    }
-    return success;
-}
-
-bool WriteJsonAtomically(const std::wstring& path, const std::string& contents, std::wstring& error) {
-    const std::wstring temporary = path + L".tmp";
-    if (!WriteFileContents(temporary, contents, error)) {
-        return false;
-    }
-    if (MoveFileExW(
-            temporary.c_str(),
-            path.c_str(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == FALSE) {
-        DeleteFileW(temporary.c_str());
-        error = L"无法原子更新 JSON 记录。";
-        return false;
-    }
-    return true;
-}
-
-bool SavePngAtomically(
-    Gdiplus::Bitmap& bitmap,
-    const std::wstring& destination,
-    std::wstring& error) {
-    const std::wstring temporary = destination + L".tmp";
-    DeleteFileW(temporary.c_str());
-    if (bitmap.Save(temporary.c_str(), &kPngEncoder, nullptr) != Gdiplus::Ok) {
-        DeleteFileW(temporary.c_str());
-        error = L"PNG 临时文件保存失败。";
-        return false;
-    }
-    HANDLE file = CreateFileW(
-        temporary.c_str(),
-        GENERIC_WRITE,
-        FILE_SHARE_READ,
-        nullptr,
-        OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL,
-        nullptr);
-    if (file == INVALID_HANDLE_VALUE || FlushFileBuffers(file) == FALSE) {
-        if (file != INVALID_HANDLE_VALUE) {
-            CloseHandle(file);
-        }
-        DeleteFileW(temporary.c_str());
-        error = L"无法刷新 PNG 临时文件。";
-        return false;
-    }
-    CloseHandle(file);
-    if (MoveFileExW(
-            temporary.c_str(),
-            destination.c_str(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == FALSE) {
-        DeleteFileW(temporary.c_str());
-        error = L"无法完成 PNG 文件。";
-        return false;
-    }
-    return true;
-}
-
-bool ReadBoundedFile(
-    const std::wstring& path,
-    std::string& contents,
-    std::wstring& error) {
-    HANDLE file = CreateFileW(
-        path.c_str(),
-        GENERIC_READ,
-        FILE_SHARE_READ,
-        nullptr,
-        OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
-        nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        error = L"无法读取本地待同步 JSON。";
-        return false;
-    }
-    LARGE_INTEGER size{};
-    constexpr LONGLONG kMaximumLocalJsonBytes = 8LL * 1024LL * 1024LL;
-    if (GetFileSizeEx(file, &size) == FALSE || size.QuadPart <= 0 ||
-        size.QuadPart > kMaximumLocalJsonBytes) {
-        CloseHandle(file);
-        error = L"本地待同步 JSON 为空或超过 8 MiB。";
-        return false;
-    }
-    contents.assign(static_cast<std::size_t>(size.QuadPart), '\0');
-    std::size_t offset = 0;
-    while (offset < contents.size()) {
-        const DWORD amount = static_cast<DWORD>((std::min)(
-            contents.size() - offset,
-            static_cast<std::size_t>((std::numeric_limits<DWORD>::max)())));
-        DWORD read = 0;
-        if (ReadFile(file, contents.data() + offset, amount, &read, nullptr) == FALSE ||
-            read == 0U) {
-            CloseHandle(file);
-            contents.clear();
-            error = L"读取本地待同步 JSON 时发生错误。";
-            return false;
-        }
-        offset += static_cast<std::size_t>(read);
-    }
-    CloseHandle(file);
-    return true;
-}
-
-bool UpdateLocalSyncState(
-    const std::wstring& jsonPath,
-    std::string contents,
-    const std::string& state,
-    const std::wstring& syncError,
-    std::wstring& error) {
-    const std::string stateMarker = "\"sync_state\": \"";
-    const std::size_t stateMarkerAt = contents.find(stateMarker);
-    if (stateMarkerAt == std::string::npos) {
-        error = L"本地 JSON 缺少同步状态。";
-        return false;
-    }
-    const std::size_t stateStart = stateMarkerAt + stateMarker.size();
-    const std::size_t stateEnd = contents.find('"', stateStart);
-    if (stateEnd == std::string::npos) {
-        error = L"本地 JSON 的同步状态无效。";
-        return false;
-    }
-    contents.replace(stateStart, stateEnd - stateStart, state);
-
-    const std::string errorMarker = "\"sync_error\": ";
-    const std::size_t errorMarkerAt = contents.find(errorMarker);
-    const std::size_t objectEnd = contents.rfind("\n}");
-    if (errorMarkerAt == std::string::npos || objectEnd == std::string::npos ||
-        objectEnd <= errorMarkerAt + errorMarker.size()) {
-        error = L"本地 JSON 的同步错误字段无效。";
-        return false;
-    }
-    const std::size_t errorStart = errorMarkerAt + errorMarker.size();
-    contents.replace(errorStart, objectEnd - errorStart, JsonString(syncError));
-    return WriteJsonAtomically(jsonPath, contents, error);
-}
-
-bool BuildRetryPayload(
-    const std::string& localJson,
-    const std::string& originalBase64,
-    const std::string& annotatedBase64,
-    std::string& payload,
-    std::wstring& error) {
-    const std::string localMarker = ",\n  \"local_files\":";
-    const std::size_t marker = localJson.find(localMarker);
-    if (marker == std::string::npos || marker == 0U) {
-        error = L"本地 JSON 不是 Mnote V1 记录。";
-        return false;
-    }
-    payload.assign(localJson.data(), marker);
-    payload += ",\n  \"assets\": {\n";
-    payload += "    \"original\": { \"content_type\": \"image/png\", \"data_base64\": \"";
-    payload += originalBase64;
-    payload += "\" },\n";
-    payload += "    \"annotated\": { \"content_type\": \"image/png\", \"data_base64\": \"";
-    payload += annotatedBase64;
-    payload += "\" }\n  }\n}\n";
-    return true;
-}
-
-bool SaveCaptureFiles(SaveOutcome& outcome, std::wstring& error) {
-    if (!HasSelection() || g_capture.bitmap == nullptr) {
-        error = L"请先框选要保存的区域。";
-        return false;
-    }
-
-    std::wstring appDirectory;
-    std::wstring inbox;
-    if (!GetApplicationDirectory(appDirectory) || !GetInboxDirectory(inbox)) {
-        error = L"无法创建本地 Inbox 目录。";
-        return false;
-    }
-
-    std::wstring id;
-    std::wstring originalPath;
-    std::wstring annotatedPath;
-    std::wstring jsonPath;
-    for (unsigned attempt = 0; attempt < 100U; ++attempt) {
-        id = MakeCaptureId();
-        originalPath = inbox + L"\\" + id + L"-original.png";
-        annotatedPath = inbox + L"\\" + id + L"-annotated.png";
-        jsonPath = inbox + L"\\" + id + L".json";
-        if (GetFileAttributesW(originalPath.c_str()) == INVALID_FILE_ATTRIBUTES &&
-            GetFileAttributesW(annotatedPath.c_str()) == INVALID_FILE_ATTRIBUTES &&
-            GetFileAttributesW(jsonPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
-            break;
-        }
-        id.clear();
-    }
-    if (id.empty()) {
-        error = L"无法生成唯一的记录文件名。";
-        return false;
-    }
-
-    const int width = g_selection.right - g_selection.left;
-    const int height = g_selection.bottom - g_selection.top;
-    Gdiplus::Bitmap source(g_capture.bitmap, nullptr);
-    if (source.GetLastStatus() != Gdiplus::Ok) {
-        error = L"无法读取冻结画面。";
-        return false;
-    }
-
-    Gdiplus::Bitmap original(width, height, PixelFormat32bppARGB);
-    Gdiplus::Bitmap annotated(width, height, PixelFormat32bppARGB);
-    if (original.GetLastStatus() != Gdiplus::Ok || annotated.GetLastStatus() != Gdiplus::Ok) {
-        error = L"无法创建裁剪后的图片。";
-        return false;
-    }
-
-    {
-        Gdiplus::Graphics graphics(&original);
-        graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-        graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
-        graphics.SetInterpolationMode(Gdiplus::InterpolationModeNearestNeighbor);
-        const Gdiplus::Status drawStatus = graphics.DrawImage(
-            &source,
-            Gdiplus::Rect(0, 0, width, height),
-            g_selection.left,
-            g_selection.top,
-            width,
-            height,
-            Gdiplus::UnitPixel);
-        if (drawStatus != Gdiplus::Ok) {
-            error = L"裁剪截图时发生错误。";
-            return false;
-        }
-        graphics.Flush(Gdiplus::FlushIntentionSync);
-    }
-    {
-        Gdiplus::Graphics graphics(&annotated);
-        graphics.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-        if (graphics.DrawImage(&original, 0, 0, width, height) != Gdiplus::Ok) {
-            error = L"复制原始截图时发生错误。";
-            return false;
-        }
-        graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
-        const Gdiplus::Rect imageClip(0, 0, width, height);
-        DrawAllStrokes(graphics, g_selection.left, g_selection.top, &imageClip);
-        graphics.Flush(Gdiplus::FlushIntentionSync);
-    }
-
-    if (!SavePngAtomically(original, originalPath, error)) {
-        DeleteFileW(originalPath.c_str());
-        return false;
-    }
-    if (!SavePngAtomically(annotated, annotatedPath, error)) {
-        DeleteFileW(originalPath.c_str());
-        DeleteFileW(annotatedPath.c_str());
-        return false;
-    }
-
-    const std::wstring comment = ReadControlText(g_controls.comment);
-    const std::string kind = SelectedKind();
-    const std::wstring createdAt = FormatUtcTimestamp();
-    const std::wstring originalFileName = id + L"-original.png";
-    const std::wstring annotatedFileName = id + L"-annotated.png";
-    const PersonalCaptureSync::Settings settings =
-        PersonalCaptureSync::LoadSettings(appDirectory);
-    outcome.syncState = settings.enabled ? "pending" : (settings.error.empty() ? "disabled" : "error");
-    outcome.syncError = settings.error;
-
-    const std::string initialJson = BuildJson(
-        id,
-        originalFileName,
-        annotatedFileName,
-        comment,
-        kind,
-        createdAt,
-        settings.aiAccess,
-        true,
-        outcome.syncState,
-        outcome.syncError,
-        nullptr,
-        nullptr);
-    if (!WriteJsonAtomically(jsonPath, initialJson, error)) {
-        DeleteFileW(originalPath.c_str());
-        DeleteFileW(annotatedPath.c_str());
-        return false;
-    }
-
-    if (settings.enabled) {
-        std::string originalBase64;
-        std::string annotatedBase64;
-        std::wstring syncPreparationError;
-        PersonalCaptureSync::Result syncResult;
-        if (!PersonalCaptureSync::Base64File(
-                originalPath, originalBase64, syncPreparationError) ||
-            !PersonalCaptureSync::Base64File(
-                annotatedPath, annotatedBase64, syncPreparationError)) {
-            syncResult.attempted = true;
-            syncResult.error = syncPreparationError;
-        } else {
-            const std::string uploadJson = BuildJson(
-                id,
-                originalFileName,
-                annotatedFileName,
-                comment,
-                kind,
-                createdAt,
-                settings.aiAccess,
-                false,
-                {},
-                {},
-                &originalBase64,
-                &annotatedBase64);
-            syncResult = PersonalCaptureSync::PutCapture(settings, id, uploadJson);
-        }
-        outcome.syncState = syncResult.succeeded ? "synced" : "error";
-        outcome.syncError = syncResult.error;
-
-        const std::string finalJson = BuildJson(
-            id,
-            originalFileName,
-            annotatedFileName,
-            comment,
-            kind,
-            createdAt,
-            settings.aiAccess,
-            true,
-            outcome.syncState,
-            outcome.syncError,
-            nullptr,
-            nullptr);
-        std::wstring updateError;
-        if (!WriteJsonAtomically(jsonPath, finalJson, updateError)) {
-            outcome.syncState = "error";
-            outcome.syncError = L"本地记录已保存，但无法写入最终同步状态。";
-        }
-    }
-
-    outcome.annotatedImage = std::move(annotatedPath);
-    return true;
-}
-
-void RetryPendingCaptures() {
-    std::wstring appDirectory;
-    std::wstring inbox;
-    if (!GetApplicationDirectory(appDirectory) || !GetInboxDirectory(inbox)) {
-        MessageBoxW(g_mainWindow, L"无法打开本地 Inbox。", kAppName, MB_OK | MB_ICONERROR);
-        return;
-    }
-    const PersonalCaptureSync::Settings settings =
-        PersonalCaptureSync::LoadSettings(appDirectory);
-    if (!settings.enabled) {
-        const wchar_t* message = settings.error.empty()
-            ? L"尚未配置同步。请先创建 PersonalCapture\\settings.ini。"
-            : settings.error.c_str();
-        MessageBoxW(g_mainWindow, message, kAppName, MB_OK | MB_ICONINFORMATION);
-        return;
-    }
-
-    WIN32_FIND_DATAW found{};
-    const std::wstring pattern = inbox + L"\\*.json";
-    HANDLE search = FindFirstFileW(pattern.c_str(), &found);
-    if (search == INVALID_HANDLE_VALUE) {
-        MessageBoxW(g_mainWindow, L"没有待同步记录。", kAppName, MB_OK | MB_ICONINFORMATION);
-        return;
-    }
-
-    unsigned sent = 0;
-    unsigned failed = 0;
-    unsigned examined = 0;
-    bool reachedLimit = false;
-    do {
-        if (examined >= 50U) {
-            reachedLimit = true;
-            break;
-        }
-        if ((found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U) {
-            continue;
-        }
-        const std::wstring fileName = found.cFileName;
-        if (fileName.size() <= 5U || fileName.substr(fileName.size() - 5U) != L".json") {
-            continue;
-        }
-        const std::wstring id = fileName.substr(0, fileName.size() - 5U);
-        const std::wstring jsonPath = inbox + L"\\" + fileName;
-        std::string localJson;
-        std::wstring operationError;
-        if (!ReadBoundedFile(jsonPath, localJson, operationError)) {
-            ++failed;
-            ++examined;
-            continue;
-        }
-        if (localJson.find("\"sync_state\": \"synced\"") != std::string::npos) {
-            continue;
-        }
-        ++examined;
-        if (!UpdateLocalSyncState(
-                jsonPath, localJson, "pending", L"", operationError)) {
-            ++failed;
-            continue;
-        }
-
-        const std::wstring originalPath = inbox + L"\\" + id + L"-original.png";
-        const std::wstring annotatedPath = inbox + L"\\" + id + L"-annotated.png";
-        std::string originalBase64;
-        std::string annotatedBase64;
-        std::string payload;
-        if (!PersonalCaptureSync::Base64File(
-                originalPath, originalBase64, operationError) ||
-            !PersonalCaptureSync::Base64File(
-                annotatedPath, annotatedBase64, operationError) ||
-            !BuildRetryPayload(
-                localJson, originalBase64, annotatedBase64, payload, operationError)) {
-            std::wstring stateWriteError;
-            UpdateLocalSyncState(
-                jsonPath, localJson, "error", operationError, stateWriteError);
-            ++failed;
-            continue;
-        }
-
-        const PersonalCaptureSync::Result result =
-            PersonalCaptureSync::PutCapture(settings, id, payload);
-        std::wstring stateWriteError;
-        if (result.succeeded && UpdateLocalSyncState(
-                jsonPath, localJson, "synced", L"", stateWriteError)) {
-            ++sent;
-        } else {
-            const std::wstring finalError = result.succeeded
-                ? L"服务已接收记录，但本机无法更新同步状态。"
-                : result.error;
-            UpdateLocalSyncState(
-                jsonPath, localJson, "error", finalError, stateWriteError);
-            ++failed;
-        }
-    } while (FindNextFileW(search, &found) != FALSE);
-    FindClose(search);
-
-    std::wstring summary = L"本次已同步 " + std::to_wstring(sent) +
-        L" 条，失败 " + std::to_wstring(failed) + L" 条。";
-    if (reachedLimit) {
-        summary += L" 为避免长时间阻塞，每次最多处理 50 条；可再次点击继续。";
-    }
-    MessageBoxW(
-        g_mainWindow,
-        summary.c_str(),
-        kAppName,
-        MB_OK | (failed == 0U ? MB_ICONINFORMATION : MB_ICONWARNING));
-}
-
 void UpdateSaveAvailability() {
-    if (g_controls.save != nullptr) {
-        EnableWindow(g_controls.save, HasSelection() ? TRUE : FALSE);
-    }
+    EnableWindow(g_controls.save,HasSelection());
 }
-
 void SetTool(Tool tool) {
-    if (tool != Tool::Select && !HasSelection()) {
-        MessageBeep(MB_ICONINFORMATION);
-        tool = Tool::Select;
-    }
-    g_tool = tool;
-    if (g_overlayWindow != nullptr) {
-        CheckRadioButton(
-            g_overlayWindow,
-            kControlSelect,
-            kControlHighlighter,
-            tool == Tool::Select
-                ? kControlSelect
-                : (tool == Tool::Pen ? kControlPen : kControlHighlighter));
-        SetCursor(LoadCursorW(nullptr, IDC_CROSS));
-    }
+    if(tool!=Tool::Select && !HasSelection())tool=Tool::Select;
+    g_tool=tool;
+    SetWindowTextW(g_controls.select,tool==Tool::Select ? L"● 框选 · 1" : L"框选 · 1");
+    SetWindowTextW(g_controls.pen,tool==Tool::Pen ? L"● 自由笔 · 2" : L"自由笔 · 2");
+    SetWindowTextW(g_controls.highlighter,tool==Tool::Highlighter ? L"● 高亮 · 3" : L"高亮 · 3");
 }
-
 void ApplyDefaultFont(HWND control) {
     if (control != nullptr) {
-        SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE);
+        SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(Mnote::Workspace::Font()), TRUE);
     }
 }
 
 void CreateOverlayControls(HWND parent) {
-    const DWORD buttonStyle = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_PUSHLIKE;
-    g_controls.select = CreateWindowExW(
-        0, L"BUTTON", L"框选", buttonStyle | WS_GROUP,
-        0, 0, 0, 0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kControlSelect)), g_instance, nullptr);
-    g_controls.pen = CreateWindowExW(
-        0, L"BUTTON", L"自由笔", buttonStyle,
-        0, 0, 0, 0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kControlPen)), g_instance, nullptr);
-    g_controls.highlighter = CreateWindowExW(
-        0, L"BUTTON", L"荧光笔", buttonStyle,
-        0, 0, 0, 0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kControlHighlighter)), g_instance, nullptr);
-    g_controls.undo = CreateWindowExW(
-        0, L"BUTTON", L"撤销", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-        0, 0, 0, 0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kControlUndo)), g_instance, nullptr);
-    g_controls.kindLabel = CreateWindowExW(
-        0, L"STATIC", L"类型", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE,
-        0, 0, 0, 0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kControlKindLabel)), g_instance, nullptr);
-    g_controls.kind = CreateWindowExW(
-        0, L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST,
-        0, 0, 0, 0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kControlKind)), g_instance, nullptr);
-    g_controls.save = CreateWindowExW(
-        0, L"BUTTON", L"保存", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
-        0, 0, 0, 0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kControlSave)), g_instance, nullptr);
-    g_controls.cancel = CreateWindowExW(
-        0, L"BUTTON", L"取消", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-        0, 0, 0, 0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kControlCancel)), g_instance, nullptr);
-    g_controls.commentLabel = CreateWindowExW(
-        0, L"STATIC", L"评论", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE,
-        0, 0, 0, 0, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kControlCommentLabel)), g_instance, nullptr);
-    g_controls.comment = CreateWindowExW(
-        WS_EX_CLIENTEDGE,
-        L"EDIT",
-        nullptr,
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
-        0,
-        0,
-        0,
-        0,
-        parent,
-        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kControlComment)),
-        g_instance,
-        nullptr);
-
-    const HWND controls[] = {
-        g_controls.select,
-        g_controls.pen,
-        g_controls.highlighter,
-        g_controls.undo,
-        g_controls.kindLabel,
-        g_controls.kind,
-        g_controls.save,
-        g_controls.cancel,
-        g_controls.commentLabel,
-        g_controls.comment,
-    };
-    for (HWND control : controls) {
-        ApplyDefaultFont(control);
-    }
-
-    SendMessageW(g_controls.kind, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"thought"));
-    SendMessageW(g_controls.kind, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"later"));
-    SendMessageW(g_controls.kind, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"todo"));
-    SendMessageW(g_controls.kind, CB_SETCURSEL, 0, 0);
-    SendMessageW(g_controls.comment, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"这段内容让我想到……"));
-    SendMessageW(g_controls.comment, EM_SETLIMITTEXT, 20000, 0);
-    SetTool(Tool::Select);
-    UpdateSaveAvailability();
+    auto button=[&](int id,const wchar_t* text) {auto control=CreateWindowExW(0,L"BUTTON",text,WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW,
+        0,0,0,0,parent,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),g_instance,nullptr);ApplyDefaultFont(control);return control;};
+    g_controls.select=button(kControlSelect,L"框选 · 1");g_controls.pen=button(kControlPen,L"自由笔 · 2");
+    g_controls.highlighter=button(kControlHighlighter,L"高亮 · 3");g_controls.undo=button(kControlUndo,L"撤销");
+    g_controls.save=button(kControlSave,L"下一步");g_controls.cancel=button(kControlCancel,L"取消 · Esc");
+    SetTool(Tool::Select);UpdateSaveAvailability();
 }
-
 void LayoutOverlayControls(HWND window) {
-    RECT client{};
-    GetClientRect(window, &client);
-    const int width = client.right - client.left;
-    constexpr int margin = 9;
-    constexpr int rowHeight = 32;
-    constexpr int gap = 6;
-
-    int x = margin;
-    MoveWindow(g_controls.select, x, 8, 68, rowHeight, TRUE);
-    x += 68 + gap;
-    MoveWindow(g_controls.pen, x, 8, 76, rowHeight, TRUE);
-    x += 76 + gap;
-    MoveWindow(g_controls.highlighter, x, 8, 84, rowHeight, TRUE);
-    x += 84 + gap;
-    MoveWindow(g_controls.undo, x, 8, 66, rowHeight, TRUE);
-
-    const int cancelWidth = 68;
-    const int saveWidth = 72;
-    const int cancelX = (std::max)(margin, width - margin - cancelWidth);
-    const int saveX = (std::max)(margin, cancelX - gap - saveWidth);
-    MoveWindow(g_controls.save, saveX, 8, saveWidth, rowHeight, TRUE);
-    MoveWindow(g_controls.cancel, cancelX, 8, cancelWidth, rowHeight, TRUE);
-
-    const int comboWidth = 104;
-    const int labelWidth = 38;
-    const int comboX = (std::max)(x + 76, saveX - gap - comboWidth);
-    MoveWindow(g_controls.kindLabel, comboX - labelWidth - 2, 8, labelWidth, rowHeight, TRUE);
-    MoveWindow(g_controls.kind, comboX, 8, comboWidth, 220, TRUE);
-
-    MoveWindow(g_controls.commentLabel, margin, 49, 46, 30, TRUE);
-    const int editX = margin + 50;
-    MoveWindow(g_controls.comment, editX, 49, (std::max)(80, width - editX - margin), 30, TRUE);
+    RECT client{};GetClientRect(window,&client);
+    // A compact floating tool row follows the selection, never a full-width sheet.
+    int width=660,x=std::max(8,static_cast<int>((client.right-width)/2)),y=16;
+    if(HasSelection()) {
+        x=std::clamp(static_cast<int>(g_selection.left),8,std::max(8,static_cast<int>(client.right)-width-8));
+        y=g_selection.bottom+58<client.bottom ? static_cast<int>(g_selection.bottom)+12 : std::max(8,static_cast<int>(g_selection.top)-56);
+    }
+    HWND buttons[]={g_controls.select,g_controls.pen,g_controls.highlighter,g_controls.undo,g_controls.save,g_controls.cancel};
+    for(auto control:buttons){MoveWindow(control,x,y,102,38,TRUE);x+=110;}
 }
 
 void ShowTrayNotice(const wchar_t* title, const wchar_t* message, DWORD flags) {
@@ -1272,32 +622,47 @@ void CancelCapture() {
 }
 
 void SaveCurrentCapture() {
-    SaveOutcome outcome;
-    std::wstring error;
-    if (!SaveCaptureFiles(outcome, error)) {
-        MessageBoxW(g_overlayWindow, error.c_str(), kAppName, MB_OK | MB_ICONERROR);
-        return;
-    }
-    CloseOverlay();
-    if (outcome.syncState == "error") {
-        ShowTrayNotice(
-            L"本地记录已保存",
-            L"同步未完成；原图、批注图和 JSON 已保留在 PersonalCapture\\Inbox。",
-            NIIF_WARNING);
-    } else if (outcome.syncState == "synced") {
-        ShowTrayNotice(L"记录已保存并同步", L"双图与 JSON 已写入 Inbox 和同步服务。", NIIF_INFO);
-    } else {
-        ShowTrayNotice(L"记录已保存", L"原图、批注图和 JSON 已写入 PersonalCapture\\Inbox。", NIIF_INFO);
-    }
+    if(!HasSelection() || !g_capture.bitmap)return;
+    try {
+        Mnote::Workspace::Draft draft;draft.scope=g_captureScope;draft.source=g_captureSource;draft.staging=Mnote::Workspace::Staging();
+        int width=g_selection.right-g_selection.left,height=g_selection.bottom-g_selection.top;
+        Gdiplus::Bitmap source(g_capture.bitmap,nullptr),original(width,height,PixelFormat32bppARGB),annotated(width,height,PixelFormat32bppARGB);
+        {
+            Gdiplus::Graphics graphics(&original);
+            if(graphics.DrawImage(&source,Gdiplus::Rect(0,0,width,height),g_selection.left,g_selection.top,width,height,Gdiplus::UnitPixel)!=Gdiplus::Ok)
+                throw std::runtime_error("invalid_image");
+        }
+        {
+            Gdiplus::Graphics graphics(&annotated);graphics.DrawImage(&original,0,0,width,height);
+            Gdiplus::Rect clip(0,0,width,height);DrawAllStrokes(graphics,g_selection.left,g_selection.top,&clip);
+        }
+        auto originalPath=draft.staging/L"original.png",annotatedPath=draft.staging/L"annotated.png";
+        Mnote::Context::SavePng(original,originalPath);Mnote::Context::SavePng(annotated,annotatedPath);
+        draft.assets={{"original",originalPath},{"annotated",annotatedPath}};
+        draft.fullImage.reset(source.Clone(0,0,g_capture.width,g_capture.height,PixelFormat32bppARGB));
+        if(!draft.fullImage || draft.fullImage->GetLastStatus()!=Gdiplus::Ok)throw std::runtime_error("invalid_image");
+        auto id=Mnote::Wide(Mnote::NewId());
+        draft.data=Mnote::Parse(BuildJson(id,L"",L"",L"","thought",FormatUtcTimestamp(),"local_only",false,"",L"",nullptr,nullptr));
+        draft.data["tags"]=Mnote::Json::array();
+        draft.data["evidence"]["context"]["image"]={
+            {"retained",false},{"asset_role",nullptr},{"width",g_capture.width},{"height",g_capture.height},
+            {"editor_width",width},{"editor_height",height},{"annotation_coordinate_space","selected_image_pixels"},
+            {"coordinate_space","context_image_pixels"},{"selected_asset_role","original"},
+            {"selection",{{"left",g_selection.left},{"top",g_selection.top},{"right",g_selection.right},{"bottom",g_selection.bottom}}}};
+        Mnote::Workspace::Compose(std::move(draft));CloseOverlay();
+    } catch(const std::exception& error) {MessageBoxW(g_overlayWindow,Mnote::ErrorText(error).c_str(),kAppName,MB_OK|MB_ICONWARNING);}
 }
 
 void BeginCapture() {
+    if(Mnote::Workspace::HasEditor()){MessageBoxW(g_mainWindow,L"请先保存或关闭正在编辑的记录。",kAppName,MB_OK);return;}
+    g_captureScope=Mnote::Workspace::Scope();
     if (g_overlayWindow != nullptr) {
         SetForegroundWindow(g_overlayWindow);
         return;
     }
 
     HWND sourceWindow = GetForegroundWindow();
+    g_captureSource=Mnote::Context::Foreground();
     if (sourceWindow == g_mainWindow) {
         sourceWindow = nullptr;
     } else if (sourceWindow != nullptr) {
@@ -1307,6 +672,8 @@ void BeginCapture() {
         }
     }
     std::wstring error;
+    Mnote::Workspace::Hide();
+    DwmFlush();
     if (!CaptureVirtualDesktop(sourceWindow, error)) {
         MessageBoxW(g_mainWindow, error.c_str(), kAppName, MB_OK | MB_ICONERROR);
         return;
@@ -1439,7 +806,7 @@ void PaintOverlay(HWND window) {
         graphics.Flush(Gdiplus::FlushIntentionSync);
     }
 
-    RECT toolbar{0, 0, client.right, static_cast<LONG>(kToolbarHeight)};
+    RECT toolbar{0, 0, 0, 0};
     HBRUSH toolbarBrush = CreateSolidBrush(RGB(31, 34, 40));
     if (toolbarBrush != nullptr) {
         FillRect(dc, &toolbar, toolbarBrush);
@@ -1453,9 +820,10 @@ void ShowTrayMenu(HWND window) {
     if (menu == nullptr) {
         return;
     }
-    AppendMenuW(menu, MF_STRING, kCommandNewCapture, L"新建采集\tCtrl+Shift+F9");
-    AppendMenuW(menu, MF_STRING, kCommandSyncPending, L"同步待处理记录");
-    AppendMenuW(menu, MF_STRING, kCommandOpenInbox, L"打开 Inbox");
+    AppendMenuW(menu, MF_STRING, kCommandNewCapture, L"单次摘录\tCtrl+Shift+F9");
+    AppendMenuW(menu, MF_STRING, kCommandQuickNote, L"随手记\tCtrl+Shift+F8");
+    AppendMenuW(menu, MF_STRING, kCommandSyncPending, L"刷新与同步");
+    AppendMenuW(menu, MF_STRING, kCommandOpenInbox, L"我的知识库");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kCommandExit, L"退出");
     POINT cursor{};
@@ -1586,6 +954,7 @@ LRESULT CALLBACK OverlayWindowProc(HWND window, UINT message, WPARAM wParam, LPA
             point = ClampPointToClient(window, point);
             g_selection = NormalizedRect(g_dragAnchor, point);
             UpdateSaveAvailability();
+            LayoutOverlayControls(window);
             InvalidateRect(window, nullptr, FALSE);
         } else if (g_drawing) {
             AddPointToCurrentStroke(point);
@@ -1627,6 +996,9 @@ LRESULT CALLBACK OverlayWindowProc(HWND window, UINT message, WPARAM wParam, LPA
             return 0;
         }
         break;
+
+    case WM_DRAWITEM:
+        return Mnote::Workspace::DrawButton(*reinterpret_cast<DRAWITEMSTRUCT*>(lParam));
 
     case WM_CTLCOLORSTATIC: {
         HDC controlDc = reinterpret_cast<HDC>(wParam);
@@ -1675,17 +1047,17 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
                 kAppName,
                 MB_OK | MB_ICONWARNING);
         }
+        RegisterHotKey(window,kQuickHotkeyId,MOD_CONTROL|MOD_SHIFT|MOD_NOREPEAT,VK_F8);
         return 0;
 
     case WM_HOTKEY:
-        if (wParam == kHotkeyId) {
-            BeginCapture();
-        }
+        if (wParam == kHotkeyId) BeginCapture();
+        else if(wParam==kQuickHotkeyId) Mnote::Workspace::QuickNote();
         return 0;
 
     case kTrayMessage:
         if (static_cast<UINT>(lParam) == WM_LBUTTONDBLCLK) {
-            BeginCapture();
+            Mnote::Workspace::Show();
         } else if (static_cast<UINT>(lParam) == WM_RBUTTONUP ||
                    static_cast<UINT>(lParam) == WM_CONTEXTMENU) {
             ShowTrayMenu(window);
@@ -1698,13 +1070,16 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
             BeginCapture();
             break;
         case kCommandOpenInbox:
-            OpenInbox();
+            Mnote::Workspace::Show();
             break;
         case kCommandSyncPending:
-            RetryPendingCaptures();
+            Mnote::Workspace::Sync();
+            break;
+        case kCommandQuickNote:
+            Mnote::Workspace::QuickNote();
             break;
         case kCommandExit:
-            DestroyWindow(window);
+            if(Mnote::Workspace::CanExit())DestroyWindow(window);
             break;
         default:
             break;
@@ -1719,6 +1094,7 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         ResetCaptureFrame();
         ResetOverlayState();
         UnregisterHotKey(window, kHotkeyId);
+        UnregisterHotKey(window, kQuickHotkeyId);
         RemoveTrayIcon();
         g_mainWindow = nullptr;
         PostQuitMessage(0);
@@ -1764,6 +1140,8 @@ bool RegisterWindowClasses() {
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
+    int argc=0;wchar_t** argv=CommandLineToArgvW(GetCommandLineW(),&argc);
+    int helper=Mnote::Context::Helper(argc,argv);LocalFree(argv);if(helper>=0)return helper;
     g_instance = instance;
     EnableBestDpiAwareness();
 
@@ -1773,7 +1151,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         return 1;
     }
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        MessageBoxW(nullptr, L"Mnote 已经在系统托盘中运行。", kAppName, MB_OK | MB_ICONINFORMATION);
+        PostMessageW(FindWindowW(kMainWindowClass,nullptr),WM_COMMAND,kCommandOpenInbox,0);
         CloseHandle(g_singleInstanceMutex);
         g_singleInstanceMutex = nullptr;
         return 0;
@@ -1820,9 +1198,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         return 1;
     }
 
+    try {
+        std::wstring root;if(!GetApplicationDirectory(root))throw std::runtime_error("storage_write");
+        Mnote::Workspace::Start(instance,root,[]{BeginCapture();},[](const std::wstring& text,bool error){
+            ShowTrayNotice(error ? L"Mnote · 操作提示" : L"Mnote · 已保存",text.c_str(),error ? NIIF_WARNING : NIIF_INFO);
+        });
+    } catch(const std::exception& error) {MessageBoxW(nullptr,Mnote::ErrorText(error).c_str(),kAppName,MB_OK|MB_ICONERROR);return 1;}
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {
         if (g_overlayWindow != nullptr && message.message == WM_KEYDOWN) {
+            if(message.wParam>='1' && message.wParam<='3'){SetTool(message.wParam=='1' ? Tool::Select : message.wParam=='2' ? Tool::Pen : Tool::Highlighter);continue;}
             if (message.wParam == VK_ESCAPE) {
                 CancelCapture();
                 continue;
@@ -1841,10 +1226,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
                 continue;
             }
         }
+        if(Mnote::Workspace::Translate(message))continue;
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }
 
+    Mnote::Workspace::Stop();
     ResetCaptureFrame();
     RemoveTrayIcon();
     Gdiplus::GdiplusShutdown(g_gdiplusToken);
