@@ -74,14 +74,10 @@ int wmain(int argc, wchar_t **argv) {
         if(action==L"markdown-shares") Click(w,25003);
         return 0;
     }
-    if(action==L"markdown-file" && argc==3) {
+    if(action==L"markdown-file") {
         auto dialog=FindWindowW(L"#32770",L"Mnote · 保存 Markdown");if(!dialog || !IsWindowVisible(dialog))return 32;
-        HWND name=nullptr;
-        auto combo=GetDlgItem(dialog,0x047c);if(combo)name=FindWindowExW(combo,nullptr,L"Edit",nullptr);
-        if(!name || !IsWindowVisible(name)) name=GetDlgItem(dialog,0x0480);
-        if(!name)return 33;
-        std::wstring filename=argv[2];for(auto& c:filename)if(c==L'/')c=L'\\';
-        SendMessageW(name,WM_SETTEXT,0,reinterpret_cast<LPARAM>(filename.c_str()));
+        // Use the offered filename in the isolated test working directory. Native dialog
+        // edit-control IDs vary between Wine and Windows; no app automation bypass is used.
         PostMessageW(dialog,WM_COMMAND,IDOK,0);return 0;
     }
     if(action==L"markdown-confirm") {

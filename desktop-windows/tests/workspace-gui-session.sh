@@ -9,13 +9,13 @@ server_pid=""
 cleanup() { if [[ -n "${server_pid}" ]]; then kill "${server_pid}" 2>/dev/null || true; wait "${server_pid}" 2>/dev/null || true; fi; }
 trap cleanup EXIT
 drive() { wine "${driver}" "$@"; }
-until_drive() { for _ in $(seq 1 100); do if drive "$@" >/dev/null 2>&1; then return; fi; sleep 0.15; done; echo "GUI timeout: $*" >&2; exit 1; }
+until_drive() { for _ in $(seq 1 100); do if drive "$@" >/dev/null 2>&1; then return; fi; sleep 0.15; done; drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/failed-timeout.png" || true; echo "GUI timeout: $*" >&2; exit 1; }
 wineboot -u >/dev/null 2>&1
 if [[ -f /root/.cache/mnote-build-tools/root/usr/share/fonts/truetype/wqy/wqy-microhei.ttc ]]; then
     cp /root/.cache/mnote-build-tools/root/usr/share/fonts/truetype/wqy/wqy-microhei.ttc "${WINEPREFIX}/drive_c/windows/Fonts/"
     wine reg add 'HKLM\Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes' /v 'Segoe UI' /d 'WenQuanYi Micro Hei' /f >/dev/null 2>&1
 fi
-wine "${application}" >"${test_dir}/app.log" 2>&1 &
+(cd "${test_dir}" && wine "${application}") >"${test_dir}/app.log" 2>&1 &
 until_drive ready
 wine "${driver}" source >"${test_dir}/source.log" 2>&1 &
 until_drive focus-source
@@ -144,12 +144,12 @@ until_drive markdown-select
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/markdown-preview.png"
 drive markdown-save
 until_drive markdown-confirm
-until_drive markdown-file "Z:${test_dir}/export.md"
-for _ in $(seq 1 100); do [[ -s "${test_dir}/export.md" ]] && break; sleep 0.15; done
-if [[ ! -s "${test_dir}/export.md" ]]; then drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/failed-export.png"; fi
+until_drive markdown-file
+for _ in $(seq 1 100); do [[ -s "${test_dir}/Mnote-export.md" ]] && break; sleep 0.15; done
+if [[ ! -s "${test_dir}/Mnote-export.md" ]]; then drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/failed-export.png"; fi
 python3 - "${test_dir}" <<'PY'
 import pathlib,re,sqlite3,sys,urllib.request
-root=pathlib.Path(sys.argv[1]);text=(root/'export.md').read_text()
+root=pathlib.Path(sys.argv[1]);text=(root/'Mnote-export.md').read_text()
 assert text.startswith('# Mnote 记录导出') and '3 条' in text and 'original END' in text
 assert 'mns_' not in text
 paths=re.findall(r'https://images.example.test/capture(/s/[^)]+)',text)
@@ -168,7 +168,7 @@ drive shares-close
 drive markdown-close
 python3 - "${test_dir}" <<'PY'
 import pathlib,re,sys,urllib.request,urllib.error
-root=pathlib.Path(sys.argv[1]);text=(root/'export.md').read_text();port=(root/'fixture/port.txt').read_text()
+root=pathlib.Path(sys.argv[1]);text=(root/'Mnote-export.md').read_text();port=(root/'fixture/port.txt').read_text()
 for path in re.findall(r'https://images.example.test/capture(/s/[^)]+)',text):
     try: urllib.request.urlopen('http://127.0.0.1:'+port+path);raise AssertionError('revoked image accessible')
     except urllib.error.HTTPError as error: assert error.code==404
