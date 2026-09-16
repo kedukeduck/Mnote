@@ -9,8 +9,8 @@ import org.json.JSONObject;
 
 /** Public release metadata only. Never accepts account-server supplied update URLs. */
 final class AppRelease {
-    static final String API = "https://api.github.com/repos/kedukeduck/Mnote/releases?per_page=100";
-    static final String PAGE = "https://github.com/kedukeduck/Mnote/releases";
+    static final String API = "https://chenyu.online/heartnote-capture/updates/releases.json";
+    static final String PAGE = "https://chenyu.online/heartnote-capture/updates/";
     static final long MAX_PACKAGE = 128L * 1024 * 1024;
     private static final Pattern VERSION =
         Pattern.compile("(0|[1-9][0-9]{0,5})\\.(0|[1-9][0-9]{0,5})\\.(0|[1-9][0-9]{0,5})(-test)?");
@@ -25,7 +25,7 @@ final class AppRelease {
     }
     void validate() throws IOException {
         compare(version, version);
-        String expected = "https://github.com/kedukeduck/Mnote/releases/download/mnote-android-v"
+        String expected = "https://chenyu.online/heartnote-capture/updates/files/mnote-android-v"
             + version + "/Mnote-Android-" + version + ".apk";
         if (!expected.equals(url) || !sha256.matches("[a-f0-9]{64}") || size <= 0
             || size > MAX_PACKAGE)
@@ -64,7 +64,7 @@ final class AppRelease {
                 continue;
             String name = "Mnote-Android-" + version + ".apk",
                    url =
-                       "https://github.com/kedukeduck/Mnote/releases/download/" + tag + "/" + name;
+                       "https://chenyu.online/heartnote-capture/updates/files/" + tag + "/" + name;
             JSONArray assets = item.optJSONArray("assets");
             if (assets == null)
                 continue;
@@ -90,9 +90,8 @@ final class AppRelease {
             URI u = new URI(value);
             return "https".equals(u.getScheme()) && u.getUserInfo() == null
                 && u.getFragment() == null && (u.getPort() == -1 || u.getPort() == 443)
-                && (("github.com".equals(u.getHost())
-                        && u.getRawPath().startsWith("/kedukeduck/Mnote/releases/download/"))
-                    || "release-assets.githubusercontent.com".equals(u.getHost()));
+                && u.getRawQuery() == null && "chenyu.online".equals(u.getHost())
+                && u.getRawPath().matches("/heartnote-capture/updates/files/mnote-android-v[0-9]+\\.[0-9]+\\.[0-9]+(-test)?/Mnote-Android-[0-9]+\\.[0-9]+\\.[0-9]+(-test)?\\.apk");
         } catch (Exception error) {
             return false;
         }

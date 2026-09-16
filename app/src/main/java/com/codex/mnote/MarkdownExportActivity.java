@@ -3,9 +3,12 @@ package com.codex.mnote;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.*;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -35,29 +38,55 @@ public final class MarkdownExportActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(getColor(R.color.cream));
         root.setFitsSystemWindows(true);
-        root.setPadding(dp(20), dp(12), dp(20), dp(12));
         setContentView(root);
-        Button back = button(root, "返回");
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.VERTICAL);
+        header.setPadding(dp(22), dp(8), dp(22), 0);
+        root.addView(header);
+        LinearLayout nav = new LinearLayout(this);
+        header.addView(nav);
+        Button back = button(nav, "返回");
         back.setOnClickListener(v -> finish());
-        TextView title = text(root, "导出给 AI", 26);
-        text(root,
-            "勾选记录，导出一个 Markdown "
-            + "文件。截图生成无需登录、持有链接即可访问的独立分享快照；可撤销。",
-            14);
-        text(root,
-            "仅支持当前账号已同步的记录，最多 100 条。未同步、冲突和禁止 AI 访问的记录不可选择。",
-            13);
+        manage = button(nav, "分享管理");
+        back.setLayoutParams(new LinearLayout.LayoutParams(dp(72), dp(48)));
+        nav.addView(new View(this), 1, new LinearLayout.LayoutParams(0, 1, 1));
+        manage.setLayoutParams(new LinearLayout.LayoutParams(dp(104), dp(48)));
+        back.setBackgroundResource(android.R.color.transparent);
+        manage.setBackgroundResource(android.R.color.transparent);
+        TextView title = text(header, "带走一些灵感", 30);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        TextView intro = text(header, "把选中的想法与上下文，整理成一份 Markdown。", 14);
+        intro.setTextColor(getColor(R.color.ink_muted));
         LinearLayout actions = new LinearLayout(this);
-        root.addView(actions);
-        all = button(actions, "全选可用记录");
-        clear = button(actions, "清空选择");
-        status = text(root, "正在加载记录…", 14);
-        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        header.addView(actions);
+        all = button(actions, "全选可用");
+        clear = button(actions, "清空");
+        all.setBackgroundResource(android.R.color.transparent);
+        clear.setBackgroundResource(android.R.color.transparent);
         list = new ListView(this);
         list.setChoiceMode(ListView.CHOICE_MODE_MULTIPLE);
+        list.setPadding(dp(22), dp(8), dp(22), dp(12));
+        list.setClipToPadding(false);
+        list.setDivider(
+            new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        list.setDividerHeight(dp(10));
+        list.setSelector(android.R.color.transparent);
+        list.setVerticalScrollBarEnabled(false);
         root.addView(list, new LinearLayout.LayoutParams(-1, 0, 1));
-        export = button(root, "导出 Markdown");
-        manage = button(root, "管理导出图片链接");
+        LinearLayout dock = new LinearLayout(this);
+        dock.setOrientation(LinearLayout.VERTICAL);
+        dock.setPadding(dp(22), dp(10), dp(22), dp(14));
+        dock.setBackgroundColor(getColor(R.color.card));
+        dock.setElevation(dp(4));
+        root.addView(dock);
+        status = text(dock, "正在加载记录…", 13);
+        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        export = button(dock, "导出 Markdown");
+        export.setBackgroundResource(R.drawable.bg_button_primary);
+        export.setTextColor(getColor(R.color.white));
+        export.setMinHeight(dp(52));
+        TextView privacy = text(dock, "仅导出已同步记录 · 截图链接经确认后分享，可撤销", 11);
+        privacy.setTextColor(getColor(R.color.ink_muted));
         all.setOnClickListener(v -> {
             if (busy || picker)
                 return;
@@ -160,6 +189,13 @@ public final class MarkdownExportActivity extends Activity {
                     list.setAdapter(new ArrayAdapter<String>(
                         this, android.R.layout.simple_list_item_multiple_choice, labels) {
                         @Override
+                        public View getView(int position, View recycled, ViewGroup parent) {
+                            ExportRow row = recycled instanceof ExportRow ? (ExportRow) recycled
+                                                                          : new ExportRow();
+                            row.bind(rows.get(position));
+                            return row;
+                        }
+                        @Override
                         public boolean isEnabled(int position) {
                             return eligible(rows.get(position));
                         }
@@ -179,8 +215,12 @@ public final class MarkdownExportActivity extends Activity {
     private void checks() {
         for (int i = 0; i < rows.size(); i++)
             list.setItemChecked(i, selected.contains(rows.get(i).id));
-        status.setText("已选择 " + selected.size() + " / " + rows.size() + " 条"
+        if (list.getAdapter() != null)
+            ((BaseAdapter) list.getAdapter()).notifyDataSetChanged();
+        status.setText("已选 " + selected.size() + " 条 · 当前共 " + rows.size() + " 条"
             + (CaptureAccountSession.hasAccount(this) ? "" : " · 请先登录并同步"));
+        export.setText(
+            selected.isEmpty() ? "选择要导出的记录" : "导出 " + selected.size() + " 条记录");
         buttons();
     }
     private void buttons() {
@@ -199,8 +239,8 @@ public final class MarkdownExportActivity extends Activity {
         new AlertDialog.Builder(this)
             .setTitle("导出 " + selected.size() + " 条记录？")
             .setMessage("将导出想法、摘录、原文及完整截图／圈选图链接。仅这些记录的图片会获得独立分"
-                        + "享链接，任何持有链接的人均可访问。原笔记权限不变。\n\n请确认截图可分享。"
-                        + "链接可在此页管理撤销，但已下载的副本无法收回。")
+                + "享链接，任何持有链接的人均可访问。原笔记权限不变。\n\n请确认截图可分享。"
+                + "链接可在此页管理撤销，但已下载的副本无法收回。")
             .setNegativeButton("取消", null)
             .setPositiveButton("选择保存位置",
                 (d, w) -> {
@@ -296,7 +336,7 @@ public final class MarkdownExportActivity extends Activity {
                     } catch (Exception ignored) {
                         ui(()
                                 -> notice("保存失败，自动撤销未完成，请到“管理导出图片链接”撤销此次"
-                                          + "分享。"));
+                                    + "分享。"));
                     }
             }
         });
@@ -338,7 +378,7 @@ public final class MarkdownExportActivity extends Activity {
                                 new AlertDialog.Builder(this)
                                     .setTitle("撤销这次导出的所有图片链接？")
                                     .setMessage("原始笔记和截图不删除；已导出的文字和已下载的图片无"
-                                                + "法收回。")
+                                        + "法收回。")
                                     .setNegativeButton("取消", null)
                                     .setPositiveButton("撤销链接", (dialog, index) -> revoke(id))
                                     .show();
@@ -419,6 +459,70 @@ public final class MarkdownExportActivity extends Activity {
     }
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+    private final class ExportRow extends LinearLayout implements Checkable {
+        private final TextView body, meta;
+        private final CheckBox check;
+        ExportRow() {
+            super(MarkdownExportActivity.this);
+            setOrientation(HORIZONTAL);
+            setGravity(android.view.Gravity.CENTER_VERTICAL);
+            setPadding(dp(16), dp(14), dp(12), dp(14));
+            LinearLayout copy = new LinearLayout(MarkdownExportActivity.this);
+            copy.setOrientation(VERTICAL);
+            addView(copy, new LinearLayout.LayoutParams(0, -2, 1));
+            meta = text(copy, "", 12);
+            meta.setTextColor(getColor(R.color.ink_muted));
+            meta.setPadding(0, 0, 0, dp(7));
+            body = text(copy, "", 16);
+            body.setPadding(0, 0, dp(8), 0);
+            body.setMaxLines(3);
+            body.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            body.setLineSpacing(dp(3), 1);
+            check = new CheckBox(MarkdownExportActivity.this);
+            check.setClickable(false);
+            check.setFocusable(false);
+            check.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            addView(check);
+            setMinimumHeight(dp(112));
+        }
+        void bind(CaptureStore.CaptureRecord r) {
+            String content = !r.comment.isEmpty() ? r.comment
+                : !r.sourceText.isEmpty()         ? r.sourceText
+                                                  : CaptureRecordEdits.original(r);
+            body.setText(content.isEmpty() ? "保存的一刻 · 页面截图" : content);
+            String tags = CaptureTags.display(r.tags);
+            meta.setText(android.text.format.DateFormat.format("M月d日  HH:mm", r.createdAt)
+                + (tags.isEmpty() ? "" : "  ·  " + tags)
+                + (!eligible(r) ? "  ·  需同步或检查权限" : ""));
+            setAlpha(eligible(r) ? 1f : 0.5f);
+            setChecked(selected.contains(r.id));
+        }
+        @Override
+        public void setChecked(boolean value) {
+            check.setChecked(value);
+            check.jumpDrawablesToCurrentState();
+            GradientDrawable bg = new GradientDrawable();
+            bg.setCornerRadius(dp(18));
+            bg.setColor(value ? 0xffeef1fe : getColor(R.color.card));
+            bg.setStroke(dp(1), value ? getColor(R.color.coral) : getColor(R.color.line));
+            setBackground(bg);
+        }
+        @Override
+        public boolean isChecked() {
+            return check.isChecked();
+        }
+        @Override
+        public void toggle() {
+            setChecked(!isChecked());
+        }
+        @Override
+        public void onInitializeAccessibilityNodeInfo(
+            android.view.accessibility.AccessibilityNodeInfo info) {
+            super.onInitializeAccessibilityNodeInfo(info);
+            info.setCheckable(true);
+            info.setChecked(isChecked());
+        }
     }
     private TextView text(LinearLayout root, String value, int size) {
         TextView v = new TextView(this);

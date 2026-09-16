@@ -6,7 +6,7 @@
 
 namespace Mnote::Updater {
 namespace {
-constexpr wchar_t Api[] = L"https://api.github.com/repos/kedukeduck/Mnote/releases?per_page=100";
+constexpr wchar_t Api[] = L"https://chenyu.online/heartnote-capture/updates/releases.json";
 constexpr std::size_t MaxPackage = 128U * 1024U * 1024U;
 struct Internet {
     HINTERNET handle = nullptr;
@@ -76,7 +76,7 @@ std::string Get(std::wstring url, bool download, std::size_t limit,
         if (!WinHttpSendRequest(
                 request,
                 download ? L"Accept: application/octet-stream\r\nCache-Control: no-cache\r\n"
-                         : L"Accept: application/vnd.github+json\r\nCache-Control: no-cache\r\n",
+                         : L"Accept: application/json\r\nCache-Control: no-cache\r\n",
                 static_cast<DWORD>(-1), nullptr, 0, 0, 0) ||
             !WinHttpReceiveResponse(request, nullptr))
             throw std::runtime_error("update_network");
@@ -135,7 +135,7 @@ void Verify(const std::string &bytes, const Release &release) {
 }
 void Validate(const Release &release) {
     Version(release.version);
-    auto expected = "https://github.com/kedukeduck/Mnote/releases/download/mnote-windows-v" +
+    auto expected = "https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v" +
                     release.version + "/Mnote-Windows-" + release.version + "-Setup.exe";
     if (release.url != expected || release.sha256.size() != 64 ||
         release.sha256.find_first_not_of("abcdef0123456789") != std::string::npos ||
@@ -150,9 +150,12 @@ int Compare(const std::string &a, const std::string &b) {
 bool AllowedDownload(const std::wstring &url) {
     try {
         Url parsed(url);
-        return (parsed.host == L"github.com" &&
-                parsed.path.rfind(L"/kedukeduck/Mnote/releases/download/", 0) == 0) ||
-               parsed.host == L"release-assets.githubusercontent.com";
+        return parsed.host == L"chenyu.online" &&
+               std::regex_match(
+                   parsed.path,
+                   std::wregex(L"/heartnote-capture/updates/files/"
+                               L"mnote-windows-v[0-9]+\\.[0-9]+\\.[0-9]+(-test)?/"
+                               L"Mnote-Windows-[0-9]+\\.[0-9]+\\.[0-9]+(-test)?-Setup\\.exe"));
     } catch (const std::exception &) {
         return false;
     }
@@ -180,7 +183,7 @@ std::optional<Release> Select(const std::string &json, const std::string &curren
         if (Compare(version, current) <= 0 || (best && Compare(version, best->version) <= 0))
             continue;
         auto name = "Mnote-Windows-" + version + "-Setup.exe",
-             url = "https://github.com/kedukeduck/Mnote/releases/download/" + tag + "/" + name;
+             url = "https://chenyu.online/heartnote-capture/updates/files/" + tag + "/" + name;
         for (const auto &asset : item.value("assets", Json::array())) {
             if (asset.value("name", std::string()) != name)
                 continue;
@@ -250,7 +253,7 @@ void Launch(const fs::path &path, const Release &release) {
 std::wstring Error(const std::exception &error) {
     std::string code = error.what();
     if (code == "update_rate_limited")
-        return L"GitHub 请求暂时受限，请稍后重试。";
+        return L"Mnote 更新服务暂时受限，请稍后重试。";
     if (code == "invalid_update_release" || code == "unsafe_update_url" ||
         code == "update_integrity")
         return L"更新信息或安装包校验失败，未启动安装。请重新检查更新。";

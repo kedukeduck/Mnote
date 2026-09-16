@@ -124,7 +124,7 @@ public final class AppUpdateActivity extends Activity {
         new AlertDialog.Builder(this)
             .setTitle("下载 " + selected.version)
             .setMessage(
-                "将从 GitHub 下载更新，可能使用移动数据。安装前会校验文件、应用身份和签名。")
+                "将从 Mnote 服务器下载更新，可能使用移动数据。安装前会校验文件、应用身份和签名。")
             .setNegativeButton("取消", null)
             .setPositiveButton("下载",
                 (d, which) -> {

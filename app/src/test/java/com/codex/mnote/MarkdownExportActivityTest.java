@@ -17,6 +17,7 @@ import org.robolectric.shadows.ShadowAlertDialog;
 import org.robolectric.util.ReflectionHelpers;
 
 @RunWith(RobolectricTestRunner.class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = {30, 35}, instrumentedPackages = "com.codex.mnote",
     shadows = {CaptureAccountTest.Crypto.class, CaptureAccountTest.Scheduler.class,
         MarkdownExportActivityTest.Http.class})
@@ -32,9 +33,13 @@ public class MarkdownExportActivityTest {
             if (path.equals("/v1/exports/markdown")) {
                 assertTrue(body.getBoolean("publish_images"));
                 created++;
-                return new JSONObject().put("id", "e".repeat(32)).put("markdown", "# Mnote 记录导出\n\n想法与原文\n");
+                return new JSONObject()
+                    .put("id", "e".repeat(32))
+                    .put("markdown", "# Mnote 记录导出\n\n想法与原文\n");
             }
-            if (path.equals("/v1/exports/" + "e".repeat(32)) && method.equals("DELETE")) {
+            if (path.equals("/v1/exports/"
+                    + "e".repeat(32))
+                && method.equals("DELETE")) {
                 revoked++;
                 return new JSONObject();
             }
@@ -70,6 +75,39 @@ public class MarkdownExportActivityTest {
     }
     Button button(MarkdownExportActivity activity, String name) {
         return ReflectionHelpers.getField(activity, name);
+    }
+    @Test
+    public void cardsShowSelectionAndFixedActionOnSmallScreen() throws Exception {
+        note("比起收集更多知识，我更想留住那些让我开始行动的想法。", true);
+        note("好的记录，应该能让我找回当时为什么被触动。", true);
+        note("下一次回顾：整理一份给 AI 的思考清单。", true);
+        try (var controller = Robolectric.buildActivity(MarkdownExportActivity.class).setup()) {
+            var activity = controller.get();
+            drain(activity);
+            var root = SettingsActivityTest.layout(activity, 390, 844);
+            ListView list = ReflectionHelpers.getField(activity, "list");
+            list.performItemClick(list.getChildAt(0), 0, list.getItemIdAtPosition(0));
+            list.setItemChecked(0, true);
+            button(activity, "all").performClick();
+            SettingsActivityTest.layout(activity, 390, 844);
+            assertTrue(((Checkable) list.getChildAt(0)).isChecked());
+            SettingsActivityTest.render(root, "markdown-export-preview.png");
+            SettingsActivityTest.layout(activity, 320, 568);
+            SettingsActivityTest.render(root, "markdown-export-small.png");
+            assertTrue(list.getHeight() > 80);
+            var action = button(activity, "export");
+            android.graphics.Rect visible =
+                new android.graphics.Rect(0, 0, action.getWidth(), action.getHeight());
+            ((android.view.ViewGroup) root).offsetDescendantRectToMyCoords(action, visible);
+            // Robolectric's window-session visible frame is not resized by a manual measure.
+            // Check the actual laid-out descendant bounds in the rendered viewport instead.
+            assertTrue(visible.top >= 0 && visible.bottom <= root.getHeight());
+            assertTrue(visible.left >= 0 && visible.right <= root.getWidth());
+            assertTrue(action.isShown());
+            button(activity, "clear").performClick();
+            assertEquals(0, list.getCheckedItemCount());
+            assertFalse(action.isEnabled());
+        }
     }
     @Test
     public void onlySyncedRecordsAreSelectableAndCancelNeverPublishes() throws Exception {
@@ -152,35 +190,50 @@ public class MarkdownExportActivityTest {
         assertFalse(MarkdownExportActivity.eligible(zero));
     }
     @Rule public org.junit.rules.TemporaryFolder files = new org.junit.rules.TemporaryFolder();
-    private void returnFile(MarkdownExportActivity activity, CaptureStore.CaptureRecord record, java.io.File file) throws Exception {
-        ReflectionHelpers.setField(activity, "pending", new JSONArray().put(new JSONObject().put("id",record.id).put("revision",record.serverRevision)));
-        activity.onActivityResult(902,Activity.RESULT_OK,new Intent().setData(android.net.Uri.fromFile(file)));
+    private void returnFile(MarkdownExportActivity activity, CaptureStore.CaptureRecord record,
+        java.io.File file) throws Exception {
+        ReflectionHelpers.setField(activity, "pending",
+            new JSONArray().put(
+                new JSONObject().put("id", record.id).put("revision", record.serverRevision)));
+        activity.onActivityResult(
+            902, Activity.RESULT_OK, new Intent().setData(android.net.Uri.fromFile(file)));
         drain(activity);
     }
-    @Test public void savedMarkdownIsUtf8AndDoesNotRevokeSuccessfulExport() throws Exception {
-        var record=note("成功",true);
-        try(var controller=Robolectric.buildActivity(MarkdownExportActivity.class).setup()) {
-            var activity=controller.get();drain(activity);var file=files.newFile("export.md");
-            returnFile(activity,record,file);
-            assertEquals("# Mnote 记录导出\n\n想法与原文\n",new String(java.nio.file.Files.readAllBytes(file.toPath()),java.nio.charset.StandardCharsets.UTF_8));
-            assertEquals(1,Http.created);assertEquals(0,Http.revoked);
+    @Test
+    public void savedMarkdownIsUtf8AndDoesNotRevokeSuccessfulExport() throws Exception {
+        var record = note("成功", true);
+        try (var controller = Robolectric.buildActivity(MarkdownExportActivity.class).setup()) {
+            var activity = controller.get();
+            drain(activity);
+            var file = files.newFile("export.md");
+            returnFile(activity, record, file);
+            assertEquals("# Mnote 记录导出\n\n想法与原文\n",
+                new String(java.nio.file.Files.readAllBytes(file.toPath()),
+                    java.nio.charset.StandardCharsets.UTF_8));
+            assertEquals(1, Http.created);
+            assertEquals(0, Http.revoked);
         }
     }
-    @Test public void failedFileWriteRevokesCreatedImageLinks() throws Exception {
-        var record=note("失败",true);
-        try(var controller=Robolectric.buildActivity(MarkdownExportActivity.class).setup()) {
-            var activity=controller.get();drain(activity);
-            returnFile(activity,record,files.newFolder("not-a-file.md"));
-            assertEquals(1,Http.created);assertEquals(1,Http.revoked);
+    @Test
+    public void failedFileWriteRevokesCreatedImageLinks() throws Exception {
+        var record = note("失败", true);
+        try (var controller = Robolectric.buildActivity(MarkdownExportActivity.class).setup()) {
+            var activity = controller.get();
+            drain(activity);
+            returnFile(activity, record, files.newFolder("not-a-file.md"));
+            assertEquals(1, Http.created);
+            assertEquals(1, Http.revoked);
         }
     }
-    @Test public void changedRevisionAfterPickerCreatesNoLinks() throws Exception {
-        var record=note("旧内容",true);
-        try(var controller=Robolectric.buildActivity(MarkdownExportActivity.class).setup()) {
-            var activity=controller.get();drain(activity);
-            CaptureStore.updateSyncState(context,record.id,CaptureStore.SYNC_PENDING,"",1);
-            returnFile(activity,record,files.newFile("empty.md"));
-            assertEquals(0,Http.created);
+    @Test
+    public void changedRevisionAfterPickerCreatesNoLinks() throws Exception {
+        var record = note("旧内容", true);
+        try (var controller = Robolectric.buildActivity(MarkdownExportActivity.class).setup()) {
+            var activity = controller.get();
+            drain(activity);
+            CaptureStore.updateSyncState(context, record.id, CaptureStore.SYNC_PENDING, "", 1);
+            returnFile(activity, record, files.newFile("empty.md"));
+            assertEquals(0, Http.created);
         }
     }
 }

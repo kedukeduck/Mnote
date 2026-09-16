@@ -22,6 +22,7 @@ from .store import (
 )
 from .accounts import Accounts, AuthError
 from .markdown_export import MarkdownExports
+from .releases import Releases
 
 
 WEB_ROOT = Path(__file__).with_name("web")
@@ -213,6 +214,8 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/health":
             self._json(HTTPStatus.OK, {"status": "ok"})
+            return
+        if self.releases.serve(self, parsed.path):
             return
         if parsed.path.startswith("/s/"):
             try:
@@ -501,7 +504,7 @@ def create_server(host: str, port: int, store: CaptureStore, tokens: Tokens, pub
     handler = type(
         "ConfiguredCaptureRequestHandler",
         (CaptureRequestHandler,),
-        {"store": store, "tokens": tokens, "accounts": Accounts(store),
+        {"store": store, "tokens": tokens, "accounts": Accounts(store), "releases": Releases(store.root),
          "exports": MarkdownExports(store.root, os.environ.get("MNOTE_PUBLIC_BASE_URL", "") if public_base is None else public_base)},
     )
     return ThreadingHTTPServer((host, port), handler)

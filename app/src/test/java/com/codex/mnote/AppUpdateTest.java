@@ -35,7 +35,7 @@ public class AppUpdateTest {
                 new JSONArray().put(new JSONObject()
                         .put("name", name)
                         .put("browser_download_url",
-                            "https://github.com/kedukeduck/Mnote/releases/download/" + tag + "/"
+                            "https://chenyu.online/heartnote-capture/updates/files/" + tag + "/"
                                 + name)
                         .put("size", 100)
                         .put("digest",
@@ -88,11 +88,12 @@ public class AppUpdateTest {
         assertThrows(Exception.class, unsafe::validate);
     }
     @Test
-    public void onlyPinnedHttpsRedirectHostsAllowed() {
-        assertTrue(AppRelease.allowedDownload(
-            "https://release-assets.githubusercontent.com/a?sig=temporary"));
-        assertTrue(AppRelease.allowedDownload(
-            "https://github.com/kedukeduck/Mnote/releases/download/tag/a.apk"));
+    public void onlyPinnedHttpsRedirectHostsAllowed() throws Exception {
+        assertTrue(AppRelease.allowedDownload(selected().url));
+        assertFalse(AppRelease.allowedDownload("https://release-assets.githubusercontent.com/a?sig=temporary"));
+        assertFalse(AppRelease.allowedDownload("https://github.com/kedukeduck/Mnote/releases/download/tag/a.apk"));
+        for(String suffix:new String[]{"?token=secret","#fragment","/../secret","%2f.."})
+            assertFalse(AppRelease.allowedDownload(selected().url+suffix));
         for (String bad : new String[] {"http://github.com/kedukeduck/Mnote/releases/download/a",
                  "https://github.com.evil.test/a",
                  "https://user:pass@release-assets.githubusercontent.com/a",
@@ -184,8 +185,8 @@ public class AppUpdateTest {
         assertFalse(provider.exported);
         assertTrue(provider.grantUriPermissions);
         try (var controller = Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
-            controller.get().findViewById(R.id.app_update_button).performClick();
-            assertEquals(AppUpdateActivity.class.getName(),
+            controller.get().findViewById(R.id.capture_settings_button).performClick();
+            assertEquals(SettingsActivity.class.getName(),
                 shadowOf(controller.get()).getNextStartedActivity().getComponent().getClassName());
         }
     }

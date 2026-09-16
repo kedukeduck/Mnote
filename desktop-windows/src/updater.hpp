@@ -2,8 +2,8 @@
 #include "library.hpp"
 #include <optional>
 namespace Mnote::Updater {
-inline constexpr wchar_t Current[] = L"1.8.0-test";
-inline constexpr wchar_t Page[] = L"https://github.com/kedukeduck/Mnote/releases";
+inline constexpr wchar_t Current[] = L"1.9.0-test";
+inline constexpr wchar_t Page[] = L"https://chenyu.online/heartnote-capture/updates/";
 struct Release {
     std::string version, url, sha256, notes;
     std::size_t size = 0;

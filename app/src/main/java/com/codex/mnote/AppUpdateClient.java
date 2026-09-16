@@ -51,7 +51,7 @@ final class AppUpdateClient {
             c.setReadTimeout(15000);
             c.setRequestProperty("User-Agent", "Mnote-Updater");
             c.setRequestProperty(
-                "Accept", download ? "application/octet-stream" : "application/vnd.github+json");
+                "Accept", download ? "application/octet-stream" : "application/json");
             int status;
             try {
                 status = c.getResponseCode();
@@ -183,7 +183,7 @@ final class AppUpdateClient {
     static String error(Exception error) {
         String code = error.getMessage();
         if ("rate_limited".equals(code))
-            return "GitHub 请求暂时受限，请稍后重试。";
+            return "Mnote 更新服务暂时受限，请稍后重试。";
         if ("wrong_signature".equals(code))
             return "安装包签名与本机版本不同，已阻止安装。不要卸载旧版，请联系维护者。";
         if ("wrong_package".equals(code))

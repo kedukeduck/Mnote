@@ -158,7 +158,7 @@ public final class CaptureInboxActivity extends Activity {
                     .putExtra("query", searchInput.getText().toString().trim())
                     .putExtra("tag", tagFilter).putExtra("type", type));
         });
-        findViewById(R.id.app_update_button).setOnClickListener(view -> startActivity(new Intent(this,AppUpdateActivity.class)));
+        findViewById(R.id.capture_settings_button).setOnClickListener(view -> startActivity(new Intent(this,SettingsActivity.class)));
         filterGroup.setOnCheckedChangeListener((group, id) -> { visibleLimit=RECORD_LIMIT; renderFilteredRecords(); });
         findViewById(R.id.capture_tag_filter).setOnClickListener(view -> chooseTag());
         findViewById(R.id.capture_load_more).setOnClickListener(view -> { visibleLimit+=RECORD_LIMIT; renderFilteredRecords(); });
@@ -192,9 +192,6 @@ public final class CaptureInboxActivity extends Activity {
                 view -> startActivity(
                         QuickNoteTileService.noteIntent(this)
                 )
-        );
-        findViewById(R.id.capture_sync_settings_button).setOnClickListener(
-                view -> openSyncSettings()
         );
         syncAllButton.setOnClickListener(view -> syncAll());
         findViewById(R.id.capture_source_settings_button).setOnClickListener(view ->

@@ -1,0 +1,4 @@
+<resources>
+    <item name="settings_account" type="id" />
+    <item name="settings_updates" type="id" />
+</resources>

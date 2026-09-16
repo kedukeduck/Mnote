@@ -18,7 +18,7 @@ trap cleanup EXIT
 args=('C:\mnote-updater-tests')
 if [[ "${1:-}" == --live ]]; then
   curl --fail --silent --show-error --max-time 30 \
-    'https://api.github.com/repos/kedukeduck/Mnote/releases?per_page=100' -o "${test_dir}/public-releases.json"
+    'https://chenyu.online/heartnote-capture/updates/releases.json' -o "${test_dir}/public-releases.json"
   args+=("Z:${test_dir}/public-releases.json")
 fi
 xvfb-run -a env WINEDEBUG=-all WINEPREFIX="${test_dir}" \

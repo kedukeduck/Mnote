@@ -13,11 +13,9 @@
                 <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
                     android:text="@string/app_name" android:textColor="@color/ink" android:textSize="21sp"
                     android:fontFamily="sans-serif-medium" />
-                <Button android:id="@+id/capture_sync_settings_button" android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" android:text="@string/capture_account_short"
-                    android:contentDescription="@string/capture_sync_settings_button" />
-                <Button android:id="@+id/app_update_button" android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" android:text="@string/app_update_title" />
+                <Button android:id="@+id/capture_settings_button" android:layout_width="wrap_content"
+                    android:layout_height="48dp" android:text="设置"
+                    android:background="?android:attr/selectableItemBackgroundBorderless" />
             </LinearLayout>
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="14dp" android:text="@string/capture_inbox_title"
@@ -35,13 +33,16 @@
                 <RadioButton android:id="@+id/capture_filter_thought" style="@style/CaptureSegment" android:text="@string/capture_kind_thought" />
                 <RadioButton android:id="@+id/capture_filter_todo" style="@style/CaptureSegment" android:text="@string/capture_kind_todo" />
             </RadioGroup>
-            <Button android:id="@+id/capture_tag_filter" android:layout_width="match_parent"
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical">
+            <Button android:id="@+id/capture_tag_filter" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="wrap_content" android:layout_marginTop="12dp"
                 android:background="@drawable/bg_button_secondary" android:gravity="start|center_vertical"
                 android:text="标签 · 全部  ▾" android:textSize="14sp" />
-            <Button android:id="@+id/capture_export_markdown" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:layout_marginTop="8dp"
-                android:background="@drawable/bg_button_secondary" android:text="批量选择 · 导出 Markdown" />
+            <Button android:id="@+id/capture_export_markdown" android:layout_width="wrap_content"
+                android:layout_height="48dp" android:layout_marginTop="12dp" android:layout_marginStart="12dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless" android:text="选择导出" android:textSize="13sp" />
+            </LinearLayout>
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="16dp" android:gravity="center_vertical" android:orientation="horizontal">
                 <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"

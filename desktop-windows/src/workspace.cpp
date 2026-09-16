@@ -67,9 +67,10 @@ enum Control {
     BatchExport = 25000,
     SelectAll,
     ClearSelection,
-    ExportShares
+    ExportShares,
+    SettingsButton = 26000
 };
-enum class Mode { Library, Editor, Account, Image, Toast, Update, Markdown, Shares };
+enum class Mode { Library, Editor, Account, Image, Toast, Update, Markdown, Shares, Settings };
 struct Placement {
     HWND control;
     int x, y, w, h;
@@ -298,8 +299,7 @@ void Layout(Window &w) {
         };
         move(Title, 28, 24, width - 270, 40);
         move(Subtitle, 28, 70, width - 56, 24);
-        move(AccountButton, width - 206, 28, 178, 36);
-        move(Updates, width - 340, 28, 120, 36);
+        move(SettingsButton, width - 128, 28, 100, 36);
         move(NewNote, 28, 110, 132, 40);
         move(Capture, 170, 110, 132, 40);
         move(Refresh, width - 152, 110, 124, 40);
@@ -308,7 +308,7 @@ void Layout(Window &w) {
         move(KindFilter, width - 226, 174, 198, 280);
         move(List, 28, 230, width - 56, std::max(80, height - 326));
         move(Trash, 28, height - 80, 120, 36);
-        move(BatchExport, 160, height - 80, 180, 36);
+        move(BatchExport, 314, 110, 124, 40);
         move(OpenRecord, width - 176, height - 80, 148, 36);
         move(Status, 28, height - 36, width - 56, 24);
         return;
@@ -319,11 +319,11 @@ void Layout(Window &w) {
                        TRUE);
         };
         move(Title, 28, 24, width - 56, 40);
-        move(Subtitle, 28, 76, width - 56, 78);
-        move(SelectAll, 28, 164, 180, 36);
-        move(ClearSelection, 220, 164, 120, 36);
-        move(ExportShares, width - 244, 164, 216, 36);
-        move(List, 28, 216, width - 56, std::max(80, height - 330));
+        move(Subtitle, 28, 76, width - 56, 58);
+        move(SelectAll, 28, 142, 132, 36);
+        move(ClearSelection, 172, 142, 100, 36);
+        move(ExportShares, width - 176, 142, 148, 36);
+        move(List, 28, 194, width - 56, std::max(80, height - 308));
         move(Save, width - 228, height - 96, 200, 40);
         move(Cancel, 28, height - 96, 120, 40);
         move(Status, 28, height - 44, width - 56, 36);
@@ -953,7 +953,7 @@ void OpenUpdate() {
     Label(w, Title, L"让 Mnote 保持最新", 24);
     w.placements.back().h = 44;
     Label(w, Subtitle, L"当前版本：" + std::wstring(Updater::Current), 80);
-    Label(w, 2420, L"从官方 GitHub 获取版本，不使用你的笔记账号或 Token。", 116);
+    Label(w, 2420, L"从 Mnote 服务器获取版本，不使用你的笔记账号或 Token。", 116);
     Button(w, UpdateCheck, L"检查更新", 28, 160, 160);
     Button(w, UpdateDownload, L"下载更新", 204, 160, 160);
     Button(w, UpdateInstall, L"安装更新", 380, 160, 160);
@@ -990,6 +990,40 @@ void ShareList(Window &w) {
                                                  : L"选择一次导出，可撤销其全部图片链接。");
         });
 }
+void OpenSettings() {
+    for (const auto &entry : windows)
+        if (entry.second->mode == Mode::Settings) {
+            ShowWindow(entry.first, SW_SHOW);
+            SetForegroundWindow(entry.first);
+            return;
+        }
+    auto &w = Create(Mode::Settings, L"Mnote · 设置", 720, 620);
+    Label(w, Title, L"设置", 28);
+    w.placements.back().h = 44;
+    Label(w, Subtitle, L"让记录安心保存，让 Mnote 保持最新。", 86);
+    Label(w, 26101, L"我的空间", 142);
+    auto account = library->account();
+    Button(w, AccountButton,
+           L"账号与同步\n" + (account.signedIn()
+                                  ? Wide(account.username) + L" · 管理登录、同步和本机导入"
+                                  : L"登录后，在不同设备之间同步记录。"),
+           28, 178, 260);
+    w.placements.back().h = 100;
+    w.placements.back().stretch = true;
+    Label(w, 26103, L"应用", 302);
+    Button(w, Updates,
+           L"版本与更新\n当前 " + std::wstring(Updater::Current) + L" · 从 Mnote 服务器获取更新",
+           28, 338, 260);
+    w.placements.back().h = 100;
+    w.placements.back().stretch = true;
+    Label(w, 26105, L"不依赖 GitHub，也不需要笔记账号或 Token。", 454);
+    w.extent = 490;
+    Button(w, Cancel, L"返回", 28, 0, 100);
+    Label(w, Status, L"", 0);
+    Layout(w);
+    ShowWindow(w.hwnd, SW_SHOW);
+    SetForegroundWindow(w.hwnd);
+}
 void OpenMarkdown(Window &source, bool shares = false) {
     if (source.scope != library->account().scope) {
         StatusText(source, L"账号已变化，请关闭此页并在首页重新选择。");
@@ -1005,17 +1039,17 @@ void OpenMarkdown(Window &source, bool shares = false) {
     }
     auto &w = Create(shares ? Mode::Shares : Mode::Markdown,
                      shares ? L"Mnote · 导出链接管理" : L"Mnote · 导出给 AI", 800, 720);
-    Label(w, Title, shares ? L"管理图片分享链接" : L"把记录带入下一次对话", 24);
+    Label(w, Title, shares ? L"管理图片分享链接" : L"带走一些灵感", 24);
     Label(w, Subtitle,
           shares
               ? L"撤销只影响这次导出的图片链接，原始记录不删除。\r\n已导出的文字和已下载的图片无法"
                 L"收回。"
-              : L"当前筛选中已同步、允许导出的记录。按 Ctrl 多选、Shift 连选，最多 100 "
-                L"条。\r\n导出一个 Markdown 文件；选中图片生成无需登录、持有链接即可访问的快照。",
+              : L"把选中的想法与上下文，整理成一份 Markdown。\r\n"
+                L"点击卡片勾选 · 最多 100 条已同步记录 · 图片经确认分享，可撤销。",
           76);
     Add(w, List, L"LISTBOX", L"",
-        WS_BORDER | WS_TABSTOP | WS_VSCROLL | WS_HSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT |
-            (shares ? 0 : LBS_EXTENDEDSEL),
+        WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT |
+            (shares ? 0 : LBS_MULTIPLESEL | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS),
         28, 216, 700, 340);
     if (!shares) {
         for (const auto &r : source.filtered)
@@ -1034,15 +1068,16 @@ void OpenMarkdown(Window &source, bool shares = false) {
             SendMessageW(ControlOf(w, List), LB_ADDSTRING, 0,
                          reinterpret_cast<LPARAM>(label.c_str()));
         }
-        Button(w, SelectAll, L"全选可用记录", 28, 164, 180);
-        Button(w, ClearSelection, L"清空选择", 220, 164, 120);
-        Button(w, ExportShares, L"管理导出图片链接", 0, 164, 216);
+        Button(w, SelectAll, L"全选可用", 28, 164, 132);
+        Button(w, ClearSelection, L"清空", 172, 164, 100);
+        Button(w, ExportShares, L"分享管理", 0, 164, 148);
     } else
         Button(w, ExportShares, L"刷新分享列表", 0, 164, 216);
     Button(w, Save, shares ? L"撤销选中导出链接" : L"导出 Markdown", 0, 0, 200);
     Button(w, Cancel, L"关闭", 28, 0, 120);
     Label(w, Status, L"已选择 0 条 · 可导出 " + std::to_wstring(w.records.size()) + L" 条", 0);
-    SendMessageW(ControlOf(w, List), LB_SETHORIZONTALEXTENT, Scale(w, 1500), 0);
+    if (!shares)
+        EnableWindow(ControlOf(w, Save), FALSE);
     Layout(w);
     ShowWindow(w.hwnd, SW_SHOW);
     SetForegroundWindow(w.hwnd);
@@ -1087,6 +1122,8 @@ void MarkdownCommand(Window &w, int id) {
     if (id == ClearSelection)
         SendMessageW(list, LB_SETSEL, FALSE, -1);
     int count = static_cast<int>(SendMessageW(list, LB_GETSELCOUNT, 0, 0));
+    EnableWindow(ControlOf(w, Save), count > 0 && count <= 100);
+    Set(w, Save, count > 0 ? L"导出 " + std::to_wstring(count) + L" 条记录" : L"选择要导出的记录");
     StatusText(w, L"已选择 " + std::to_wstring(count) + L" / " + std::to_wstring(w.records.size()) +
                       L" 条");
     if (id != Save)
@@ -1134,6 +1171,10 @@ void MarkdownCommand(Window &w, int id) {
 }
 void Command(Window &w, int id, int event) {
     if (w.mode == Mode::Library) {
+        if (id == SettingsButton) {
+            OpenSettings();
+            return;
+        }
         if (id == BatchExport) {
             OpenMarkdown(w);
             return;
@@ -1193,6 +1234,13 @@ void Command(Window &w, int id, int event) {
     }
     if (w.busy)
         return;
+    if (w.mode == Mode::Settings) {
+        if (id == AccountButton)
+            OpenAccount();
+        if (id == Updates)
+            OpenUpdate();
+        return;
+    }
     if (w.mode == Mode::Markdown || w.mode == Mode::Shares) {
         MarkdownCommand(w, id);
         return;
@@ -1203,9 +1251,10 @@ void Command(Window &w, int id, int event) {
         else if (id == UpdatePage)
             ShellExecuteW(w.hwnd, L"open", Updater::Page, nullptr, nullptr, SW_SHOWNORMAL);
         else if (id == UpdateDownload && w.release) {
-            if (MessageBoxW(w.hwnd,
-                            L"从 GitHub 下载更新？可能产生网络流量。校验通过后仍需你点击安装。",
-                            L"Mnote · 下载更新", MB_YESNO | MB_ICONQUESTION) != IDYES)
+            if (MessageBoxW(
+                    w.hwnd,
+                    L"从 Mnote 服务器下载更新？可能产生网络流量。校验通过后仍需你点击安装。",
+                    L"Mnote · 下载更新", MB_YESNO | MB_ICONQUESTION) != IDYES)
                 return;
             auto release = *w.release;
             auto hwnd = w.hwnd;
@@ -1410,14 +1459,32 @@ void DrawImage(Window &w, HDC dc, RECT r) {
     }
 }
 void DrawRecord(Window &w, const DRAWITEMSTRUCT &item) {
-    if (item.itemID >= w.filtered.size())
+    const auto &rows = w.mode == Mode::Markdown ? w.records : w.filtered;
+    if (item.itemID >= rows.size())
         return;
-    const auto &record = w.filtered[item.itemID];
+    const auto &record = rows[item.itemID];
     auto r = item.rcItem;
     HDC dc = item.hDC;
     HBRUSH brush =
         CreateSolidBrush(item.itemState & ODS_SELECTED ? RGB(234, 235, 255) : RGB(255, 255, 255));
-    FillRect(dc, &r, brush);
+    if (w.mode == Mode::Markdown) {
+        FillRect(dc, &r, backgroundBrush);
+        r.top += Scale(w, 5);
+        r.bottom -= Scale(w, 5);
+        auto oldBrush = SelectObject(dc, brush);
+        auto pen = CreatePen(PS_SOLID, 1, item.itemState & ODS_SELECTED ? Accent : Border);
+        auto oldPen = SelectObject(dc, pen);
+        RoundRect(dc, r.left, r.top, r.right - 1, r.bottom, Scale(w, 20), Scale(w, 20));
+        SelectObject(dc, oldPen);
+        SelectObject(dc, oldBrush);
+        DeleteObject(pen);
+        RECT check{r.right - Scale(w, 46), r.top + Scale(w, 34), r.right - Scale(w, 22),
+                   r.top + Scale(w, 58)};
+        DrawFrameControl(dc, &check, DFC_BUTTON,
+                         DFCS_BUTTONCHECK | (item.itemState & ODS_SELECTED ? DFCS_CHECKED : 0));
+        r.right -= Scale(w, 46);
+    } else
+        FillRect(dc, &r, brush);
     DeleteObject(brush);
     int pad = Scale(w, 18);
     r.left += pad;
@@ -1450,6 +1517,13 @@ void DrawRecord(Window &w, const DRAWITEMSTRUCT &item) {
 LRESULT Dispatch(Window &w, UINT message, WPARAM wp, LPARAM lp) {
     switch (message) {
     case WM_ACTIVATE:
+        if (w.mode == Mode::Settings && LOWORD(wp) != WA_INACTIVE) {
+            auto account = library->account();
+            Set(w, AccountButton,
+                L"账号与同步\n" + (account.signedIn()
+                                       ? Wide(account.username) + L" · 管理登录、同步和本机导入"
+                                       : L"登录后，在不同设备之间同步记录。"));
+        }
         if (w.mode == Mode::Library && w.hwnd == home && LOWORD(wp) != WA_INACTIVE) {
             Load();
             Sync();
@@ -1703,6 +1777,31 @@ bool DrawButton(const DRAWITEMSTRUCT &item) {
     DeleteObject(brush);
     DeleteObject(pen);
     auto font = reinterpret_cast<HFONT>(SendMessageW(item.hwndItem, WM_GETFONT, 0, 0));
+    auto parent = windows.find(GetParent(item.hwndItem));
+    if (parent != windows.end() && parent->second->mode == Mode::Settings &&
+        (item.CtlID == AccountButton || item.CtlID == Updates)) {
+        auto &w = *parent->second;
+        auto caption = Text(item.hwndItem);
+        auto split = caption.find(L'\n');
+        RECT title = r;
+        title.left += Scale(w, 22);
+        title.right -= Scale(w, 46);
+        title.top += Scale(w, 19);
+        title.bottom = title.top + Scale(w, 26);
+        DrawTextLine(item.hDC, title, caption.substr(0, split), Ink, font);
+        title.top += Scale(w, 32);
+        title.bottom += Scale(w, 32);
+        if (split != std::wstring::npos)
+            DrawTextLine(item.hDC, title, caption.substr(split + 1), Muted, font);
+        RECT arrow = r;
+        arrow.left = arrow.right - Scale(w, 36);
+        DrawTextLine(item.hDC, arrow, L"›", Muted, font, DT_VCENTER | DT_SINGLELINE);
+        if (item.itemState & ODS_FOCUS) {
+            InflateRect(&r, -4, -4);
+            DrawFocusRect(item.hDC, &r);
+        }
+        return true;
+    }
     DrawTextLine(item.hDC, r, Text(item.hwndItem),
                  disabled  ? Muted
                  : primary ? RGB(255, 255, 255)
@@ -1759,8 +1858,7 @@ void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> ca
     home = w.hwnd;
     Label(w, Title, L"我的知识库", 24);
     Label(w, Subtitle, L"把遇见的内容，变成自己的思考。", 70);
-    Button(w, AccountButton, L"登录账号", 0, 0, 178);
-    Button(w, Updates, L"版本更新", 0, 0, 120);
+    Button(w, SettingsButton, L"设置", 0, 0, 100);
     Button(w, NewNote, L"＋ 随手记", 28, 110, 132);
     Button(w, Capture, L"单次摘录", 170, 110, 132);
     Button(w, Refresh, L"刷新与同步", 0, 110, 124);
@@ -1777,7 +1875,7 @@ void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> ca
             WS_TABSTOP,
         28, 230, 900, 400);
     Button(w, Trash, L"回收站", 28, 0, 120);
-    Button(w, BatchExport, L"批量导出 Markdown", 160, 0, 180);
+    Button(w, BatchExport, L"选择导出", 314, 110, 124);
     Button(w, OpenRecord, L"查看 / 修改", 0, 0, 148);
     Label(w, Status, L"Ctrl+Shift+F8 随手记  ·  Ctrl+Shift+F9 截图摘录", 0);
     Layout(w);

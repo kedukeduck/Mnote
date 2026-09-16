@@ -69,7 +69,7 @@ public class AppUpdateActivityTest {
     @Test
     public void newVersionNeedsExplicitDownloadAndConfirmation() throws Exception {
         ClientShadow.result = new AppRelease("1.8.0-test",
-            "https://github.com/kedukeduck/Mnote/releases/download/mnote-android-v1.8.0-test/"
+            "https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.8.0-test/"
             + "Mnote-Android-1.8.0-test.apk",
             "a".repeat(64), "新的版本说明", 100);
         try (var controller = Robolectric.buildActivity(AppUpdateActivity.class).setup()) {

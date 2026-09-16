@@ -28,7 +28,7 @@ Json Item(const std::string &version) {
                                      {"size", 100},
                                      {"digest", "sha256:" + std::string(64, 'a')},
                                      {"browser_download_url",
-                                      "https://github.com/kedukeduck/Mnote/releases/download/" +
+                                      "https://chenyu.online/heartnote-capture/updates/files/" +
                                           tag + "/" + name}}})}};
 }
 void Cases(const fs::path &root) {
@@ -62,8 +62,13 @@ void Cases(const fs::path &root) {
     wrong["assets"][0]["name"] = "wrong.exe";
     Expect(!Select(Json::array({wrong}).dump(), "1.6.0-test"));
     Throws([] { Select("{}", "1.6.0-test"); });
-    Expect(AllowedDownload(L"https://release-assets.githubusercontent.com/a?sig=temporary"));
-    Expect(AllowedDownload(L"https://github.com/kedukeduck/Mnote/releases/download/tag/a.exe"));
+    Expect(!AllowedDownload(L"https://release-assets.githubusercontent.com/a?sig=temporary"));
+    Expect(!AllowedDownload(L"https://github.com/kedukeduck/Mnote/releases/download/tag/a.exe"));
+    Expect(
+        AllowedDownload(Wide(Select(Json::array({Item("1.9.0-test")}).dump(), "1.8.0-test")->url)));
+    for (auto suffix : {L"?token=secret", L"#fragment", L"/../secret", L"%2f.."})
+        Expect(!AllowedDownload(
+            Wide(Select(Json::array({Item("1.9.0-test")}).dump(), "1.8.0-test")->url) + suffix));
     for (auto bad :
          {L"http://github.com/kedukeduck/Mnote/releases/download/a",
           L"https://github.com.evil.test/a",

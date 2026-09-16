@@ -113,6 +113,7 @@ for component in \
   CaptureTriggerActivity \
   CaptureEditorActivity \
   AppUpdateActivity \
+  SettingsActivity \
   MarkdownExportActivity \
   AppUpdateProvider \
   CaptureInboxActivity; do

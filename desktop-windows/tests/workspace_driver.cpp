@@ -65,37 +65,78 @@ int wmain(int argc, wchar_t **argv) {
     }
     if (action == L"ready")
         return main && home ? 0 : 10;
-    if (action == L"markdown") { Click(home,25000);return 0; }
-    if (action == L"markdown-select" || action == L"markdown-save" || action == L"markdown-close" || action == L"markdown-shares") {
-        auto w=Window(L"Mnote · 导出给 AI");if(!w)return 30;
-        if(action==L"markdown-select") {if(SendDlgItemMessageW(w,2005,LB_GETCOUNT,0,0)!=3)return 31;Click(w,25001);}
-        if(action==L"markdown-save") Click(w,2106);
-        if(action==L"markdown-close") PostMessageW(w,WM_CLOSE,0,0);
-        if(action==L"markdown-shares") Click(w,25003);
+    if (action == L"markdown") {
+        Click(home, 25000);
         return 0;
     }
-    if(action==L"markdown-file") {
-        auto dialog=FindWindowW(L"#32770",L"Mnote · 保存 Markdown");if(!dialog || !IsWindowVisible(dialog))return 32;
+    if (action == L"markdown-select" || action == L"markdown-save" || action == L"markdown-close" ||
+        action == L"markdown-shares") {
+        auto w = Window(L"Mnote · 导出给 AI");
+        if (!w)
+            return 30;
+        if (action == L"markdown-select") {
+            if (SendDlgItemMessageW(w, 2005, LB_GETCOUNT, 0, 0) != 3)
+                return 31;
+            Click(w, 25001);
+        }
+        if (action == L"markdown-save")
+            Click(w, 2106);
+        if (action == L"markdown-close")
+            PostMessageW(w, WM_CLOSE, 0, 0);
+        if (action == L"markdown-shares")
+            Click(w, 25003);
+        return 0;
+    }
+    if (action == L"markdown-file") {
+        auto dialog = FindWindowW(L"#32770", L"Mnote · 保存 Markdown");
+        if (!dialog || !IsWindowVisible(dialog))
+            return 32;
         // Use the offered filename in the isolated test working directory. Native dialog
         // edit-control IDs vary between Wine and Windows; no app automation bypass is used.
-        PostMessageW(dialog,WM_COMMAND,IDOK,0);return 0;
-    }
-    if(action==L"markdown-confirm") {
-        auto dialog=FindWindowW(L"#32770",L"Mnote · 确认导出");if(!dialog)return 37;
-        PostMessageW(dialog,WM_COMMAND,IDYES,0);return 0;
-    }
-    if(action==L"shares-revoke" || action==L"shares-empty" || action==L"shares-close") {
-        auto w=Window(L"Mnote · 导出链接管理");if(!w)return 34;
-        auto list=GetDlgItem(w,2005);
-        if(action==L"shares-revoke") {if(SendMessageW(list,LB_GETCOUNT,0,0)!=1)return 35;SendMessageW(list,LB_SETCURSEL,0,0);Click(w,2106);}
-        if(action==L"shares-empty" && SendMessageW(list,LB_GETCOUNT,0,0)!=0)return 36;
-        if(action==L"shares-close") PostMessageW(w,WM_CLOSE,0,0);
+        PostMessageW(dialog, WM_COMMAND, IDOK, 0);
         return 0;
     }
+    if (action == L"markdown-confirm") {
+        auto dialog = FindWindowW(L"#32770", L"Mnote · 确认导出");
+        if (!dialog)
+            return 37;
+        PostMessageW(dialog, WM_COMMAND, IDYES, 0);
+        return 0;
+    }
+    if (action == L"shares-revoke" || action == L"shares-empty" || action == L"shares-close") {
+        auto w = Window(L"Mnote · 导出链接管理");
+        if (!w)
+            return 34;
+        auto list = GetDlgItem(w, 2005);
+        if (action == L"shares-revoke") {
+            if (SendMessageW(list, LB_GETCOUNT, 0, 0) != 1)
+                return 35;
+            SendMessageW(list, LB_SETCURSEL, 0, 0);
+            Click(w, 2106);
+        }
+        if (action == L"shares-empty" && SendMessageW(list, LB_GETCOUNT, 0, 0) != 0)
+            return 36;
+        if (action == L"shares-close")
+            PostMessageW(w, WM_CLOSE, 0, 0);
+        return 0;
+    }
+    if (action == L"settings") {
+        Click(home, 26000);
+        return 0;
+    }
+    if (action == L"settings-ready") {
+        auto w = Window(L"Mnote · 设置");
+        return w && IsWindowVisible(w) && GetDlgItem(w, 2009) && GetDlgItem(w, 24000) ? 0 : 23;
+    }
     if (action == L"updates") {
-        if (!home || !GetDlgItem(home, 24000))
+        if (!home || !GetDlgItem(home, 26000))
             return 23;
-        Click(home, 24000);
+        SendMessageW(home, WM_COMMAND, MAKEWPARAM(26000, BN_CLICKED),
+                     reinterpret_cast<LPARAM>(GetDlgItem(home, 26000)));
+        auto settings = Window(L"Mnote · 设置");
+        if (!settings)
+            return 23;
+        Click(settings, 24000);
         return 0;
     }
     if (action == L"updates-ready" || action == L"close-updates") {
@@ -215,7 +256,12 @@ int wmain(int argc, wchar_t **argv) {
         return 0;
     }
     if (action == L"account") {
-        Click(home, 2009);
+        SendMessageW(home, WM_COMMAND, MAKEWPARAM(26000, BN_CLICKED),
+                     reinterpret_cast<LPARAM>(GetDlgItem(home, 26000)));
+        auto settings = Window(L"Mnote · 设置");
+        if (!settings)
+            return 14;
+        Click(settings, 2009);
         return 0;
     }
     if (action == L"login" && argc == 4) {

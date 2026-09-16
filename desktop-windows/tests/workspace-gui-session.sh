@@ -183,6 +183,9 @@ sleep 0.3
 after="$(find "${application_data}/Library" -type f -name '*.json' | wc -l)"
 [[ "${before}" == "${after}" ]]
 drive show
+drive settings
+until_drive settings-ready
+drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/settings-preview.png"
 drive updates
 until_drive updates-ready
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/updates-preview.png"

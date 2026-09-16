@@ -22,17 +22,17 @@ Mnote 是一个独立的本地优先个人知识捕获项目，用于在 Android
 
 ## Windows 下载
 
-当前 Windows 测试版 **1.8.0-test**：[安装包](https://github.com/kedukeduck/Mnote/releases/download/mnote-windows-v1.8.0-test/Mnote-Windows-1.8.0-test-Setup.exe) · [便携包](https://github.com/kedukeduck/Mnote/releases/download/mnote-windows-v1.8.0-test/Mnote-Windows-1.8.0-test-Portable.zip)。使用 Android 上同一账号登录，自动同步；旧本机记录需要明确导入。
+当前 Windows 测试版 **1.9.0-test**：[安装包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.9.0-test/Mnote-Windows-1.9.0-test-Setup.exe) · [便携包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.9.0-test/Mnote-Windows-1.9.0-test-Portable.zip)。使用 Android 上同一账号登录，自动同步；旧本机记录需要明确导入。
 
 双端 1.8.0 新增批量选择记录导出 Markdown：包含文档说明、AI 阅读提示、索引、想法、摘录、原文、来源和完整截图/圈选图/批注图在线链接。首页先筛选再选择，最多 100 条已同步记录；需明确确认分享图片，分享快照可在导出页独立撤销。详情见[批量导出说明](docs/markdown-batch-export.md)。
 
-Android / Windows 均已新增首页“更新”：查询版本和说明、下载校验、用户确认安装。首次手动覆盖安装 1.7.0-test，后续使用应用内入口，不用填写更新 URL / Token。Windows 安装前正常退出并等待后台同步收尾；便携版通过此入口转为安装版。Android 沿用测试签名并由系统确认安装。详见[双端更新说明](docs/cross-platform-1.7.0-updates.md)及[测试与交付校验](docs/cross-platform-1.7.0-release-verification.md)。
+双端 1.9.0 将账号和更新统一收到首页右上角“设置”，并重做导出入口与卡片勾选页。更新元数据与安装包直接由自有服务器提供，不再依赖 GitHub 可见性，也不用填写 URL / Token。**先覆盖安装 1.9.0，再将仓库设为私有**；旧版仅认识 GitHub，仓库已私有时请使用上述链接手动安装。详见[1.9.0 功能与自托管发布说明](docs/settings-1.9.0-selfhosted-updates.md)。
 
 Windows 已补齐应用内查看 / 编辑 / 删除、标签 / 未分类筛选、两步截图与完整上下文、随手记的可选剪贴板和独立页面上下文，并统一 A 风格。Ctrl+Shift+F9 截图，Ctrl+Shift+F8 随手记。安装包不需要管理员权限，升级和卸载保留数据。未做 Authenticode 签名，尚需真实 Windows 多屏、输入法与浏览器读取能力验收。[使用说明](desktop-windows/README.md) · [功能与测试](docs/windows-1.6.0-android-parity.md) · [交付校验](docs/windows-1.6.0-release-verification.md)。
 
 ## Android 构建
 
-当前 Android 增量测试版：[1.8.0-test APK](https://github.com/kedukeduck/Mnote/releases/download/mnote-android-v1.8.0-test/Mnote-Android-1.8.0-test.apk)。新增批量导出 Markdown 和可撤销图片分享链接；保留应用内更新。安装前保存草稿，覆盖安装，不要卸载旧版。使用原调试/测试签名，非正式商店版。
+当前 Android 增量测试版：[1.9.0-test APK](https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.9.0-test/Mnote-Android-1.9.0-test.apk)。统一设置页、精简导出界面与自有服务器更新。安装前保存草稿，覆盖安装，不要卸载旧版。使用原调试/测试签名，非正式商店版。
 
 1.6.0 新增所有安卓记录入口的多标签、已有记录补改标签、首页标签 / 未分类筛选及标签账号同步。长文支持内部滚动、全屏展开编辑及到文末，页面读取改善嵌套段落顺序并支持可见叶节点描述。修正 UI 位图提前回收风险，新增仅本机的异常诊断；尚未真机复现用户报告的偶发闪退。详见 [1.6.0 标签、长文与稳定性说明](docs/android-1.6.0-tags-readable-context.md)。
 
