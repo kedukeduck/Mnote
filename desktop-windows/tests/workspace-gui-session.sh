@@ -143,9 +143,10 @@ drive markdown
 until_drive markdown-select
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/markdown-preview.png"
 drive markdown-save
-until_drive confirm
+until_drive markdown-confirm
 until_drive markdown-file "Z:${test_dir}/export.md"
 for _ in $(seq 1 100); do [[ -s "${test_dir}/export.md" ]] && break; sleep 0.15; done
+if [[ ! -s "${test_dir}/export.md" ]]; then drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/failed-export.png"; fi
 python3 - "${test_dir}" <<'PY'
 import pathlib,re,sqlite3,sys,urllib.request
 root=pathlib.Path(sys.argv[1]);text=(root/'export.md').read_text()

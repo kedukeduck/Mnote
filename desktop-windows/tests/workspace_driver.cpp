@@ -75,11 +75,18 @@ int wmain(int argc, wchar_t **argv) {
         return 0;
     }
     if(action==L"markdown-file" && argc==3) {
-        auto dialog=FindWindowW(L"#32770",nullptr);if(!dialog)return 32;
-        auto name=GetDlgItem(dialog,0x047c); // edt1 in the system save-file dialog.
-        if(!name) {auto combo=GetDlgItem(dialog,0x0470);if(combo)name=FindWindowExW(combo,nullptr,L"Edit",nullptr);}
+        auto dialog=FindWindowW(L"#32770",L"Mnote · 保存 Markdown");if(!dialog || !IsWindowVisible(dialog))return 32;
+        HWND name=nullptr;
+        auto combo=GetDlgItem(dialog,0x047c);if(combo)name=FindWindowExW(combo,nullptr,L"Edit",nullptr);
+        if(!name || !IsWindowVisible(name)) name=GetDlgItem(dialog,0x0480);
         if(!name)return 33;
-        SetWindowTextW(name,argv[2]);PostMessageW(dialog,WM_COMMAND,IDOK,0);return 0;
+        std::wstring filename=argv[2];for(auto& c:filename)if(c==L'/')c=L'\\';
+        SendMessageW(name,WM_SETTEXT,0,reinterpret_cast<LPARAM>(filename.c_str()));
+        PostMessageW(dialog,WM_COMMAND,IDOK,0);return 0;
+    }
+    if(action==L"markdown-confirm") {
+        auto dialog=FindWindowW(L"#32770",L"Mnote · 确认导出");if(!dialog)return 37;
+        PostMessageW(dialog,WM_COMMAND,IDYES,0);return 0;
     }
     if(action==L"shares-revoke" || action==L"shares-empty" || action==L"shares-close") {
         auto w=Window(L"Mnote · 导出链接管理");if(!w)return 34;

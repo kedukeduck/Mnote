@@ -1111,11 +1111,12 @@ void MarkdownCommand(Window &w, int id) {
     OPENFILENAMEW dialog{};
     dialog.lStructSize = sizeof(dialog);
     dialog.hwndOwner = w.hwnd;
+    dialog.lpstrTitle = L"Mnote · 保存 Markdown";
     dialog.lpstrFilter = L"Markdown (*.md)\0*.md\0\0";
     dialog.lpstrFile = path;
     dialog.nMaxFile = 32768;
     dialog.lpstrDefExt = L"md";
-    dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    dialog.Flags = OFN_EXPLORER | OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
     if (!GetSaveFileNameW(&dialog))
         return;
     fs::path target(path);

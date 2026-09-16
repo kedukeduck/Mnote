@@ -38,6 +38,12 @@ android {
 
     testOptions {
         unitTests.includeAndroidResources = true
+        // Recycle Robolectric SDK/classloader caches during the growing dual-SDK suite.
+        unitTests.all {
+            maxHeapSize = "768m"
+            forkEvery = 12
+            maxParallelForks = 1
+        }
     }
 }
 

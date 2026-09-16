@@ -162,7 +162,7 @@ public class MarkdownExportActivityTest {
         try(var controller=Robolectric.buildActivity(MarkdownExportActivity.class).setup()) {
             var activity=controller.get();drain(activity);var file=files.newFile("export.md");
             returnFile(activity,record,file);
-            assertEquals("# Mnote 记录导出\n\n想法与原文\n",java.nio.file.Files.readString(file.toPath()));
+            assertEquals("# Mnote 记录导出\n\n想法与原文\n",new String(java.nio.file.Files.readAllBytes(file.toPath()),java.nio.charset.StandardCharsets.UTF_8));
             assertEquals(1,Http.created);assertEquals(0,Http.revoked);
         }
     }
