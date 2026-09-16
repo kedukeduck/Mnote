@@ -87,7 +87,10 @@ public class MarkdownExportActivityTest {
             var root = SettingsActivityTest.layout(activity, 390, 844);
             ListView list = ReflectionHelpers.getField(activity, "list");
             list.performItemClick(list.getChildAt(0), 0, list.getItemIdAtPosition(0));
-            list.setItemChecked(0, true);
+            assertEquals(1, list.getCheckedItemCount());
+            assertEquals("导出 1 条记录", button(activity, "export").getText().toString());
+            list.performItemClick(list.getChildAt(0), 0, list.getItemIdAtPosition(0));
+            assertEquals(0, list.getCheckedItemCount());
             button(activity, "all").performClick();
             SettingsActivityTest.layout(activity, 390, 844);
             assertTrue(((Checkable) list.getChildAt(0)).isChecked());

@@ -64,7 +64,7 @@ python3 scripts/publish-update-server.py \
 
 脚本在本机管理员发布路径加锁，检查包集合、大小、格式头、散列清单；先落完整版本目录，再原子替换索引。已经发布的版本拒绝内容覆盖，修改包必须升版本。仅清理本次分配的 staging 临时目录。没有远程上传接口。发布脚本不是代码签名工具，APK 签名检查仍是打包步骤。
 
-发布后匿名获取索引、HEAD 和完整下载，核对大小与散列，再运行 `bash desktop-windows/tests/run-updater-tests.sh --live`。回滚时可在备份后原子恢复旧索引；不要覆盖同版本包，也不要删除已经发出的下载文件。需要修复时发布更高补丁版本，不靠降级。
+发布后匿名获取索引、HEAD 和完整下载，核对大小与散列，再运行 `bash desktop-windows/tests/run-updater-tests.sh --live` 和 `MNOTE_LIVE_UPDATE_CHECK=1 ./gradlew testDebugUnitTest --tests 'com.codex.mnote.AppUpdateLiveTest'`。后者调用 Android 原更新网络代码，仅查询版本，不安装、不登录；常规离线回归默认跳过它。回滚时可在备份后原子恢复旧索引；不要覆盖同版本包，也不要删除已经发出的下载文件。需要修复时发布更高补丁版本，不靠降级。
 
 ## 迁移与数据边界
 

@@ -28,7 +28,7 @@ public final class SettingsActivity extends Activity {
         root.addView(back, new LinearLayout.LayoutParams(-2, dp(48)));
         back.setOnClickListener(v -> finish());
         TextView title = text(root, "设置", 32, R.color.ink);
-        title.setTypeface(Typeface.create("sans-serif-medium", 0));
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         text(root, "让记录安心保存，让 Mnote 保持最新。", 14, R.color.ink_muted);
         section(root, "我的空间");
         accountSummary = row(root, "账号与同步", "", R.id.settings_account,
