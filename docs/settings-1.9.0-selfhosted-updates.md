@@ -45,7 +45,7 @@
 
 服务端 0.4.0 从 Capture Store 根目录下的 `releases/` 读静态文件。现有反向代理会把 `/heartnote-capture/updates/` 路由到 API 的 `/updates/`，无需修改 SSH、网络或账号配置。
 
-发布前先运行完整验证，打包后校验 Android 原签名和 Windows x64 格式，生成各平台 `SHA256SUMS`。从仓库根运行：
+发布前先运行完整验证，再执行 `bash scripts/package-mnote-android.sh` 与 `bash scripts/package-mnote-windows.sh`（需 NSIS）。打包后核对 Android 原签名和 Windows x64 格式，两脚本均生成各平台 `SHA256SUMS`。从仓库根运行：
 
 ```bash
 python3 scripts/publish-update-server.py \

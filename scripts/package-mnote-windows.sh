@@ -19,4 +19,4 @@ with zipfile.ZipFile(sys.argv[2],'w',zipfile.ZIP_DEFLATED) as archive:
     for name in ('mnote.exe','README.md','THIRD-PARTY-NOTICES.txt'):
         archive.write(payload/name,arcname=payload.name+'/'+name)
 PY
-(cd "${output}" && sha256sum "Mnote-Windows-${version}-Setup.exe" "Mnote-Windows-${version}-Portable.zip")
+(cd "${output}" && sha256sum "Mnote-Windows-${version}-Setup.exe" "Mnote-Windows-${version}-Portable.zip" | tee SHA256SUMS)
