@@ -1,0 +1,8 @@
+<resources>
+    <string name="tags_optional_label">标签 · 可选</string>
+    <string name="tags_choose_existing">选择已有</string>
+    <string name="tags_new_hint">例如：灵感，工作，待读</string>
+    <string name="tags_search_hint">搜索已有标签</string>
+    <string name="tags_show_more">显示更多标签</string>
+    <string name="share_gallery_counts">%1$d 条记录 · %2$d 张图片</string>
+</resources>

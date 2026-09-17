@@ -297,7 +297,7 @@ public final class ShareGalleryActivity extends Activity {
             } catch (Exception ignored) {
             }
             date.setText(stamp);
-            meta.setText(item.optInt("record_count") + " 条记录 · " + count + " 张图片");
+            meta.setText(getString(R.string.share_gallery_counts, item.optInt("record_count"), count));
             photo.setVisibility(count > 0 ? VISIBLE : GONE);
             photo.setImageBitmap(cache.get(id));
             photo.setContentDescription("历史分享截图预览");
