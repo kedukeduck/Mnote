@@ -5,6 +5,7 @@
 #include <commdlg.h>
 #include <condition_variable>
 #include <deque>
+#include <objidl.h>
 #include <set>
 #include <shellapi.h>
 #include <thread>
@@ -99,6 +100,8 @@ struct Window {
     std::set<std::string> selectedIds;
     std::map<std::string, std::shared_ptr<Gdiplus::Bitmap>> thumbnails;
     Json shares = Json::array();
+    Json shareImages = Json::array();
+    std::string shareId;
     std::shared_ptr<Gdiplus::Bitmap> preview;
     std::wstring previewRole, status;
     double zoom = 1;
@@ -171,7 +174,7 @@ void Busy(Window &w, bool value) {
                    Kind,      Server,         Username,       Password,      Invitation,
                    AiAccess,  UpdateCheck,    UpdateDownload, UpdateInstall, BatchExport,
                    SelectAll, ClearSelection, ExportShares,   MultiSelect,   MultiCancel,
-                   MultiAll,  MultiDelete})
+                   MultiAll,  MultiDelete,    ImageRole,      ExportPreview})
         if (auto c = ControlOf(w, id))
             EnableWindow(c, !value);
 }
@@ -179,6 +182,8 @@ void Failure(HWND hwnd, std::uint64_t serial, const std::wstring &error) {
     if (auto w = Find(hwnd, serial)) {
         Busy(*w, false);
         StatusText(*w, error);
+        if (w->mode == Mode::Image && !w->shareId.empty())
+            SetWindowTextW(w->hwnd, L"Mnote · 图片加载失败，可重新选择图片重试");
     }
     notify(error, true);
 }
@@ -634,6 +639,90 @@ void OpenImage(Window &from) {
     Layout(w);
     ShowWindow(w.hwnd, SW_SHOW);
     SetForegroundWindow(w.hwnd);
+}
+void LoadShareImage(Window &w) {
+    if (w.busy)
+        return;
+    auto index = SendMessageW(ControlOf(w, ImageRole), CB_GETCURSEL, 0, 0);
+    if (index < 0 || static_cast<std::size_t>(index) >= w.shareImages.size())
+        return;
+    auto asset = w.shareImages.at(static_cast<std::size_t>(index));
+    auto scope = w.scope, id = w.shareId;
+    auto bitmap = std::make_shared<std::shared_ptr<Gdiplus::Bitmap>>();
+    w.preview.reset();
+    w.zoom = 1;
+    w.pan = {};
+    InvalidateRect(w.hwnd, nullptr, TRUE);
+    SetWindowTextW(w.hwnd, L"Mnote · 正在读取历史分享图片…");
+    EnableWindow(ControlOf(w, ImageRole), FALSE);
+    Run(
+        w,
+        [scope, id, asset, bitmap] {
+            auto bytes = library->markdownExportImage(scope, id, asset);
+            HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes.size());
+            if (!memory)
+                throw std::runtime_error("image_unavailable");
+            auto data = GlobalLock(memory);
+            if (!data) {
+                GlobalFree(memory);
+                throw std::runtime_error("image_unavailable");
+            }
+            memcpy(data, bytes.data(), bytes.size());
+            GlobalUnlock(memory);
+            IStream *raw = nullptr;
+            if (FAILED(CreateStreamOnHGlobal(memory, TRUE, &raw))) {
+                GlobalFree(memory);
+                throw std::runtime_error("image_unavailable");
+            }
+            std::unique_ptr<IStream, void (*)(IStream *)> stream(raw,
+                                                                 [](IStream *p) { p->Release(); });
+            std::unique_ptr<Gdiplus::Bitmap> decoded(Gdiplus::Bitmap::FromStream(stream.get()));
+            if (!decoded || decoded->GetLastStatus() != Gdiplus::Ok || !decoded->GetWidth() ||
+                !decoded->GetHeight() ||
+                static_cast<std::uint64_t>(decoded->GetWidth()) * decoded->GetHeight() > 32000000)
+                throw std::runtime_error("image_unavailable");
+            bitmap->reset(decoded->Clone(0, 0, decoded->GetWidth(), decoded->GetHeight(),
+                                         PixelFormat32bppARGB));
+            if (!*bitmap || (*bitmap)->GetLastStatus() != Gdiplus::Ok)
+                throw std::runtime_error("image_unavailable");
+        },
+        [bitmap, scope](Window &form) {
+            EnableWindow(ControlOf(form, ImageRole), TRUE);
+            if (scope != library->account().scope) {
+                PostMessageW(form.hwnd, WM_CLOSE, 0, 0);
+                return;
+            }
+            form.preview = *bitmap;
+            SetWindowTextW(form.hwnd, L"Mnote · 历史分享图片（当时的快照）");
+            InvalidateRect(form.hwnd, nullptr, TRUE);
+        });
+}
+void OpenShareImages(Window &from, const std::string &id, const Json &images) {
+    if (from.scope != library->account().scope)
+        return;
+    if (images.empty()) {
+        StatusText(from, L"这次分享只有文字，没有保存图片。");
+        return;
+    }
+    auto &w = Create(Mode::Image, L"Mnote · 历史分享图片", 1000, 760);
+    w.shareId = id;
+    w.shareImages = images;
+    Add(w, ImageRole, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, 24, 14, 240, 240);
+    for (const auto &asset : images) {
+        auto role = asset.at("role").get<std::string>();
+        auto label = L"记录 " + std::to_wstring(asset.at("record_index").get<int>()) + L" · " +
+                     (role == "context"    ? L"完整页面"
+                      : role == "original" ? L"圈选原图"
+                                           : L"批注图");
+        SendMessageW(ControlOf(w, ImageRole), CB_ADDSTRING, 0,
+                     reinterpret_cast<LPARAM>(label.c_str()));
+    }
+    SendMessageW(ControlOf(w, ImageRole), CB_SETCURSEL, 0, 0);
+    Button(w, ZoomReset, L"适应窗口", 284, 14, 148);
+    Layout(w);
+    ShowWindow(w.hwnd, SW_SHOW);
+    SetForegroundWindow(w.hwnd);
+    LoadShareImage(w);
 }
 void OpenEditor(Draft draft, const Record *record) {
     if (editor && IsWindow(editor)) {
@@ -1105,6 +1194,10 @@ void ShareList(Window &w) {
     Run(
         w, [scope, result] { *result = library->markdownExports(scope); },
         [result](Window &form) {
+            if (form.scope != library->account().scope) {
+                PostMessageW(form.hwnd, WM_CLOSE, 0, 0);
+                return;
+            }
             form.shares = *result;
             SendMessageW(ControlOf(form, List), LB_RESETCONTENT, 0, 0);
             for (const auto &e : form.shares) {
@@ -1114,8 +1207,9 @@ void ShareList(Window &w) {
                 SendMessageW(ControlOf(form, List), LB_ADDSTRING, 0,
                              reinterpret_cast<LPARAM>(label.c_str()));
             }
+            SendMessageW(ControlOf(form, List), LB_SETCURSEL, 0, 0);
             StatusText(form, form.shares.empty() ? L"没有有效的导出分享。"
-                                                 : L"选择一次导出，可撤销其全部图片链接。");
+                                                 : L"选择一次导出，查看当时的图片或撤销链接。");
         });
 }
 void OpenSettings() {
@@ -1202,8 +1296,10 @@ void OpenMarkdown(Window &source, bool shares = false) {
         Button(w, ExportPreview, L"查看当前截图", 288, 164, 160);
         if (source.selecting)
             SendMessageW(ControlOf(w, List), LB_SETSEL, TRUE, -1);
-    } else
+    } else {
         Button(w, ExportShares, L"刷新分享列表", 0, 164, 216);
+        Button(w, ExportPreview, L"查看分享图片", 288, 164, 160);
+    }
     Button(w, Save, shares ? L"撤销选中导出链接" : L"导出 Markdown", 0, 0, 200);
     Button(w, Cancel, L"关闭", 28, 0, 120);
     Label(w, Status, L"已选择 0 条 · 可导出 " + std::to_wstring(w.records.size()) + L" 条", 0);
@@ -1273,6 +1369,21 @@ void MarkdownCommand(Window &w, int id) {
     if (w.mode == Mode::Shares) {
         if (id == ExportShares)
             ShareList(w);
+        if (id == ExportPreview) {
+            auto index = SendMessageW(ControlOf(w, List), LB_GETCURSEL, 0, 0);
+            if (index < 0 || static_cast<std::size_t>(index) >= w.shares.size())
+                return;
+            std::string exportId = w.shares.at(static_cast<std::size_t>(index)).at("id");
+            auto scope = w.scope;
+            auto images = std::make_shared<Json>();
+            Run(
+                w,
+                [scope, exportId, images] {
+                    *images = library->markdownExportImages(scope, exportId);
+                },
+                [exportId, images](Window &form) { OpenShareImages(form, exportId, *images); });
+            return;
+        }
         if (id != Save)
             return;
         auto index = SendMessageW(ControlOf(w, List), LB_GETCURSEL, 0, 0);
@@ -1481,6 +1592,10 @@ void Command(Window &w, int id, int event) {
     }
     if (w.mode == Mode::Image) {
         if (id == ImageRole && event == CBN_SELCHANGE) {
+            if (!w.shareId.empty()) {
+                LoadShareImage(w);
+                return;
+            }
             auto index = SendMessageW(ControlOf(w, ImageRole), CB_GETCURSEL, 0, 0);
             if (index < 0)
                 return;
@@ -1492,6 +1607,10 @@ void Command(Window &w, int id, int event) {
             InvalidateRect(w.hwnd, nullptr, TRUE);
         }
         if (id == ZoomReset) {
+            if (!w.shareId.empty() && !w.preview) {
+                LoadShareImage(w);
+                return;
+            }
             w.zoom = 1;
             w.pan = {};
             InvalidateRect(w.hwnd, nullptr, TRUE);
@@ -1515,6 +1634,10 @@ void Command(Window &w, int id, int event) {
         return;
     }
     if (w.mode == Mode::Markdown || w.mode == Mode::Shares) {
+        if (w.mode == Mode::Shares && id == List && event == LBN_DBLCLK) {
+            MarkdownCommand(w, ExportPreview);
+            return;
+        }
         MarkdownCommand(w, id);
         return;
     }

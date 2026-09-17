@@ -382,48 +382,21 @@ public final class MarkdownExportActivity extends Activity {
                 ui(() -> {
                     busy = false;
                     buttons();
+                    if (!scope.equals(CaptureAccountSession.scope(this))) { finish(); return; }
                     if (labels.length == 0) {
                         notice("没有有效的导出分享链接。");
                         return;
                     }
                     new AlertDialog.Builder(this)
-                        .setTitle("选择要撤销的导出")
+                        .setTitle("历史分享 · 点击查看图片")
                         .setItems(labels,
                             (d, which) -> {
                                 String id = exports.optJSONObject(which).optString("id");
-                                new AlertDialog.Builder(this)
-                                    .setTitle("撤销这次导出的所有图片链接？")
-                                    .setMessage("原始笔记和截图不删除；已导出的文字和已下载的图片无"
-                                        + "法收回。")
-                                    .setNegativeButton("取消", null)
-                                    .setPositiveButton("撤销链接", (dialog, index) -> revoke(id))
-                                    .show();
+                                startActivity(new Intent(this, ShareHistoryActivity.class)
+                                    .putExtra("export_id", id).putExtra("scope", scope));
                             })
                         .setNegativeButton("关闭", null)
                         .show();
-                });
-            } catch (Exception error) {
-                failure(error);
-            }
-        });
-    }
-    private void revoke(String id) {
-        if (!id.matches("[a-f0-9]{32}"))
-            return;
-        busy = true;
-        buttons();
-        worker.execute(() -> {
-            try {
-                synchronized (CaptureAccountSession.LOCK) {
-                    CaptureAccountSession.requireScope(this, scope);
-                    CaptureSyncPreferences.Config c = CaptureAccountSession.config(this);
-                    CaptureAccountHttp.request(
-                        c.baseUrl, "DELETE", "/v1/exports/" + id, c.writeToken, null, null);
-                }
-                ui(() -> {
-                    busy = false;
-                    notice("该次导出的图片链接已撤销，原始记录保留。");
-                    buttons();
                 });
             } catch (Exception error) {
                 failure(error);

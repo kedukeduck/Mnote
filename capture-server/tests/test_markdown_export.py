@@ -81,6 +81,30 @@ class MarkdownExportTest(unittest.TestCase):
             self.assertNotIn("private filesystem detail", json.dumps(body))
         self.assertEqual([], self.server.RequestHandlerClass.exports.list(self.a["account_id"]))
 
+    def test_owner_can_preview_old_snapshot_without_original_record_or_public_token(self):
+        _, created, _ = self.export()
+        path = "/v1/exports/" + created["id"]
+        # Existing export schema has no new fields: the owner preview must work with old exports.
+        self.vault.soft_delete(self.record["id"], 1); self.vault.purge(self.record["id"])
+        status, detail, _ = self.call("GET", path, token=self.a["access_token"])
+        self.assertEqual(200, status); self.assertEqual(3, len(detail["images"]))
+        self.assertNotIn("token", json.dumps(detail)); self.assertNotIn("owner", detail)
+        for image in detail["images"]:
+            image_path = path + "/assets/" + image["name"]
+            self.assertEqual(1, image["record_index"])
+            status, data, headers = self.call("GET", image_path, token=self.a["access_token"])
+            self.assertEqual(200, status); self.assertEqual(minimal_png(), data)
+            self.assertEqual("no-store", headers["Cache-Control"])
+            self.assertEqual(b"", self.call("HEAD", image_path, token=self.a["access_token"])[1])
+            for inaccessible in (None, "write", "read", "ai", self.b["access_token"]):
+                self.assertIn(self.call("GET", image_path, token=inaccessible)[0], (401, 403, 404))
+                self.assertIn(self.call("GET", path, token=inaccessible)[0], (401, 403, 404))
+        for name in ("../exports.sqlite3", "%2e%2e%2fexports.sqlite3", "1-missing.png"):
+            self.assertEqual(404, self.call("GET", path + "/assets/" + name, token=self.a["access_token"])[0])
+        self.call("DELETE", path, token=self.a["access_token"])
+        self.assertEqual(404, self.call("GET", path, token=self.a["access_token"])[0])
+        self.assertEqual(404, self.call("GET", image_path, token=self.a["access_token"])[0])
+
     def test_account_isolation_and_public_route_has_no_metadata(self):
         _, result, _ = self.export()
         self.assertEqual([], self.call("GET", "/v1/exports", token=self.b["access_token"])[1]["exports"])

@@ -249,6 +249,20 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
                 else:
                     self._json(200, {"exports": self.exports.list(self.account["id"])})
                 return
+            if parts[:2] == ["v1", "exports"] and (len(parts) == 3 or (len(parts) == 5 and parts[3] == "assets")):
+                if scope != "account":
+                    self._problem(403, "forbidden", "Account required")
+                elif len(parts) == 3:
+                    self._json(200, self.exports.detail(self.account["id"], parts[2]))
+                else:
+                    data, content_type = self.exports.owner_image(self.account["id"], parts[2], parts[4])
+                    self.send_response(200)
+                    self.send_header("Content-Type", content_type)
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    if self.command != "HEAD": self.wfile.write(data)
+                return
             if parts == ["v1", "captures"]:
                 records = self.store.list(
                     limit=self._integer(query, "limit", 50),

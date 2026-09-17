@@ -98,6 +98,15 @@ heartnote-capture-mcp --transport streamable-http --host 127.0.0.1 --port 8788
 
 生产环境令牌放在 root-only 的 `/etc/heartnote-capture/server.env`，不要写入仓库或客户端安装包。API 本身只监听 `127.0.0.1:8787`，公网入口必须经过有效 TLS 证书的反向代理。
 
+## 历史分享图片（账号接口）
+
+- `GET /v1/exports`：当前账号未撤销的历史分享列表。
+- `GET /v1/exports/{id}`：当次导出的图片清单，含 `images[].name / role / record_index / content_type / size`。
+- `GET /v1/exports/{id}/assets/{name}`：当次导出保存的图片字节，支持 HEAD，`Cache-Control: no-store`。
+- `DELETE /v1/exports/{id}`：撤销分享并清理该次导出的图片副本，原始记录保留。
+
+这些接口只接受所属账号的 Bearer 会话，不接受旧 read / write / AI token，也不返回公开分享 token。读取的是独立导出快照，即使原记录删除或修改也不受影响。旧分享使用同一存储格式，无需迁移或重新导出；已撤销分享返回 404，不能恢复预览。查看不会创建新的分享或延长链接有效期。
+
 ## 测试
 
 不安装 MCP 依赖时，数据层和 HTTP 测试仍可运行：

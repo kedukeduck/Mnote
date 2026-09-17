@@ -153,11 +153,35 @@ int wmain(int argc, wchar_t **argv) {
         PostMessageW(dialog, WM_COMMAND, IDYES, 0);
         return 0;
     }
-    if (action == L"shares-revoke" || action == L"shares-empty" || action == L"shares-close") {
+    if (action == L"history-ready" || action == L"history-next" || action == L"history-close") {
+        auto w = Window(L"Mnote · 历史分享图片（当时的快照）");
+        if (!w)
+            return 49;
+        // A successful decode is required before the title changes to this value.
+        if (action == L"history-close")
+            PostMessageW(w, WM_CLOSE, 0, 0);
+        if (action == L"history-next") {
+            auto combo = FindWindowExW(w, nullptr, L"COMBOBOX", nullptr);
+            if (!combo || SendMessageW(combo, CB_GETCOUNT, 0, 0) != 4)
+                return 50;
+            SendMessageW(combo, CB_SETCURSEL, 1, 0);
+            SendMessageW(w, WM_COMMAND, MAKEWPARAM(GetDlgCtrlID(combo), CBN_SELCHANGE),
+                         reinterpret_cast<LPARAM>(combo));
+        }
+        return 0;
+    }
+    if (action == L"shares-preview" || action == L"shares-revoke" || action == L"shares-empty" ||
+        action == L"shares-close") {
         auto w = Window(L"Mnote · 导出链接管理");
         if (!w)
             return 34;
         auto list = GetDlgItem(w, 2005);
+        if (action == L"shares-preview") {
+            if (SendMessageW(list, LB_GETCOUNT, 0, 0) != 1)
+                return 35;
+            SendMessageW(list, LB_SETCURSEL, 0, 0);
+            Click(w, 27004);
+        }
         if (action == L"shares-revoke") {
             if (SendMessageW(list, LB_GETCOUNT, 0, 0) != 1)
                 return 35;

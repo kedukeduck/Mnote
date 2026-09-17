@@ -115,6 +115,7 @@ for component in \
   AppUpdateActivity \
   SettingsActivity \
   MarkdownExportActivity \
+  ShareHistoryActivity \
   AppUpdateProvider \
   CaptureInboxActivity; do
   if ! grep -q "${component}" <<<"${manifest_dump}"; then

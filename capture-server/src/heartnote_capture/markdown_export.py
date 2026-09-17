@@ -256,6 +256,37 @@ class MarkdownExports:
             except OSError:
                 pass
 
+    def detail(self, owner, export_id):
+        if not re.fullmatch(r"[a-f0-9]{32}", export_id):
+            raise CaptureNotFound(export_id)
+        with self.lock, self.db() as db:
+            row = db.execute("SELECT id,created,record_count,image_count,assets FROM exports WHERE id=? AND owner=? AND revoked=0", (export_id, owner)).fetchone()
+            if row is None:
+                raise CaptureNotFound(export_id)
+            result = {key: row[key] for key in ("id", "created", "record_count", "image_count")}
+            result["images"] = []
+            for name, asset in json.loads(row["assets"]).items():
+                match = re.fullmatch(r"([0-9]+)-(context|original|annotated)\.(png|jpg|webp)", name)
+                if match is None:
+                    raise CaptureNotFound(name)
+                result["images"].append({"name": name, "record_index": int(match[1]), "role": match[2],
+                                         "content_type": asset["content_type"], "size": asset["size"]})
+            result["images"].sort(key=lambda image: (image["record_index"], list(ROLES).index(image["role"])))
+            return result
+
+    def owner_image(self, owner, export_id, name):
+        # Read the immutable export snapshot, never the possibly edited/deleted source record.
+        # Reuse existing snapshot metadata so exports from older versions work without migration.
+        with self.lock:
+            detail = self.detail(owner, export_id)
+            image = next((item for item in detail["images"] if item["name"] == name), None)
+            if image is None:
+                raise CaptureNotFound(name)
+            try:
+                return (self.root / export_id / name).read_bytes(), image["content_type"]
+            except OSError as error:
+                raise CaptureNotFound(name) from error
+
     def image(self, token, name):
         if not re.fullmatch(r"[a-f0-9]{64}", token) or not re.fullmatch(r"[0-9]+-(context|original|annotated)\.(png|jpg|webp)", name):
             raise CaptureNotFound(name)

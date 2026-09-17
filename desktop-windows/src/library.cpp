@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cwctype>
 #include <iomanip>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -478,6 +479,44 @@ void Library::revokeMarkdownExport(const std::string &scope, const std::string &
     if (!Hex(id, 32))
         throw std::runtime_error("invalid_export");
     Success(request(account_, L"DELETE", L"/v1/exports/" + Wide(id)));
+}
+Json Library::markdownExportImages(const std::string &scope, const std::string &id) {
+    std::lock_guard<std::recursive_mutex> guard(mutex_);
+    require(scope);
+    if (!account_.signedIn() || !Hex(id, 32))
+        throw std::runtime_error("invalid_export");
+    auto response = request(account_, L"GET", L"/v1/exports/" + Wide(id));
+    Success(response);
+    auto images = Parse(response.body).at("images");
+    if (!images.is_array() || images.size() > 300)
+        throw std::runtime_error("invalid_export");
+    for (const auto &asset : images) {
+        auto name = asset.at("name").get<std::string>(), role = asset.at("role").get<std::string>();
+        int index = asset.at("record_index").get<int>();
+        auto size = asset.at("size").get<std::int64_t>();
+        if (!std::regex_match(name,
+                              std::regex("[0-9]+-(context|original|annotated)\\.(png|jpg|webp)")) ||
+            (role != "context" && role != "original" && role != "annotated") || index < 1 ||
+            index > 100 || size < 1 || size > 16 * 1024 * 1024)
+            throw std::runtime_error("invalid_export");
+    }
+    return images;
+}
+std::string Library::markdownExportImage(const std::string &scope, const std::string &id,
+                                         const Json &asset) {
+    std::lock_guard<std::recursive_mutex> guard(mutex_);
+    require(scope);
+    if (!account_.signedIn() || !Hex(id, 32))
+        throw std::runtime_error("invalid_export");
+    auto name = asset.at("name").get<std::string>();
+    if (!std::regex_match(name, std::regex("[0-9]+-(context|original|annotated)\\.(png|jpg|webp)")))
+        throw std::runtime_error("invalid_export");
+    auto response = request(account_, L"GET", L"/v1/exports/" + Wide(id) + L"/assets/" + Wide(name),
+                            "", 16U * 1024U * 1024U);
+    Success(response);
+    if (response.body.size() != asset.at("size").get<std::size_t>())
+        throw std::runtime_error("asset_mismatch");
+    return response.body;
 }
 void Library::interrupt() {
     std::lock_guard<std::recursive_mutex> guard(mutex_);

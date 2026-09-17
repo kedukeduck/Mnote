@@ -26,6 +26,7 @@ public class MarkdownExportActivityTest {
     public static class Http {
         static int calls;
         static int created, revoked;
+        static JSONArray history;
         @Implementation
         protected static JSONObject request(String base, String method, String path, String token,
             JSONObject body, Integer revision) throws Exception {
@@ -44,7 +45,7 @@ public class MarkdownExportActivityTest {
                 return new JSONObject();
             }
             if (path.equals("/v1/exports"))
-                return new JSONObject().put("exports", new JSONArray());
+                return new JSONObject().put("exports", history);
             throw new java.io.IOException("unexpected_network");
         }
     }
@@ -54,6 +55,7 @@ public class MarkdownExportActivityTest {
         context = RuntimeEnvironment.getApplication();
         Http.calls = 0;
         Http.created = Http.revoked = 0;
+        Http.history = new JSONArray();
         CaptureAccountSession.save(context, "https://example.test",
             new JSONObject()
                 .put("account_id", "a".repeat(32))
@@ -271,6 +273,28 @@ public class MarkdownExportActivityTest {
             ReflectionHelpers.callInstanceMethod(activity, "manage");
             drain(activity);
             assertEquals(1, Http.calls);
+        }
+    }
+    @Test
+    public void choosingHistoryOpensImagesInsteadOfRevocationDialog() throws Exception {
+        Http.history.put(new JSONObject()
+                .put("id", "e".repeat(32))
+                .put("created", "2026-09-17")
+                .put("record_count", 1)
+                .put("image_count", 3));
+        try (var controller = Robolectric.buildActivity(MarkdownExportActivity.class).setup()) {
+            var activity = controller.get();
+            drain(activity);
+            button(activity, "manage").performClick();
+            drain(activity);
+            var dialog = ShadowAlertDialog.getLatestAlertDialog();
+            dialog.getListView().performItemClick(null, 0, 0);
+            Intent intent = shadowOf(activity).getNextStartedActivity();
+            assertEquals(
+                ShareHistoryActivity.class.getName(), intent.getComponent().getClassName());
+            assertEquals("e".repeat(32), intent.getStringExtra("export_id"));
+            assertEquals(CaptureAccountSession.scope(context), intent.getStringExtra("scope"));
+            assertEquals(0, Http.revoked);
         }
     }
     @Test

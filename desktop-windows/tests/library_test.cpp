@@ -34,7 +34,11 @@ struct FakeServer {
             ++exports;return {200,Json{{"id",std::string(32,'e')},{"markdown","# Mnote 记录导出\n\n我的想法\n"}}.dump()};
         }
         if(path==L"/v1/exports") return {200,Json{{"exports",Json::array({{{"id",std::string(32,'e')}}})}}.dump()};
-        if(path==L"/v1/exports/"+std::wstring(32,L'e')) {++revoked;return {200,"{}"};}
+        if(path==L"/v1/exports/"+std::wstring(32,L'e')) {
+            if(method==L"GET")return {200,Json{{"images",Json::array({{{"name","1-context.png"},{"size",bytes.size()},{"role","context"},{"record_index",1}}})}}.dump()};
+            ++revoked;return {200,"{}"};
+        }
+        if(path==L"/v1/exports/"+std::wstring(32,L'e')+L"/assets/1-context.png")return {200,bytes};
         if(path.rfind(L"/v1/changes?",0)==0) {
             if(duringFeed) {auto action=std::move(duringFeed);action();}
             auto start=path.find(L"after=")+6;std::int64_t after=std::stoll(path.substr(start));
@@ -101,6 +105,14 @@ void Cases(const fs::path& folder) {
     library.exportMarkdown(account.scope,{synced},folder/L"export.md");
     Expect(Read(folder/L"export.md")=="# Mnote 记录导出\n\n我的想法\n");Expect(server.exports==1);
     Expect(library.markdownExports(account.scope).size()==1);
+    auto images=library.markdownExportImages(account.scope,std::string(32,'e'));Expect(images.size()==1);
+    Expect(library.markdownExportImage(account.scope,std::string(32,'e'),images[0])==server.bytes);
+    Throws([&]{library.markdownExportImages("guest",std::string(32,'e'));},"account_changed");
+    Throws([&]{library.markdownExportImages(account.scope,"../bad");},"invalid_export");
+    auto badImage=images[0];badImage["name"]="../anything.png";
+    Throws([&]{library.markdownExportImage(account.scope,std::string(32,'e'),badImage);},"invalid_export");
+    badImage=images[0];badImage["size"]=1;
+    Throws([&]{library.markdownExportImage(account.scope,std::string(32,'e'),badImage);},"asset_mismatch");
     library.revokeMarkdownExport(account.scope,std::string(32,'e'));Expect(server.revoked==1);
     Throws([&]{library.exportMarkdown(account.scope,{},folder/L"export.md");},"export_selection");
     Throws([&]{library.exportMarkdown(account.scope,{synced,synced},folder/L"export.md");},"export_changed");

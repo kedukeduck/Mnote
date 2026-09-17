@@ -169,6 +169,12 @@ for path in paths:
 print('GUI: three selected records exported with full original and four accessible snapshot images')
 PY
 drive markdown-shares
+until_drive shares-preview
+until_drive history-ready
+drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/history-preview.png"
+drive history-next
+until_drive history-ready
+drive history-close
 until_drive shares-revoke
 until_drive confirm
 until_drive shares-empty
