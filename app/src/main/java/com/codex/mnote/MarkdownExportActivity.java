@@ -30,10 +30,24 @@ public final class MarkdownExportActivity extends Activity {
     private boolean busy, picker;
     private volatile boolean destroyed;
     private JSONArray pending;
+    private RecordImageLoader images;
+    private Set<String> requestedIds;
     @Override
     public void onCreate(Bundle state) {
         super.onCreate(state);
         scope = CaptureAccountSession.scope(this);
+        images = new RecordImageLoader(this, scope);
+        ArrayList<String> requested = getIntent().getStringArrayListExtra("record_ids");
+        if (requested != null) {
+            if (!scope.equals(getIntent().getStringExtra("selection_scope")) || requested.isEmpty()
+                || requested.size() > 100) {
+                Toast.makeText(this, "所选记录或账号已变化，请重新选择", Toast.LENGTH_LONG).show();
+                finish();
+                return;
+            }
+            requestedIds = new LinkedHashSet<>(requested);
+            selected.addAll(requestedIds);
+        }
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(getColor(R.color.cream));
@@ -157,6 +171,8 @@ public final class MarkdownExportActivity extends Activity {
                 int type = getIntent().getIntExtra("type", 0);
                 List<CaptureStore.CaptureRecord> matches = new ArrayList<>();
                 for (CaptureStore.CaptureRecord r : records) {
+                    if (requestedIds != null && !requestedIds.contains(r.id))
+                        continue;
                     String hay = r.comment + "\n" + r.sourceText + "\n"
                         + CaptureRecordEdits.original(r) + "\n" + r.sourceUrl + "\n"
                         + CaptureTags.input(r.tags);
@@ -454,6 +470,8 @@ public final class MarkdownExportActivity extends Activity {
     @Override
     protected void onDestroy() {
         destroyed = true;
+        if (images != null)
+            images.close();
         worker.shutdown();
         super.onDestroy();
     }
@@ -463,14 +481,20 @@ public final class MarkdownExportActivity extends Activity {
     private final class ExportRow extends LinearLayout implements Checkable {
         private final TextView body, meta;
         private final CheckBox check;
+        private final LinearLayout pictures;
+        private final Button preview;
+        private String recordId;
+        private String imageKey;
         ExportRow() {
             super(MarkdownExportActivity.this);
-            setOrientation(HORIZONTAL);
-            setGravity(android.view.Gravity.CENTER_VERTICAL);
+            setOrientation(VERTICAL);
             setPadding(dp(16), dp(14), dp(12), dp(14));
             LinearLayout copy = new LinearLayout(MarkdownExportActivity.this);
             copy.setOrientation(VERTICAL);
-            addView(copy, new LinearLayout.LayoutParams(0, -2, 1));
+            LinearLayout heading = new LinearLayout(MarkdownExportActivity.this);
+            heading.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            addView(heading);
+            heading.addView(copy, new LinearLayout.LayoutParams(0, -2, 1));
             meta = text(copy, "", 12);
             meta.setTextColor(getColor(R.color.ink_muted));
             meta.setPadding(0, 0, 0, dp(7));
@@ -483,10 +507,67 @@ public final class MarkdownExportActivity extends Activity {
             check.setClickable(false);
             check.setFocusable(false);
             check.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            addView(check);
+            heading.addView(check);
+            pictures = new LinearLayout(MarkdownExportActivity.this);
+            addView(pictures);
+            preview = new Button(MarkdownExportActivity.this);
+            preview.setText("查看将导出的图片");
+            preview.setTextSize(13);
+            preview.setBackgroundResource(android.R.color.transparent);
+            preview.setFocusable(false);
+            addView(preview);
             setMinimumHeight(dp(112));
         }
         void bind(CaptureStore.CaptureRecord r) {
+            recordId = r.id;
+            StringBuilder key = new StringBuilder(r.id);
+            for (String role : new String[] {"annotated", "original", "context"}) {
+                java.io.File file = RecordImageLoader.file(r, role);
+                if (file != null)
+                    key.append(':')
+                        .append(file.getAbsolutePath())
+                        .append(':')
+                        .append(file.length())
+                        .append(':')
+                        .append(file.lastModified());
+            }
+            if (!key.toString().equals(imageKey)) {
+                imageKey = key.toString();
+                pictures.removeAllViews();
+                int count = 0;
+                for (String role : new String[] {"annotated", "original", "context"}) {
+                    java.io.File file = RecordImageLoader.file(r, role);
+                    if (file == null)
+                        continue;
+                    count++;
+                    LinearLayout tile = new LinearLayout(MarkdownExportActivity.this);
+                    tile.setOrientation(VERTICAL);
+                    LinearLayout.LayoutParams tileParams = new LinearLayout.LayoutParams(0, -2, 1);
+                    tileParams.setMargins(dp(3), dp(12), dp(3), 0);
+                    pictures.addView(tile, tileParams);
+                    ImageView image = new ImageView(MarkdownExportActivity.this);
+                    image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                    image.setBackgroundColor(getColor(R.color.cream));
+                    image.setContentDescription(RecordImageLoader.label(role));
+                    tile.addView(image, new LinearLayout.LayoutParams(-1, dp(128)));
+                    TextView label = text(tile, RecordImageLoader.label(role), 11);
+                    label.setTextColor(getColor(R.color.ink_muted));
+                    image.setTag(r.id + role);
+                    image.setContentDescription("查看" + RecordImageLoader.label(role) + "大图");
+                    image.setFocusable(false);
+                    image.setOnClickListener(v -> images.preview(r, role));
+                    images.load(file, false, bitmap -> {
+                        if (!r.id.equals(recordId) || tile.getParent() != pictures)
+                            return;
+                        image.setImageBitmap(bitmap);
+                        if (bitmap == null)
+                            label.setText(RecordImageLoader.label(role) + " · 需同步重试");
+                    });
+                }
+                pictures.setVisibility(count > 0 ? VISIBLE : GONE);
+                preview.setVisibility(count > 0 ? VISIBLE : GONE);
+            }
+            preview.setOnClickListener(v -> images.preview(r));
             String content = !r.comment.isEmpty() ? r.comment
                 : !r.sourceText.isEmpty()         ? r.sourceText
                                                   : CaptureRecordEdits.original(r);

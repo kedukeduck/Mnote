@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-installer="${repo_dir}/deliverables/mnote-windows-1.9.0-test/Mnote-Windows-1.9.0-test-Setup.exe"
+installer="${repo_dir}/deliverables/mnote-windows-1.10.0-test/Mnote-Windows-1.10.0-test-Setup.exe"
 [[ -f "${installer}" ]]
 mkdir -p "${repo_dir}/desktop-windows/build-installer-tests"
 x86_64-w64-mingw32-g++ -std=c++17 -static -municode "${repo_dir}/desktop-windows/tests/installer_handoff.cpp" \

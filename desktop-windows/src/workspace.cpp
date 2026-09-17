@@ -68,7 +68,12 @@ enum Control {
     SelectAll,
     ClearSelection,
     ExportShares,
-    SettingsButton = 26000
+    SettingsButton = 26000,
+    MultiSelect = 27000,
+    MultiCancel,
+    MultiAll,
+    MultiDelete,
+    ExportPreview
 };
 enum class Mode { Library, Editor, Account, Image, Toast, Update, Markdown, Shares, Settings };
 struct Placement {
@@ -90,6 +95,9 @@ struct Window {
     Draft draft;
     Record record;
     std::vector<Record> records, filtered;
+    bool selecting = false;
+    std::set<std::string> selectedIds;
+    std::map<std::string, std::shared_ptr<Gdiplus::Bitmap>> thumbnails;
     Json shares = Json::array();
     std::shared_ptr<Gdiplus::Bitmap> preview;
     std::wstring previewRole, status;
@@ -117,6 +125,7 @@ void Load();
 void Layout(Window &);
 void OpenEditor(Draft, const Record *record = nullptr);
 void OpenAccount();
+void SelectionControls(Window &);
 void DrawImage(Window &, HDC, RECT);
 int Scale(const Window &w, int n) { return MulDiv(n, w.dpi, 96); }
 HWND ControlOf(Window &w, int id) { return GetDlgItem(w.hwnd, id); }
@@ -161,7 +170,8 @@ void Busy(Window &w, bool value) {
                    Note,      Quote,          Original,       TagsInput,     Url,
                    Kind,      Server,         Username,       Password,      Invitation,
                    AiAccess,  UpdateCheck,    UpdateDownload, UpdateInstall, BatchExport,
-                   SelectAll, ClearSelection, ExportShares})
+                   SelectAll, ClearSelection, ExportShares,   MultiSelect,   MultiCancel,
+                   MultiAll,  MultiDelete})
         if (auto c = ControlOf(w, id))
             EnableWindow(c, !value);
 }
@@ -310,6 +320,10 @@ void Layout(Window &w) {
         move(Trash, 28, height - 80, 120, 36);
         move(BatchExport, 314, 110, 124, 40);
         move(OpenRecord, width - 176, height - 80, 148, 36);
+        move(MultiSelect, 160, height - 80, 100, 36);
+        move(MultiCancel, 28, height - 80, 100, 36);
+        move(MultiAll, 140, height - 80, 130, 36);
+        move(MultiDelete, width - 176, height - 80, 148, 36);
         move(Status, 28, height - 36, width - 56, 24);
         return;
     }
@@ -323,6 +337,7 @@ void Layout(Window &w) {
         move(SelectAll, 28, 142, 132, 36);
         move(ClearSelection, 172, 142, 100, 36);
         move(ExportShares, width - 176, 142, 148, 36);
+        move(ExportPreview, 288, 142, 160, 36);
         move(List, 28, 194, width - 56, std::max(80, height - 308));
         move(Save, width - 228, height - 96, 200, 40);
         move(Cancel, 28, height - 96, 120, 40);
@@ -368,6 +383,8 @@ void Layout(Window &w) {
     }
 }
 void Populate(Window &w) {
+    KillTimer(ControlOf(w, List), 82);
+    RemovePropW(ControlOf(w, List), L"MnoteHoldIndex");
     int tagIndex = static_cast<int>(SendMessageW(ControlOf(w, TagFilter), CB_GETCURSEL, 0, 0));
     auto query = Text(ControlOf(w, Search)), tag = Text(ControlOf(w, TagFilter));
     int kind = static_cast<int>(SendMessageW(ControlOf(w, KindFilter), CB_GETCURSEL, 0, 0));
@@ -418,6 +435,115 @@ void Populate(Window &w) {
     SendMessageW(ControlOf(w, List), WM_SETREDRAW, TRUE, 0);
     InvalidateRect(ControlOf(w, List), nullptr, TRUE);
     Set(w, OpenRecord, w.showTrash ? L"恢复选中记录" : L"查看 / 修改");
+    for (auto it = w.selectedIds.begin(); it != w.selectedIds.end();) {
+        if (std::none_of(w.filtered.begin(), w.filtered.end(),
+                         [&](const Record &r) { return r.id == *it; }))
+            it = w.selectedIds.erase(it);
+        else
+            ++it;
+    }
+    SelectionControls(w);
+}
+void SelectionControls(Window &w) {
+    for (int id : {Trash, OpenRecord, MultiSelect})
+        ShowWindow(ControlOf(w, id), w.selecting ? SW_HIDE : SW_SHOW);
+    for (int id : {MultiCancel, MultiAll, MultiDelete})
+        ShowWindow(ControlOf(w, id), w.selecting ? SW_SHOW : SW_HIDE);
+    EnableWindow(ControlOf(w, MultiSelect), !w.showTrash);
+    EnableWindow(ControlOf(w, MultiDelete), !w.busy && !w.selectedIds.empty());
+    EnableWindow(ControlOf(w, BatchExport), !w.busy && (!w.selecting || !w.selectedIds.empty()));
+    Set(w, BatchExport, w.selecting ? L"导出已选" : L"选择导出");
+    if (w.selecting)
+        StatusText(w, L"已选 " + std::to_wstring(w.selectedIds.size()) +
+                          L" 条 · 点击勾选 · Esc 退出多选 · 最多 100 条");
+    InvalidateRect(ControlOf(w, List), nullptr, FALSE);
+}
+LRESULT CALLBACK LibraryListProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp, UINT_PTR,
+                                 DWORD_PTR) {
+    auto it = windows.find(GetParent(hwnd));
+    if (it == windows.end())
+        return DefSubclassProc(hwnd, message, wp, lp);
+    auto &w = *it->second;
+    constexpr UINT holdTimer = 82;
+    if (message == WM_LBUTTONDOWN && !w.busy && !w.showTrash) {
+        auto hit = SendMessageW(hwnd, LB_ITEMFROMPOINT, 0, lp);
+        if (!HIWORD(hit) && LOWORD(hit) < w.filtered.size()) {
+            SetPropW(hwnd, L"MnoteHoldIndex",
+                     reinterpret_cast<HANDLE>(static_cast<INT_PTR>(LOWORD(hit) + 1)));
+            SetPropW(hwnd, L"MnoteHoldPoint", reinterpret_cast<HANDLE>(lp));
+            SetTimer(hwnd, holdTimer, 600, nullptr);
+        }
+    }
+    if (message == WM_MOUSEMOVE || message == WM_VSCROLL || message == WM_MOUSEWHEEL ||
+        message == WM_CANCELMODE || message == WM_CAPTURECHANGED) {
+        auto origin = reinterpret_cast<LPARAM>(GetPropW(hwnd, L"MnoteHoldPoint"));
+        if (message != WM_MOUSEMOVE || abs(GET_X_LPARAM(lp) - GET_X_LPARAM(origin)) > 8 ||
+            abs(GET_Y_LPARAM(lp) - GET_Y_LPARAM(origin)) > 8) {
+            KillTimer(hwnd, holdTimer);
+            RemovePropW(hwnd, L"MnoteHoldIndex");
+        }
+    }
+    if (message == WM_TIMER && wp == holdTimer) {
+        KillTimer(hwnd, holdTimer);
+        auto index = reinterpret_cast<INT_PTR>(RemovePropW(hwnd, L"MnoteHoldIndex")) - 1;
+        if (!w.busy && !w.showTrash && index >= 0 &&
+            static_cast<std::size_t>(index) < w.filtered.size() &&
+            (GetAsyncKeyState(VK_LBUTTON) & 0x8000)) {
+            w.selecting = true;
+            if (w.selectedIds.size() < 100)
+                w.selectedIds.insert(w.filtered[index].id);
+            SetPropW(hwnd, L"MnoteHeld", reinterpret_cast<HANDLE>(1));
+            SelectionControls(w);
+        }
+        return 0;
+    }
+    if (message == WM_CONTEXTMENU && !w.busy && !w.showTrash) {
+        int index = static_cast<int>(SendMessageW(hwnd, LB_GETCURSEL, 0, 0));
+        if (lp != -1) {
+            POINT p{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+            ScreenToClient(hwnd, &p);
+            auto hit = SendMessageW(hwnd, LB_ITEMFROMPOINT, 0, MAKELPARAM(p.x, p.y));
+            index = HIWORD(hit) ? -1 : LOWORD(hit);
+        }
+        if (index >= 0 && static_cast<std::size_t>(index) < w.filtered.size()) {
+            w.selecting = true;
+            if (w.selectedIds.size() < 100)
+                w.selectedIds.insert(w.filtered[index].id);
+            SelectionControls(w);
+        }
+        return 0;
+    }
+    if (message == WM_LBUTTONUP) {
+        KillTimer(hwnd, holdTimer);
+        RemovePropW(hwnd, L"MnoteHoldIndex");
+        bool held = RemovePropW(hwnd, L"MnoteHeld") != nullptr;
+        auto result = DefSubclassProc(hwnd, message, wp, lp);
+        auto hit = SendMessageW(hwnd, LB_ITEMFROMPOINT, 0, lp);
+        if (w.selecting && !w.busy && !held && !HIWORD(hit) && LOWORD(hit) < w.filtered.size()) {
+            auto id = w.filtered[LOWORD(hit)].id;
+            if (!w.selectedIds.erase(id) && w.selectedIds.size() < 100)
+                w.selectedIds.insert(id);
+            SelectionControls(w);
+        }
+        return result;
+    }
+    if (message == WM_KEYDOWN && wp == VK_SPACE && w.selecting && !w.busy) {
+        auto index = SendMessageW(hwnd, LB_GETCURSEL, 0, 0);
+        if (index >= 0 && static_cast<std::size_t>(index) < w.filtered.size()) {
+            auto id = w.filtered[index].id;
+            if (!w.selectedIds.erase(id) && w.selectedIds.size() < 100)
+                w.selectedIds.insert(id);
+            SelectionControls(w);
+        }
+        return 0;
+    }
+    if (message == WM_NCDESTROY) {
+        KillTimer(hwnd, holdTimer);
+        RemovePropW(hwnd, L"MnoteHoldIndex");
+        RemovePropW(hwnd, L"MnoteHoldPoint");
+        RemovePropW(hwnd, L"MnoteHeld");
+    }
+    return DefSubclassProc(hwnd, message, wp, lp);
 }
 void Load() {
     if (!home || !windows.count(home))
@@ -461,6 +587,8 @@ void Load() {
                 SendMessageW(ControlOf(*w, TagFilter), CB_SETCURSEL, static_cast<WPARAM>(selected),
                              0);
                 if (changed) {
+                    w->selecting = false;
+                    w->selectedIds.clear();
                     Set(*w, Search, L"");
                     w->showTrash = false;
                     SendMessageW(ControlOf(*w, KindFilter), CB_SETCURSEL, 0, 0);
@@ -1053,7 +1181,7 @@ void OpenMarkdown(Window &source, bool shares = false) {
         28, 216, 700, 340);
     if (!shares) {
         for (const auto &r : source.filtered)
-            if (Library::exportable(r))
+            if (Library::exportable(r) && (!source.selecting || source.selectedIds.count(r.id)))
                 w.records.push_back(r);
         for (const auto &r : w.records) {
             auto body = r.data.value("comment", std::string());
@@ -1071,18 +1199,75 @@ void OpenMarkdown(Window &source, bool shares = false) {
         Button(w, SelectAll, L"全选可用", 28, 164, 132);
         Button(w, ClearSelection, L"清空", 172, 164, 100);
         Button(w, ExportShares, L"分享管理", 0, 164, 148);
+        Button(w, ExportPreview, L"查看当前截图", 288, 164, 160);
+        if (source.selecting)
+            SendMessageW(ControlOf(w, List), LB_SETSEL, TRUE, -1);
     } else
         Button(w, ExportShares, L"刷新分享列表", 0, 164, 216);
     Button(w, Save, shares ? L"撤销选中导出链接" : L"导出 Markdown", 0, 0, 200);
     Button(w, Cancel, L"关闭", 28, 0, 120);
     Label(w, Status, L"已选择 0 条 · 可导出 " + std::to_wstring(w.records.size()) + L" 条", 0);
     if (!shares)
-        EnableWindow(ControlOf(w, Save), FALSE);
+        EnableWindow(ControlOf(w, Save), source.selecting && !w.records.empty());
     Layout(w);
     ShowWindow(w.hwnd, SW_SHOW);
     SetForegroundWindow(w.hwnd);
     if (shares)
         ShareList(w);
+    else {
+        if (source.selecting) {
+            Set(w, Save, L"导出 " + std::to_wstring(w.records.size()) + L" 条记录");
+            StatusText(w, L"已选 " + std::to_wstring(w.records.size()) +
+                              L" 条；仅显示所选且可导出的记录。");
+        }
+        auto hwnd = w.hwnd;
+        auto serial = w.serial;
+        auto scope = w.scope;
+        auto records = w.records;
+        Enqueue([hwnd, serial, scope, records] {
+            // Decode a bounded number of thumbnails off the UI thread. Full image is opened
+            // explicitly.
+            int count = 0;
+            for (const auto &record : records) {
+                if (++count > 100)
+                    break;
+                if (library->account().scope != scope)
+                    break;
+                fs::path path;
+                for (auto role : {"annotated", "original", "context"}) {
+                    auto it = record.assets.find(role);
+                    if (it != record.assets.end()) {
+                        path = it->second;
+                        break;
+                    }
+                }
+                if (path.empty())
+                    continue;
+                std::unique_ptr<Gdiplus::Bitmap> decoded(Gdiplus::Bitmap::FromFile(path.c_str()));
+                if (!decoded || decoded->GetLastStatus() != Gdiplus::Ok || !decoded->GetWidth() ||
+                    !decoded->GetHeight() ||
+                    static_cast<std::uint64_t>(decoded->GetWidth()) * decoded->GetHeight() >
+                        32000000)
+                    continue;
+                double ratio = std::min(160.0 / decoded->GetWidth(), 120.0 / decoded->GetHeight());
+                auto thumb = std::make_shared<Gdiplus::Bitmap>(
+                    std::max(1, int(decoded->GetWidth() * ratio)),
+                    std::max(1, int(decoded->GetHeight() * ratio)), PixelFormat32bppARGB);
+                {
+                    Gdiplus::Graphics graphics(thumb.get());
+                    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+                    graphics.DrawImage(decoded.get(), 0, 0, thumb->GetWidth(), thumb->GetHeight());
+                }
+                Post([hwnd, serial, scope, id = record.id, thumb] {
+                    auto form = Find(hwnd, serial);
+                    if (!form || library->account().scope != scope)
+                        return;
+                    form->thumbnails[id] = thumb;
+                    InvalidateRect(ControlOf(*form, List), nullptr, FALSE);
+                });
+            }
+        });
+    }
 }
 void MarkdownCommand(Window &w, int id) {
     if (w.mode == Mode::Shares) {
@@ -1109,6 +1294,25 @@ void MarkdownCommand(Window &w, int id) {
     }
     if (id == ExportShares) {
         OpenMarkdown(w, true);
+        return;
+    }
+    if (id == ExportPreview) {
+        if (w.scope != library->account().scope) {
+            StatusText(w, L"账号已切换，请重新打开导出页面。");
+            return;
+        }
+        auto index = SendMessageW(ControlOf(w, List), LB_GETCARETINDEX, 0, 0);
+        if (index < 0 || static_cast<std::size_t>(index) >= w.records.size())
+            return;
+        auto record = w.records.at(static_cast<std::size_t>(index));
+        if (record.assets.empty()) {
+            StatusText(w, L"这条记录没有保存截图。");
+            return;
+        }
+        w.record = record;
+        w.draft.data = record.data;
+        w.draft.assets = record.assets;
+        OpenImage(w);
         return;
     }
     auto list = ControlOf(w, List);
@@ -1171,6 +1375,73 @@ void MarkdownCommand(Window &w, int id) {
 }
 void Command(Window &w, int id, int event) {
     if (w.mode == Mode::Library) {
+        if (w.busy)
+            return;
+        if (id == MultiSelect) {
+            if (!w.showTrash) {
+                w.selecting = true;
+                SelectionControls(w);
+            }
+            return;
+        }
+        if (id == MultiCancel) {
+            w.selecting = false;
+            w.selectedIds.clear();
+            SelectionControls(w);
+            StatusText(w, L"已退出多选。");
+            return;
+        }
+        if (id == MultiAll) {
+            for (const auto &r : w.filtered) {
+                if (w.selectedIds.size() >= 100)
+                    break;
+                w.selectedIds.insert(r.id);
+            }
+            SelectionControls(w);
+            return;
+        }
+        if (id == MultiDelete) {
+            if (!w.selecting || w.selectedIds.empty() || w.scope != library->account().scope)
+                return;
+            auto scope = w.scope;
+            std::vector<Record> snapshot;
+            for (const auto &r : w.filtered)
+                if (w.selectedIds.count(r.id))
+                    snapshot.push_back(r);
+            auto prompt = L"删除选中的 " + std::to_wstring(w.selectedIds.size()) +
+                          L" 条记录？\r\n移入回收站，登录后的删除会同步到其他设备。";
+            if (MessageBoxW(w.hwnd, prompt.c_str(), L"Mnote · 批量删除",
+                            MB_YESNO | MB_ICONQUESTION) != IDYES)
+                return;
+            auto result = std::make_shared<std::pair<int, int>>(0, 0);
+            Run(
+                w,
+                [snapshot, scope, result] {
+                    for (const auto &r : snapshot) {
+                        try {
+                            library->erase(scope, r.id, library->fingerprint(r));
+                            ++result->first;
+                        } catch (const std::exception &) {
+                            ++result->second;
+                        }
+                    }
+                },
+                [result](Window &form) {
+                    if (!result->second) {
+                        form.selecting = false;
+                        form.selectedIds.clear();
+                    }
+                    SelectionControls(form);
+                    Load();
+                    Sync();
+                    notify(L"已删除 " + std::to_wstring(result->first) + L" 条；未删除 " +
+                               std::to_wstring(result->second) + L" 条。" +
+                               (result->second ? L"记录或账号可能已变化，请刷新后重试。"
+                                               : L"可在回收站恢复。"),
+                           result->second > 0);
+                });
+            return;
+        }
         if (id == SettingsButton) {
             OpenSettings();
             return;
@@ -1187,7 +1458,7 @@ void Command(Window &w, int id, int event) {
             Populate(w);
         else if ((id == TagFilter || id == KindFilter) && event == CBN_SELCHANGE)
             Populate(w);
-        else if (id == OpenRecord || (id == List && event == LBN_DBLCLK))
+        else if (!w.selecting && (id == OpenRecord || (id == List && event == LBN_DBLCLK)))
             OpenSelected(w);
         else if (id == NewNote)
             QuickNote();
@@ -1200,6 +1471,8 @@ void Command(Window &w, int id, int event) {
         } else if (id == AccountButton)
             OpenAccount();
         else if (id == Trash) {
+            w.selecting = false;
+            w.selectedIds.clear();
             w.showTrash = !w.showTrash;
             Set(w, Trash, w.showTrash ? L"返回记录" : L"回收站");
             Populate(w);
@@ -1465,14 +1738,15 @@ void DrawRecord(Window &w, const DRAWITEMSTRUCT &item) {
     const auto &record = rows[item.itemID];
     auto r = item.rcItem;
     HDC dc = item.hDC;
-    HBRUSH brush =
-        CreateSolidBrush(item.itemState & ODS_SELECTED ? RGB(234, 235, 255) : RGB(255, 255, 255));
-    if (w.mode == Mode::Markdown) {
+    bool chosen = w.mode == Mode::Library && w.selecting ? w.selectedIds.count(record.id) > 0
+                                                         : (item.itemState & ODS_SELECTED) != 0;
+    HBRUSH brush = CreateSolidBrush(chosen ? RGB(234, 235, 255) : RGB(255, 255, 255));
+    if (w.mode == Mode::Markdown || (w.mode == Mode::Library && w.selecting)) {
         FillRect(dc, &r, backgroundBrush);
         r.top += Scale(w, 5);
         r.bottom -= Scale(w, 5);
         auto oldBrush = SelectObject(dc, brush);
-        auto pen = CreatePen(PS_SOLID, 1, item.itemState & ODS_SELECTED ? Accent : Border);
+        auto pen = CreatePen(PS_SOLID, 1, chosen ? Accent : Border);
         auto oldPen = SelectObject(dc, pen);
         RoundRect(dc, r.left, r.top, r.right - 1, r.bottom, Scale(w, 20), Scale(w, 20));
         SelectObject(dc, oldPen);
@@ -1480,8 +1754,7 @@ void DrawRecord(Window &w, const DRAWITEMSTRUCT &item) {
         DeleteObject(pen);
         RECT check{r.right - Scale(w, 46), r.top + Scale(w, 34), r.right - Scale(w, 22),
                    r.top + Scale(w, 58)};
-        DrawFrameControl(dc, &check, DFC_BUTTON,
-                         DFCS_BUTTONCHECK | (item.itemState & ODS_SELECTED ? DFCS_CHECKED : 0));
+        DrawFrameControl(dc, &check, DFC_BUTTON, DFCS_BUTTONCHECK | (chosen ? DFCS_CHECKED : 0));
         r.right -= Scale(w, 46);
     } else
         FillRect(dc, &r, brush);
@@ -1489,6 +1762,22 @@ void DrawRecord(Window &w, const DRAWITEMSTRUCT &item) {
     int pad = Scale(w, 18);
     r.left += pad;
     r.right -= pad;
+    if (w.mode == Mode::Markdown && !record.assets.empty()) {
+        auto thumb = w.thumbnails.find(record.id);
+        if (thumb != w.thumbnails.end()) {
+            Gdiplus::Graphics graphics(dc);
+            auto &image = thumb->second;
+            double factor = std::min(double(Scale(w, 110)) / image->GetWidth(),
+                                     double(Scale(w, 76)) / image->GetHeight());
+            graphics.DrawImage(image.get(), r.left, r.top + Scale(w, 10),
+                               int(image->GetWidth() * factor), int(image->GetHeight() * factor));
+        } else {
+            RECT label = r;
+            label.right = label.left + Scale(w, 110);
+            DrawTextLine(dc, label, L"截图 · 查看大图", Muted, w.font, DT_VCENTER | DT_WORDBREAK);
+        }
+        r.left += Scale(w, 126);
+    }
     r.top += Scale(w, 10);
     r.bottom = r.top + Scale(w, 24);
     auto text = Field(record.data, "comment");
@@ -1877,8 +2166,14 @@ void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> ca
     Button(w, Trash, L"回收站", 28, 0, 120);
     Button(w, BatchExport, L"选择导出", 314, 110, 124);
     Button(w, OpenRecord, L"查看 / 修改", 0, 0, 148);
+    Button(w, MultiSelect, L"多选", 160, 0, 100);
+    Button(w, MultiCancel, L"取消多选", 28, 0, 100);
+    Button(w, MultiAll, L"全选当前", 140, 0, 130);
+    Button(w, MultiDelete, L"删除已选", 0, 0, 148);
+    SetWindowSubclass(ControlOf(w, List), LibraryListProc, 1, 0);
     Label(w, Status, L"Ctrl+Shift+F8 随手记  ·  Ctrl+Shift+F9 截图摘录", 0);
     Layout(w);
+    SelectionControls(w);
     worker = std::thread([] {
         CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         for (;;) {
@@ -2021,6 +2316,15 @@ bool Translate(MSG &message) {
     auto &w = *found->second;
     if (message.message == WM_KEYDOWN) {
         if (message.wParam == VK_ESCAPE) {
+            if (w.mode == Mode::Library && w.selecting) {
+                if (w.busy)
+                    return true;
+                w.selecting = false;
+                w.selectedIds.clear();
+                SelectionControls(w);
+                StatusText(w, L"已退出多选。");
+                return true;
+            }
             PostMessageW(root, WM_CLOSE, 0, 0);
             return true;
         }

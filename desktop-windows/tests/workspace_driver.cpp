@@ -69,6 +69,56 @@ int wmain(int argc, wchar_t **argv) {
         Click(home, 25000);
         return 0;
     }
+    if (action == L"multi-begin") {
+        SendDlgItemMessageW(home, 2005, LB_SETCURSEL, 0, 0);
+        SendMessageW(GetDlgItem(home, 2005), WM_CONTEXTMENU, 0, -1);
+        return 0;
+    }
+    if (action == L"multi-ready")
+        return home && IsWindowVisible(GetDlgItem(home, 27003)) &&
+                       IsWindowEnabled(GetDlgItem(home, 27003))
+                   ? 0
+                   : 40;
+    if (action == L"multi-all") {
+        Click(home, 27002);
+        return 0;
+    }
+    if (action == L"multi-cancel") {
+        Click(home, 27001);
+        return 0;
+    }
+    if (action == L"multi-delete") {
+        Click(home, 27003);
+        return 0;
+    }
+    if (action == L"multi-delete-cancel" || action == L"multi-delete-confirm") {
+        auto dialog = FindWindowW(L"#32770", L"Mnote · 批量删除");
+        if (!dialog)
+            return 41;
+        PostMessageW(dialog, WM_COMMAND, action == L"multi-delete-cancel" ? IDNO : IDYES, 0);
+        return 0;
+    }
+    if (action == L"markdown-preselected") {
+        auto w = Window(L"Mnote · 导出给 AI");
+        if (!w)
+            return 42;
+        return SendDlgItemMessageW(w, 2005, LB_GETSELCOUNT, 0, 0) == 3 ? 0 : 43;
+    }
+    if (action == L"markdown-preview-image") {
+        auto w = Window(L"Mnote · 导出给 AI");
+        if (!w)
+            return 42;
+        SendDlgItemMessageW(w, 2005, LB_SETCARETINDEX, 0, 0);
+        Click(w, 27004);
+        return 0;
+    }
+    if (action == L"image-close") {
+        auto w = Window(L"Mnote · 图片与页面上下文");
+        if (!w)
+            return 44;
+        PostMessageW(w, WM_CLOSE, 0, 0);
+        return 0;
+    }
     if (action == L"markdown-select" || action == L"markdown-save" || action == L"markdown-close" ||
         action == L"markdown-shares") {
         auto w = Window(L"Mnote · 导出给 AI");

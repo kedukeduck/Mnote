@@ -36,6 +36,24 @@ final class CaptureDeletionStore {
         catch (RuntimeException ignored) { }
         try { CaptureAccountSync.enqueue(context); } catch (RuntimeException ignored) { }
     }
+    static void deleteMany(Context context, String scope, List<CaptureStore.CaptureRecord> records) throws Exception {
+        if (records.isEmpty() || records.size() > 100) throw new IOException("invalid_selection");
+        synchronized (CaptureAccountSession.LOCK) {
+            CaptureAccountSession.requireScope(context, scope);
+            JSONObject data = read(context);
+            // Validate the entire snapshot before one atomic outbox write, never partially delete.
+            for (CaptureStore.CaptureRecord record : records) {
+                CaptureStore.CaptureRecord current = CaptureRecordEdits.latest(context, scope, record.id);
+                if (current.serverRevision != record.serverRevision
+                    || !CaptureRecordEdits.fingerprint(current).equals(CaptureRecordEdits.fingerprint(record)))
+                    throw new IOException("record_changed");
+                data.put(record.id, CaptureAccountSession.hasAccount(context));
+            }
+            write(context, data);
+        }
+        try { context.sendBroadcast(new android.content.Intent(CaptureStore.ACTION_RECORDS_CHANGED).setPackage(context.getPackageName())); } catch (RuntimeException ignored) { }
+        try { CaptureAccountSync.enqueue(context); } catch (RuntimeException ignored) { }
+    }
     static List<String> pending(Context context) throws Exception {
         List<String> result = new ArrayList<>(); JSONObject data = read(context);
         for (Iterator<String> it = data.keys(); it.hasNext();) { String id = it.next(); if (data.getBoolean(id)) result.add(id); }

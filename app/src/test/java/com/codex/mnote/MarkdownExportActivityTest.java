@@ -77,6 +77,98 @@ public class MarkdownExportActivityTest {
         return ReflectionHelpers.getField(activity, name);
     }
     @Test
+    public void realScreenshotThumbnailsAndRolePreviewAreVisibleWithoutPublishing()
+        throws Exception {
+        android.graphics.Bitmap source;
+        // Capture an actual native test screen, not a production user's screenshot.
+        try (var settings = Robolectric.buildActivity(SettingsActivity.class).setup()) {
+            var root = SettingsActivityTest.layout(settings.get(), 390, 844);
+            source = android.graphics.Bitmap.createBitmap(
+                root.getWidth(), root.getHeight(), android.graphics.Bitmap.Config.ARGB_8888);
+            root.draw(new android.graphics.Canvas(source));
+        }
+        var crop = android.graphics.Bitmap.createBitmap(source, 22, 210, 346, 110);
+        var draft = CaptureStore.writeDraftBitmap(context, source);
+        var layer = new JSONObject()
+                        .put("sourceWidth", source.getWidth())
+                        .put("sourceHeight", source.getHeight())
+                        .put("selection",
+                            new JSONObject()
+                                .put("left", 22)
+                                .put("top", 210)
+                                .put("right", 368)
+                                .put("bottom", 320));
+        var record = CaptureStore.save(context, draft, crop, crop, layer, "thought",
+            "把账号和更新放在同一个清晰的入口，界面会更安静。", "screen_capture", "", "", "", "",
+            true, null);
+        CaptureStore.updateSyncState(context, record.id, CaptureStore.SYNC_SYNCED, "", 1);
+        try (var controller = Robolectric.buildActivity(MarkdownExportActivity.class).setup()) {
+            var activity = controller.get();
+            drain(activity);
+            var root = SettingsActivityTest.layout(activity, 390, 844);
+            RecordImageLoader loader = ReflectionHelpers.getField(activity, "images");
+            ExecutorService worker = ReflectionHelpers.getField(loader, "worker");
+            worker.submit(() -> {}).get(5, TimeUnit.SECONDS);
+            shadowOf(Looper.getMainLooper()).idle();
+            ListView list = ReflectionHelpers.getField(activity, "list");
+            android.view.View row = list.getChildAt(0);
+            LinearLayout pictures = ReflectionHelpers.getField(row, "pictures");
+            assertEquals(3, pictures.getChildCount());
+            for (int i = 0; i < 3; i++)
+                assertNotNull(((ImageView) ((LinearLayout) pictures.getChildAt(i)).getChildAt(0))
+                        .getDrawable());
+            SettingsActivityTest.layout(activity, 390, 844);
+            for (int i = 0; i < 3; i++)
+                assertNotNull(((ImageView) ((LinearLayout) pictures.getChildAt(i)).getChildAt(0))
+                        .getDrawable());
+            SettingsActivityTest.render(root, "markdown-images-preview.png");
+            Button preview = ReflectionHelpers.getField(row, "preview");
+            preview.performClick();
+            worker.submit(() -> {}).get(5, TimeUnit.SECONDS);
+            shadowOf(Looper.getMainLooper()).idle();
+            assertTrue(ShadowAlertDialog.getLatestAlertDialog().isShowing());
+            android.app.AlertDialog dialog = ShadowAlertDialog.getLatestAlertDialog();
+            android.view.View dialogRoot = dialog.getWindow().getDecorView();
+            CaptureContextPreview full = findPreview(dialogRoot);
+            assertNotNull(full);
+            assertNotNull(full.getDrawable());
+            // Open the full-page role directly by tapping its thumbnail.
+            dialog.dismiss();
+            ((LinearLayout) pictures.getChildAt(2)).getChildAt(0).performClick();
+            worker.submit(() -> {}).get(5, TimeUnit.SECONDS);
+            shadowOf(Looper.getMainLooper()).idle();
+            dialogRoot = ShadowAlertDialog.getLatestAlertDialog().getWindow().getDecorView();
+            full = findPreview(dialogRoot);
+            assertNotNull(full.getDrawable());
+            assertTrue(
+                full.getDrawable().getIntrinsicHeight() > full.getDrawable().getIntrinsicWidth());
+            dialogRoot.measure(android.view.View.MeasureSpec.makeMeasureSpec(
+                                   360, android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(
+                    760, android.view.View.MeasureSpec.AT_MOST));
+            dialogRoot.layout(0, 0, dialogRoot.getMeasuredWidth(), dialogRoot.getMeasuredHeight());
+            SettingsActivityTest.render(dialogRoot, "markdown-full-image-preview.png");
+            assertEquals(0, Http.calls);
+            assertTrue(record.originalFile.exists());
+            assertTrue(record.contextFile.exists());
+        }
+        source.recycle();
+        crop.recycle();
+    }
+    private static CaptureContextPreview findPreview(android.view.View view) {
+        if (view instanceof CaptureContextPreview)
+            return (CaptureContextPreview) view;
+        if (view instanceof android.view.ViewGroup) {
+            var group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                var found = findPreview(group.getChildAt(i));
+                if (found != null)
+                    return found;
+            }
+        }
+        return null;
+    }
+    @Test
     public void cardsShowSelectionAndFixedActionOnSmallScreen() throws Exception {
         note("比起收集更多知识，我更想留住那些让我开始行动的想法。", true);
         note("好的记录，应该能让我找回当时为什么被触动。", true);

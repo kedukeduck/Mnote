@@ -139,9 +139,17 @@ until_drive close-account
 drive show
 sleep 0.3
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/library-preview.png"
+drive multi-begin
+until_drive multi-ready
+drive multi-all
+drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/multiselect-preview.png"
 drive markdown
+until_drive markdown-preselected
 until_drive markdown-select
+sleep 0.4
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/markdown-preview.png"
+drive markdown-preview-image
+until_drive image-close
 drive markdown-save
 until_drive markdown-confirm
 until_drive markdown-file
@@ -152,7 +160,7 @@ import pathlib,re,sqlite3,sys,urllib.request
 root=pathlib.Path(sys.argv[1]);text=(root/'Mnote-export.md').read_text()
 assert text.startswith('# Mnote 记录导出') and '3 条' in text and 'original END' in text
 assert 'mns_' not in text
-paths=re.findall(r'https://images.example.test/capture(/s/[^)]+)',text)
+paths=list(dict.fromkeys(re.findall(r'https://images.example.test/capture(/s/[^)]+)',text)))
 assert len(paths)==4,paths
 port=(root/'fixture/port.txt').read_text()
 for path in paths:
@@ -166,6 +174,7 @@ until_drive confirm
 until_drive shares-empty
 drive shares-close
 drive markdown-close
+drive multi-cancel
 python3 - "${test_dir}" <<'PY'
 import pathlib,re,sys,urllib.request,urllib.error
 root=pathlib.Path(sys.argv[1]);text=(root/'Mnote-export.md').read_text();port=(root/'fixture/port.txt').read_text()
@@ -190,5 +199,18 @@ drive updates
 until_drive updates-ready
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/updates-preview.png"
 drive close-updates
+drive show
+drive multi-begin
+until_drive multi-ready
+drive multi-all
+drive multi-delete
+until_drive multi-delete-cancel
+until_drive count 3
+drive multi-delete
+until_drive multi-delete-confirm
+until_drive count 0
+drive trash
+until_drive count 3
+echo 'GUI: inline multi-select, preselected export, real image viewer, batch deletion confirmation and trash preservation passed'
 drive exit
 echo 'workspace GUI: passed (real account server, explicit import, upload, cancellation)'

@@ -22,7 +22,7 @@ Mnote 是一个独立的本地优先个人知识捕获项目，用于在 Android
 
 ## Windows 下载
 
-当前 Windows 测试版 **1.9.0-test**：[安装包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.9.0-test/Mnote-Windows-1.9.0-test-Setup.exe) · [便携包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.9.0-test/Mnote-Windows-1.9.0-test-Portable.zip)。使用 Android 上同一账号登录，自动同步；旧本机记录需要明确导入。
+当前 Windows 测试版 **1.10.0-test**：[安装包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.10.0-test/Mnote-Windows-1.10.0-test-Setup.exe) · [便携包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.10.0-test/Mnote-Windows-1.10.0-test-Portable.zip)。使用 Android 上同一账号登录，自动同步；旧本机记录需要明确导入。
 
 双端 1.8.0 新增批量选择记录导出 Markdown：包含文档说明、AI 阅读提示、索引、想法、摘录、原文、来源和完整截图/圈选图/批注图在线链接。首页先筛选再选择，最多 100 条已同步记录；需明确确认分享图片，分享快照可在导出页独立撤销。详情见[批量导出说明](docs/markdown-batch-export.md)。
 
@@ -32,7 +32,7 @@ Windows 已补齐应用内查看 / 编辑 / 删除、标签 / 未分类筛选、
 
 ## Android 构建
 
-当前 Android 增量测试版：[1.9.0-test APK](https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.9.0-test/Mnote-Android-1.9.0-test.apk)。统一设置页、精简导出界面与自有服务器更新。安装前保存草稿，覆盖安装，不要卸载旧版。使用原调试/测试签名，非正式商店版。
+当前 Android 增量测试版：[1.10.0-test APK](https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.10.0-test/Mnote-Android-1.10.0-test.apk)。导出页可查看真实截图与大图；首页长按进入多选，批量删除 / 导出。详见 [1.10.0 说明](docs/selection-1.10.0-release-notes.md)。安装前保存草稿，覆盖安装，不要卸载旧版。使用原调试/测试签名，非正式商店版。
 
 1.6.0 新增所有安卓记录入口的多标签、已有记录补改标签、首页标签 / 未分类筛选及标签账号同步。长文支持内部滚动、全屏展开编辑及到文末，页面读取改善嵌套段落顺序并支持可见叶节点描述。修正 UI 位图提前回收风险，新增仅本机的异常诊断；尚未真机复现用户报告的偶发闪退。详见 [1.6.0 标签、长文与稳定性说明](docs/android-1.6.0-tags-readable-context.md)。
 

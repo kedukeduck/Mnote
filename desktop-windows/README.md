@@ -1,4 +1,6 @@
-# Mnote Windows 1.9.0-test
+# Mnote Windows 1.10.0-test
+
+新增：在记录列表长按 / 右键进入多选（也可点“多选”），最多 100 条，支持确认后删除和导出所选。导出页展示真实缩略图，“查看当前截图”可打开带缩放的大图。Markdown 图片另附原图链接。详见 [1.10.0 说明](../docs/selection-1.10.0-release-notes.md)。
 
 ## 批量导出 Markdown
 

@@ -76,6 +76,9 @@ public final class CaptureInboxActivity extends Activity {
     private RadioGroup filterGroup;
     private String tagFilter, filterScope;
     private int visibleLimit = RECORD_LIMIT;
+    private final java.util.Set<String> selectedRecords = new java.util.LinkedHashSet<>();
+    private boolean selecting, deletingSelection;
+    private List<CaptureStore.CaptureRecord> visibleRecords = new ArrayList<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -84,9 +87,14 @@ public final class CaptureInboxActivity extends Activity {
         CaptureStore.cleanupStaleDrafts(this);
         bindViews();
         bindActions();
+        createSelectionDock();
         filterScope = CaptureAccountSession.scope(this);
-        if (savedInstanceState != null && filterScope.equals(savedInstanceState.getString("tag_scope")))
+        if (savedInstanceState != null && filterScope.equals(savedInstanceState.getString("tag_scope"))) {
             tagFilter = savedInstanceState.getString("tag_filter");
+            selecting = savedInstanceState.getBoolean("selecting");
+            ArrayList<String> restored = savedInstanceState.getStringArrayList("selected_records");
+            if (restored != null) selectedRecords.addAll(restored.subList(0, Math.min(100, restored.size())));
+        }
     }
 
     @Override
@@ -150,6 +158,10 @@ public final class CaptureInboxActivity extends Activity {
 
     private void bindActions() {
         findViewById(R.id.capture_export_markdown).setOnClickListener(view -> {
+            if(selecting) {
+                findViewById(R.id.capture_selection_export).performClick();
+                return;
+            }
             int filter = filterGroup.getCheckedRadioButtonId();
             int type = filter == R.id.capture_filter_excerpt ? 1
                     : filter == R.id.capture_filter_thought ? 2
@@ -397,12 +409,14 @@ public final class CaptureInboxActivity extends Activity {
 
     @Override protected void onSaveInstanceState(Bundle state) {
         state.putString("tag_filter",tagFilter);state.putString("tag_scope",filterScope);
+        state.putBoolean("selecting", selecting);
+        state.putStringArrayList("selected_records", new ArrayList<>(selectedRecords));
         super.onSaveInstanceState(state);
     }
 
     private void renderRecords() {
         String currentScope=CaptureAccountSession.scope(this);
-        if (!currentScope.equals(filterScope)) { tagFilter=null; filterScope=currentScope; visibleLimit=RECORD_LIMIT; }
+        if (!currentScope.equals(filterScope)) { tagFilter=null; filterScope=currentScope; visibleLimit=RECORD_LIMIT; selectedRecords.clear(); selecting=false; }
         List<CaptureStore.CaptureRecord> allRecords = CaptureStore.list(
                 this,
                 Integer.MAX_VALUE
@@ -434,6 +448,8 @@ public final class CaptureInboxActivity extends Activity {
         List<CaptureStore.CaptureRecord> records = allRecords.size() <= visibleLimit
                 ? allRecords
                 : new ArrayList<>(allRecords.subList(0, visibleLimit));
+        visibleRecords = records;
+        selectedRecords.removeIf(id -> allRecords.stream().noneMatch(r -> r.id.equals(id)));
         findViewById(R.id.capture_load_more).setVisibility(allRecords.size()>visibleLimit ? View.VISIBLE : View.GONE);
         recordCount.setText(getString(R.string.capture_filtered_count, allRecords.size(), libraryRecords.size()));
         TextView emptyTitle = (TextView) ((LinearLayout) emptyState).getChildAt(1);
@@ -453,6 +469,7 @@ public final class CaptureInboxActivity extends Activity {
             bindRecord(card, record, generation);
             recordsContainer.addView(card);
         }
+        updateSelection();
     }
 
     private void bindRecord(
@@ -528,8 +545,104 @@ public final class CaptureInboxActivity extends Activity {
         );
         card.setClickable(true);
         card.setFocusable(true);
-        card.setOnClickListener(view -> showRecordDetail(record, ownerScope));
-        card.setOnLongClickListener(view -> { confirmDelete(record, ownerScope); return true; });
+        card.setTag(record.id);
+        android.widget.CheckBox selected = new android.widget.CheckBox(this);
+        selected.setId(R.id.capture_item_selected);
+        selected.setText("选择这条记录");
+        selected.setClickable(false); selected.setFocusable(false);
+        selected.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        ((LinearLayout) card).addView(selected, 0);
+        card.setOnClickListener(view -> {
+            if (deletingSelection || !ownerScope.equals(CaptureAccountSession.scope(this))) return;
+            if (selecting) toggleSelection(record.id); else showRecordDetail(record, ownerScope);
+        });
+        card.setOnLongClickListener(view -> {
+            if (!deletingSelection && ownerScope.equals(CaptureAccountSession.scope(this))) {
+                selecting=true; toggleSelection(record.id);
+            }
+            return true;
+        });
+    }
+
+    private void createSelectionDock() {
+        LinearLayout root = (LinearLayout) findViewById(R.id.capture_action_dock).getParent();
+        LinearLayout dock = new LinearLayout(this); dock.setId(R.id.capture_selection_dock);
+        dock.setOrientation(LinearLayout.VERTICAL); dock.setBackgroundColor(getColor(R.color.card));
+        int padding=Math.round(16*getResources().getDisplayMetrics().density);
+        dock.setPadding(padding, padding/2, padding, padding/2);
+        root.addView(dock, new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout top = new LinearLayout(this); top.setGravity(android.view.Gravity.CENTER_VERTICAL); dock.addView(top);
+        TextView count = new TextView(this); count.setId(R.id.capture_selection_count); count.setTextColor(getColor(R.color.ink)); count.setTextSize(15);
+        count.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        top.addView(count,new LinearLayout.LayoutParams(0,-2,1));
+        selectionButton(top,R.id.capture_selection_all,"全选当前",()->{
+            for (CaptureStore.CaptureRecord r : visibleRecords) { if(selectedRecords.size()>=100) break; selectedRecords.add(r.id); }
+            updateSelection();
+        });
+        selectionButton(top,R.id.capture_selection_cancel,"取消",this::exitSelection);
+        LinearLayout actions = new LinearLayout(this); dock.addView(actions);
+        Button delete = selectionButton(actions,R.id.capture_selection_delete,"删除",this::deleteSelection);
+        delete.setTextColor(getColor(R.color.danger)); delete.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));
+        Button export = selectionButton(actions,R.id.capture_selection_export,"导出 Markdown",()->{
+            if (selectedRecords.isEmpty() || !filterScope.equals(CaptureAccountSession.scope(this))) return;
+            startActivity(new Intent(this,MarkdownExportActivity.class)
+                .putExtra("selection_scope",filterScope).putStringArrayListExtra("record_ids",new ArrayList<>(selectedRecords)));
+        });
+        export.setBackgroundResource(R.drawable.bg_button_primary); export.setTextColor(getColor(R.color.white));
+        export.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));
+        updateSelection();
+    }
+    private Button selectionButton(LinearLayout root,int id,String text,Runnable action) {
+        Button button = new Button(this);button.setId(id);button.setText(text);button.setTextSize(13);
+        button.setBackgroundResource(android.R.color.transparent);root.addView(button);
+        button.setOnClickListener(v->{if(!deletingSelection) action.run();});return button;
+    }
+    private void toggleSelection(String id) {
+        if (!selectedRecords.remove(id)) {
+            if (selectedRecords.size()>=100) { Toast.makeText(this,"每次最多选择 100 条",Toast.LENGTH_SHORT).show();return; }
+            selectedRecords.add(id);
+        }
+        updateSelection();
+    }
+    private void exitSelection() { if(deletingSelection)return;selecting=false;selectedRecords.clear();updateSelection(); }
+    @Override public void onBackPressed() { if(selecting) exitSelection();else super.onBackPressed(); }
+    private void updateSelection() {
+        View dock=findViewById(R.id.capture_selection_dock);if(dock==null)return;
+        dock.setVisibility(selecting?View.VISIBLE:View.GONE);
+        findViewById(R.id.capture_action_dock).setVisibility(selecting?View.GONE:View.VISIBLE);
+        ((TextView)findViewById(R.id.capture_selection_count)).setText("已选 "+selectedRecords.size()+" 条");
+        for(int id:new int[]{R.id.capture_selection_export,R.id.capture_selection_delete})
+            findViewById(id).setEnabled(!deletingSelection&&!selectedRecords.isEmpty());
+        for(int i=0;i<recordsContainer.getChildCount();i++) {
+            View card=recordsContainer.getChildAt(i);android.widget.CheckBox check=card.findViewById(R.id.capture_item_selected);
+            if(check==null)continue;
+            boolean chosen=selectedRecords.contains(card.getTag());
+            check.setVisibility(selecting?View.VISIBLE:View.GONE);check.setChecked(chosen);check.jumpDrawablesToCurrentState();
+            android.graphics.drawable.GradientDrawable bg=new android.graphics.drawable.GradientDrawable();
+            bg.setColor(chosen?0xffeef1fe:getColor(R.color.card));bg.setCornerRadius(18*getResources().getDisplayMetrics().density);
+            bg.setStroke(Math.max(1,Math.round(getResources().getDisplayMetrics().density)),getColor(chosen?R.color.coral:R.color.line));card.setBackground(bg);
+            card.setSelected(chosen);
+            int padding=Math.round(16*getResources().getDisplayMetrics().density);card.setPadding(padding,padding,padding,padding);
+        }
+    }
+    private void deleteSelection() {
+        String scope=filterScope;
+        List<CaptureStore.CaptureRecord> snapshot=new ArrayList<>();
+        for(CaptureStore.CaptureRecord record:libraryRecords) if(selectedRecords.contains(record.id))snapshot.add(record);
+        if(snapshot.isEmpty()||!scope.equals(CaptureAccountSession.scope(this)))return;
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("删除选中的 "+snapshot.size()+" 条记录？")
+            .setMessage(CaptureAccountSession.hasAccount(this)?"只删除已勾选的记录；联网后同步到账号回收站，其他设备也会移除。":"只从本机列表移除已勾选的记录，不删除服务器副本。")
+            .setNegativeButton("取消",null).setPositiveButton("删除",(d,w)->{
+                deletingSelection=true;updateSelection();
+                refreshExecutor.execute(()->{
+                    boolean success=false;
+                    try{CaptureDeletionStore.deleteMany(this,scope,snapshot);success=true;}catch(Exception ignored){}
+                    final boolean ok=success;
+                    runOnUiThread(()->{if(destroyed)return;deletingSelection=false;
+                        if(ok)exitSelection();renderRecords();Toast.makeText(this,ok?"已删除 "+snapshot.size()+" 条记录":"记录或账号已变化，或保存失败；未执行批量删除，请刷新后重试",Toast.LENGTH_LONG).show();});
+                });
+            }).show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(getColor(R.color.danger));
     }
 
     private void showRecordDetail(CaptureStore.CaptureRecord record, String ownerScope) {

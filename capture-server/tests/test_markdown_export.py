@@ -54,7 +54,9 @@ class MarkdownExportTest(unittest.TestCase):
             self.assertIn(part, text)
         self.assertEqual(300, text.count("完整保留的文字"))
         self.assertNotIn(self.a["access_token"], text); self.assertNotIn("/v1/captures/", text)
-        paths = re.findall(r"https://images.example.com/capture(/s/[^)]+)", text)
+        paths = list(dict.fromkeys(re.findall(r"https://images.example.com/capture(/s/[^)]+)", text)))
+        self.assertEqual(3, len(re.findall(r"!\[记录 1 · [^\]]+\]\(https://", text)))
+        self.assertIn("[打开完整页面截图原始图片]", text)
         self.assertEqual(3, len(paths))
         for path in paths:
             code, image, headers = self.call("GET", path)

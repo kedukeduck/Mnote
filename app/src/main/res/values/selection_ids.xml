@@ -1,0 +1,9 @@
+<resources>
+    <item type="id" name="capture_selection_dock" />
+    <item type="id" name="capture_selection_count" />
+    <item type="id" name="capture_selection_cancel" />
+    <item type="id" name="capture_selection_all" />
+    <item type="id" name="capture_selection_export" />
+    <item type="id" name="capture_selection_delete" />
+    <item type="id" name="capture_item_selected" />
+</resources>

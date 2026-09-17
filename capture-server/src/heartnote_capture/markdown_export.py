@@ -122,7 +122,8 @@ def render(records, links, created, export_id, scope):
             f"- 原始链接：{source_url(src.get('url'))}", "", "#### 截图与圈选上下文", ""]
         for role, label in ROLES.items():
             url = links.get((r["id"], role))
-            lines += [f"{label}：", f"![记录 {n} · {label}]({url})", ""] if url else [f"- {label}：未保留"]
+            lines += [f"{label}：", "", f"![记录 {n} · {label}]({url})", "",
+                f"[打开{label}原始图片]({url})", ""] if url else [f"- {label}：未保留"]
         if image.get("selection"):
             lines += ["", "圈选位置（来自保存的元数据，不推断未记录的坐标系）：",
                 block(json.dumps({k: image[k] for k in ("selection", "coordinate_space", "width", "height", "purpose", "selection_meaning") if k in image}, ensure_ascii=False))]
