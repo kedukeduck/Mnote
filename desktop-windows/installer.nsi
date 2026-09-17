@@ -9,7 +9,7 @@ Target amd64-unicode
 !ifndef OUTPUT
   !error "Pass /DOUTPUT=absolute installer path"
 !endif
-Name "Mnote 1.10.1-test"
+Name "Mnote 1.11.0-test"
 OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\Programs\Mnote"
 InstallDirRegKey HKCU "Software\Mnote" "InstallDir"
@@ -27,10 +27,10 @@ BrandingText "Mnote · 你的个人知识库"
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "SimpChinese"
 !insertmacro MUI_LANGUAGE "English"
-VIProductVersion "1.10.1.0"
+VIProductVersion "1.11.0.0"
 VIAddVersionKey "ProductName" "Mnote"
 VIAddVersionKey "FileDescription" "Mnote Windows x64 Installer"
-VIAddVersionKey "FileVersion" "1.10.1-test"
+VIAddVersionKey "FileVersion" "1.11.0-test"
 VIAddVersionKey "LegalCopyright" "Mnote contributors"
 
 Function .onInit
@@ -84,7 +84,7 @@ Section "Mnote" Main
   CreateShortcut "$DESKTOP\Mnote.lnk" "$INSTDIR\mnote.exe"
   WriteRegStr HKCU "Software\Mnote" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mnote" "DisplayName" "Mnote"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mnote" "DisplayVersion" "1.10.1-test"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mnote" "DisplayVersion" "1.11.0-test"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mnote" "Publisher" "Mnote"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mnote" "UninstallString" '$\"$INSTDIR\Uninstall.exe$\"'
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Mnote" "DisplayIcon" "$INSTDIR\mnote.exe"

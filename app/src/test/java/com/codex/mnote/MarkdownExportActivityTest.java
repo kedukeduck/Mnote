@@ -259,20 +259,21 @@ public class MarkdownExportActivityTest {
         }
     }
     @Test
-    public void managementIsAccountScopedAndReportsEmptyShares() throws Exception {
+    public void managementOpensAccountScopedGalleryWithoutExtraDialog() throws Exception {
         try (var controller = Robolectric.buildActivity(MarkdownExportActivity.class).setup()) {
             var activity = controller.get();
             drain(activity);
             button(activity, "manage").performClick();
             drain(activity);
-            assertEquals(1, Http.calls);
-            TextView status = ReflectionHelpers.getField(activity, "status");
-            assertTrue(status.getText().toString().contains("没有有效"));
+            assertEquals(0, Http.calls);
+            Intent intent=shadowOf(activity).getNextStartedActivity();
+            assertEquals(ShareGalleryActivity.class.getName(),intent.getComponent().getClassName());
+            assertEquals(CaptureAccountSession.scope(context),intent.getStringExtra("scope"));
             CaptureAccountSession.clear(context);
             // A stale window must not fetch another account's export list.
             ReflectionHelpers.callInstanceMethod(activity, "manage");
             drain(activity);
-            assertEquals(1, Http.calls);
+            assertEquals(0, Http.calls);assertNull(shadowOf(activity).getNextStartedActivity());
         }
     }
     @Test
@@ -287,12 +288,10 @@ public class MarkdownExportActivityTest {
             drain(activity);
             button(activity, "manage").performClick();
             drain(activity);
-            var dialog = ShadowAlertDialog.getLatestAlertDialog();
-            dialog.getListView().performItemClick(null, 0, 0);
             Intent intent = shadowOf(activity).getNextStartedActivity();
             assertEquals(
-                ShareHistoryActivity.class.getName(), intent.getComponent().getClassName());
-            assertEquals("e".repeat(32), intent.getStringExtra("export_id"));
+                ShareGalleryActivity.class.getName(), intent.getComponent().getClassName());
+            assertNull(ShadowAlertDialog.getLatestAlertDialog());
             assertEquals(CaptureAccountSession.scope(context), intent.getStringExtra("scope"));
             assertEquals(0, Http.revoked);
         }

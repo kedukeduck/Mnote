@@ -33,7 +33,8 @@ public final class ShareHistoryActivity extends Activity {
             finish();
             return;
         }
-        restoreIndex = state == null ? 0 : state.getInt("image_index");
+        restoreIndex =
+            state == null ? getIntent().getIntExtra("image_index", 0) : state.getInt("image_index");
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         LinearLayout page = new LinearLayout(this);
@@ -158,19 +159,7 @@ public final class ShareHistoryActivity extends Activity {
                     "/v1/exports/" + exportId + "/assets/" + asset.getString("name"), c.writeToken);
                 if (bytes.length != asset.getInt("size"))
                     throw new IOException("invalid_export_image");
-                BitmapFactory.Options options = new BitmapFactory.Options();
-                options.inJustDecodeBounds = true;
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
-                if (options.outWidth <= 0 || options.outHeight <= 0)
-                    throw new IOException("invalid_export_image");
-                options.inSampleSize = 1;
-                while (options.outWidth / options.inSampleSize > 1600
-                    || options.outHeight / options.inSampleSize > 1600)
-                    options.inSampleSize *= 2;
-                options.inJustDecodeBounds = false;
-                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
-                if (bitmap == null)
-                    throw new IOException("invalid_export_image");
+                Bitmap bitmap = decode(bytes, 1600);
                 ui(() -> {
                     if (ticket != request)
                         return;
@@ -195,6 +184,22 @@ public final class ShareHistoryActivity extends Activity {
                     ? "分享已撤销或图片不可用，无法再预览。"
                     : "加载失败，请检查网络或重新登录后重试。");
         });
+    }
+    static Bitmap decode(byte[] bytes, int maximum) throws IOException {
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+        if (options.outWidth <= 0 || options.outHeight <= 0)
+            throw new IOException("invalid_export_image");
+        options.inSampleSize = 1;
+        while (options.outWidth / options.inSampleSize > maximum
+            || options.outHeight / options.inSampleSize > maximum)
+            options.inSampleSize *= 2;
+        options.inJustDecodeBounds = false;
+        Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+        if (bitmap == null)
+            throw new IOException("invalid_export_image");
+        return bitmap;
     }
     private void confirmRevoke() {
         if (revoking)

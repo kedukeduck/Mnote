@@ -471,6 +471,21 @@ Json Library::markdownExports(const std::string &scope) {
     Success(response);
     return Parse(response.body).at("exports");
 }
+Json Library::existingTags(const std::string &scope) {
+    std::lock_guard<std::recursive_mutex> guard(mutex_);
+    require(scope);
+    std::map<std::wstring, std::string> names;
+    for (const auto &record : list(scope))
+        if (!record.deleted)
+            for (const auto &item : record.data.value("tags", Json::array())) {
+                auto tag = item.get<std::string>();
+                names.emplace(Lower(Wide(tag)), tag);
+            }
+    Json result = Json::array();
+    for (const auto &entry : names)
+        result.push_back(entry.second);
+    return result;
+}
 void Library::revokeMarkdownExport(const std::string &scope, const std::string &id) {
     std::lock_guard<std::recursive_mutex> guard(mutex_);
     require(scope);

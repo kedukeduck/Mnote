@@ -74,7 +74,8 @@ enum Control {
     MultiCancel,
     MultiAll,
     MultiDelete,
-    ExportPreview
+    ExportPreview,
+    TagsPicker
 };
 enum class Mode { Library, Editor, Account, Image, Toast, Update, Markdown, Shares, Settings };
 struct Placement {
@@ -100,6 +101,10 @@ struct Window {
     std::set<std::string> selectedIds;
     std::map<std::string, std::shared_ptr<Gdiplus::Bitmap>> thumbnails;
     Json shares = Json::array();
+    std::set<std::string> shareLoading, shareErrors;
+    std::map<std::string, std::wstring> shareCoverLabels;
+    std::deque<std::string> shareCacheOrder;
+    int shareGeneration = 0;
     Json shareImages = Json::array();
     std::string shareId;
     std::shared_ptr<Gdiplus::Bitmap> preview;
@@ -174,7 +179,7 @@ void Busy(Window &w, bool value) {
                    Kind,      Server,         Username,       Password,      Invitation,
                    AiAccess,  UpdateCheck,    UpdateDownload, UpdateInstall, BatchExport,
                    SelectAll, ClearSelection, ExportShares,   MultiSelect,   MultiCancel,
-                   MultiAll,  MultiDelete,    ImageRole,      ExportPreview})
+                   MultiAll,  MultiDelete,    ImageRole,      ExportPreview, TagsPicker})
         if (auto c = ControlOf(w, id))
             EnableWindow(c, !value);
 }
@@ -640,6 +645,41 @@ void OpenImage(Window &from) {
     ShowWindow(w.hwnd, SW_SHOW);
     SetForegroundWindow(w.hwnd);
 }
+std::shared_ptr<Gdiplus::Bitmap> ShareBitmap(const std::string &bytes, bool thumbnail = false) {
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes.size());
+    if (!memory)
+        throw std::runtime_error("image_unavailable");
+    auto data = GlobalLock(memory);
+    if (!data) {
+        GlobalFree(memory);
+        throw std::runtime_error("image_unavailable");
+    }
+    memcpy(data, bytes.data(), bytes.size());
+    GlobalUnlock(memory);
+    IStream *raw = nullptr;
+    if (FAILED(CreateStreamOnHGlobal(memory, TRUE, &raw))) {
+        GlobalFree(memory);
+        throw std::runtime_error("image_unavailable");
+    }
+    std::unique_ptr<IStream, void (*)(IStream *)> stream(raw, [](IStream *p) { p->Release(); });
+    std::unique_ptr<Gdiplus::Bitmap> decoded(Gdiplus::Bitmap::FromStream(stream.get()));
+    if (!decoded || decoded->GetLastStatus() != Gdiplus::Ok || !decoded->GetWidth() ||
+        !decoded->GetHeight() ||
+        static_cast<std::uint64_t>(decoded->GetWidth()) * decoded->GetHeight() > 32000000)
+        throw std::runtime_error("image_unavailable");
+    double scale =
+        thumbnail ? std::min(600.0 / decoded->GetWidth(), 180.0 / decoded->GetHeight()) : 1.0;
+    auto result = std::make_shared<Gdiplus::Bitmap>(std::max(1, int(decoded->GetWidth() * scale)),
+                                                    std::max(1, int(decoded->GetHeight() * scale)),
+                                                    PixelFormat32bppARGB);
+    Gdiplus::Graphics graphics(result.get());
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+    if (result->GetLastStatus() != Gdiplus::Ok ||
+        graphics.DrawImage(decoded.get(), 0, 0, result->GetWidth(), result->GetHeight()) !=
+            Gdiplus::Ok)
+        throw std::runtime_error("image_unavailable");
+    return result;
+}
 void LoadShareImage(Window &w) {
     if (w.busy)
         return;
@@ -659,32 +699,7 @@ void LoadShareImage(Window &w) {
         w,
         [scope, id, asset, bitmap] {
             auto bytes = library->markdownExportImage(scope, id, asset);
-            HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes.size());
-            if (!memory)
-                throw std::runtime_error("image_unavailable");
-            auto data = GlobalLock(memory);
-            if (!data) {
-                GlobalFree(memory);
-                throw std::runtime_error("image_unavailable");
-            }
-            memcpy(data, bytes.data(), bytes.size());
-            GlobalUnlock(memory);
-            IStream *raw = nullptr;
-            if (FAILED(CreateStreamOnHGlobal(memory, TRUE, &raw))) {
-                GlobalFree(memory);
-                throw std::runtime_error("image_unavailable");
-            }
-            std::unique_ptr<IStream, void (*)(IStream *)> stream(raw,
-                                                                 [](IStream *p) { p->Release(); });
-            std::unique_ptr<Gdiplus::Bitmap> decoded(Gdiplus::Bitmap::FromStream(stream.get()));
-            if (!decoded || decoded->GetLastStatus() != Gdiplus::Ok || !decoded->GetWidth() ||
-                !decoded->GetHeight() ||
-                static_cast<std::uint64_t>(decoded->GetWidth()) * decoded->GetHeight() > 32000000)
-                throw std::runtime_error("image_unavailable");
-            bitmap->reset(decoded->Clone(0, 0, decoded->GetWidth(), decoded->GetHeight(),
-                                         PixelFormat32bppARGB));
-            if (!*bitmap || (*bitmap)->GetLastStatus() != Gdiplus::Ok)
-                throw std::runtime_error("image_unavailable");
+            *bitmap = ShareBitmap(bytes);
         },
         [bitmap, scope](Window &form) {
             EnableWindow(ControlOf(form, ImageRole), TRUE);
@@ -761,9 +776,44 @@ void OpenEditor(Draft draft, const Record *record) {
     Label(w, 2400, L"我的想法", y);
     Edit(w, Note, Field(data, "comment"), y + 30, 130, 20000);
     y += 182;
-    Label(w, 2401, L"标签 · 用逗号分隔", y);
+    Label(w, 2401, L"标签 · 选择已有，也可输入新标签", y);
     Edit(w, TagsInput, TagText(data), y + 30, 38, 4096, false);
-    y += 94;
+    auto picker =
+        Add(w, TagsPicker, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, 28, y + 76, 380, 220);
+    SendMessageW(picker, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"正在读取已有标签…"));
+    SendMessageW(picker, CB_SETCURSEL, 0, 0);
+    EnableWindow(picker, FALSE);
+    auto editorHwnd = w.hwnd;
+    auto editorSerial = w.serial;
+    auto tagScope = w.scope;
+    Enqueue([editorHwnd, editorSerial, tagScope] {
+        try {
+            auto tags = library->existingTags(tagScope);
+            Post([editorHwnd, editorSerial, tagScope, tags] {
+                auto form = Find(editorHwnd, editorSerial);
+                if (!form || tagScope != library->account().scope)
+                    return;
+                auto control = ControlOf(*form, TagsPicker);
+                SendMessageW(control, CB_RESETCONTENT, 0, 0);
+                SendMessageW(control, CB_ADDSTRING, 0,
+                             reinterpret_cast<LPARAM>(tags.empty() ? L"还没有标签，可在上方新建"
+                                                                   : L"选择已有标签，点击即添加"));
+                for (const auto &tag : tags) {
+                    auto value = Wide(tag.get<std::string>());
+                    SendMessageW(control, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(value.c_str()));
+                }
+                SendMessageW(control, CB_SETCURSEL, 0, 0);
+                EnableWindow(control, !form->busy && !tags.empty());
+            });
+        } catch (const std::exception &) {
+            Post([editorHwnd, editorSerial] {
+                if (auto form = Find(editorHwnd, editorSerial)) {
+                    SetWindowTextW(ControlOf(*form, TagsPicker), L"读取失败，仍可手动输入");
+                }
+            });
+        }
+    });
+    y += 150;
     Label(w, 2402, L"记录类型", y);
     Add(w, Kind, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, 28, y + 30, 220, 180);
     for (auto value : {L"想法", L"TODO", L"稍后回顾"})
@@ -1189,6 +1239,14 @@ void OpenUpdate() {
     CheckUpdate(w);
 }
 void ShareList(Window &w) {
+    if (w.busy)
+        return;
+    ++w.shareGeneration;
+    w.shareLoading.clear();
+    w.shareErrors.clear();
+    w.thumbnails.clear();
+    w.shareCacheOrder.clear();
+    w.shareCoverLabels.clear();
     auto scope = w.scope;
     auto result = std::make_shared<Json>();
     Run(
@@ -1209,7 +1267,7 @@ void ShareList(Window &w) {
             }
             SendMessageW(ControlOf(form, List), LB_SETCURSEL, 0, 0);
             StatusText(form, form.shares.empty() ? L"没有有效的导出分享。"
-                                                 : L"选择一次导出，查看当时的图片或撤销链接。");
+                                                 : L"图片预览自动加载 · 双击卡片查看全部图片。");
         });
 }
 void OpenSettings() {
@@ -1261,17 +1319,16 @@ void OpenMarkdown(Window &source, bool shares = false) {
     }
     auto &w = Create(shares ? Mode::Shares : Mode::Markdown,
                      shares ? L"Mnote · 导出链接管理" : L"Mnote · 导出给 AI", 800, 720);
-    Label(w, Title, shares ? L"管理图片分享链接" : L"带走一些灵感", 24);
+    Label(w, Title, shares ? L"分享管理" : L"带走一些灵感", 24);
     Label(w, Subtitle,
-          shares
-              ? L"撤销只影响这次导出的图片链接，原始记录不删除。\r\n已导出的文字和已下载的图片无法"
-                L"收回。"
-              : L"把选中的想法与上下文，整理成一份 Markdown。\r\n"
-                L"点击卡片勾选 · 最多 100 条已同步记录 · 图片经确认分享，可撤销。",
+          shares ? L"留住分享时的画面 · 打开即预览，双击查看全部图片。\r\n"
+                   L"撤销只影响分享链接，原始记录保留；已下载的副本无法收回。"
+                 : L"把选中的想法与上下文，整理成一份 Markdown。\r\n"
+                   L"点击卡片勾选 · 最多 100 条已同步记录 · 图片经确认分享，可撤销。",
           76);
     Add(w, List, L"LISTBOX", L"",
-        WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT |
-            (shares ? 0 : LBS_MULTIPLESEL | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS),
+        WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED |
+            LBS_HASSTRINGS | (shares ? 0 : LBS_MULTIPLESEL),
         28, 216, 700, 340);
     if (!shares) {
         for (const auto &r : source.filtered)
@@ -1298,7 +1355,7 @@ void OpenMarkdown(Window &source, bool shares = false) {
             SendMessageW(ControlOf(w, List), LB_SETSEL, TRUE, -1);
     } else {
         Button(w, ExportShares, L"刷新分享列表", 0, 164, 216);
-        Button(w, ExportPreview, L"查看分享图片", 288, 164, 160);
+        Button(w, ExportPreview, L"查看分享图片", 28, 164, 160);
     }
     Button(w, Save, shares ? L"撤销选中导出链接" : L"导出 Markdown", 0, 0, 200);
     Button(w, Cancel, L"关闭", 28, 0, 120);
@@ -1485,6 +1542,25 @@ void MarkdownCommand(Window &w, int id) {
         });
 }
 void Command(Window &w, int id, int event) {
+    if (w.mode == Mode::Editor && id == TagsPicker && event == CBN_SELCHANGE && !w.busy) {
+        if (w.scope != library->account().scope) {
+            StatusText(w, L"账号已变化，请重新打开记录。");
+            return;
+        }
+        auto picker = ControlOf(w, TagsPicker);
+        auto index = SendMessageW(picker, CB_GETCURSEL, 0, 0);
+        if (index > 0)
+            try {
+                auto current = Text(ControlOf(w, TagsInput));
+                auto selected = Text(picker);
+                auto values = Mnote::Tags(current + (current.empty() ? L"" : L"，") + selected);
+                Set(w, TagsInput, TagText(Json{{"tags", values}}));
+            } catch (const std::exception &error) {
+                StatusText(w, ErrorText(error));
+            }
+        SendMessageW(picker, CB_SETCURSEL, 0, 0);
+        return;
+    }
     if (w.mode == Mode::Library) {
         if (w.busy)
             return;
@@ -1854,6 +1930,127 @@ void DrawImage(Window &w, HDC dc, RECT r) {
         }
     }
 }
+void QueueShareCover(Window &w, const Json &share) {
+    auto id = share.at("id").get<std::string>();
+    if (w.busy || w.thumbnails.count(id) || w.shareLoading.count(id) || w.shareErrors.count(id))
+        return;
+    w.shareLoading.insert(id);
+    auto hwnd = w.hwnd;
+    auto serial = w.serial;
+    auto scope = w.scope;
+    int generation = w.shareGeneration;
+    Enqueue([hwnd, serial, scope, generation, id] {
+        std::shared_ptr<Gdiplus::Bitmap> bitmap;
+        std::wstring caption;
+        try {
+            auto images = library->markdownExportImages(scope, id);
+            if (images.empty())
+                throw std::runtime_error("no_images");
+            auto cover = images.front();
+            for (const auto &asset : images)
+                if (asset.at("role") == "annotated") {
+                    cover = asset;
+                    break;
+                }
+            bitmap = ShareBitmap(library->markdownExportImage(scope, id, cover), true);
+            auto role = cover.at("role").get<std::string>();
+            caption = L"记录 " + std::to_wstring(cover.at("record_index").get<int>()) + L" · " +
+                      (role == "context"    ? L"完整页面"
+                       : role == "original" ? L"圈选原图"
+                                            : L"批注图");
+        } catch (const std::exception &) {
+        }
+        Post([hwnd, serial, scope, generation, id, bitmap, caption] {
+            auto form = Find(hwnd, serial);
+            if (!form || form->shareGeneration != generation || scope != library->account().scope)
+                return;
+            form->shareLoading.erase(id);
+            if (bitmap) {
+                form->thumbnails[id] = bitmap;
+                form->shareCoverLabels[id] = caption;
+                form->shareCacheOrder.push_back(id);
+                while (form->shareCacheOrder.size() > 16) {
+                    form->thumbnails.erase(form->shareCacheOrder.front());
+                    form->shareCacheOrder.pop_front();
+                }
+                StatusText(*form, L"已显示 " + std::to_wstring(form->thumbnails.size()) +
+                                      L" 次分享的图片预览 · 双击卡片查看全部");
+            } else
+                form->shareErrors.insert(id);
+            InvalidateRect(ControlOf(*form, List), nullptr, FALSE);
+        });
+    });
+}
+void DrawShare(Window &w, const DRAWITEMSTRUCT &item) {
+    if (item.itemID >= w.shares.size())
+        return;
+    const auto &share = w.shares.at(item.itemID);
+    std::string id = share.at("id");
+    int count = share.at("image_count");
+    RECT r = item.rcItem;
+    FillRect(item.hDC, &r, backgroundBrush);
+    r.bottom -= Scale(w, 12);
+    auto brush =
+        CreateSolidBrush((item.itemState & ODS_SELECTED) ? RGB(238, 241, 254) : RGB(255, 255, 255));
+    auto pen = CreatePen(PS_SOLID, Scale(w, 1), Border);
+    auto oldBrush = SelectObject(item.hDC, brush);
+    auto oldPen = SelectObject(item.hDC, pen);
+    RoundRect(item.hDC, r.left, r.top, r.right, r.bottom, Scale(w, 22), Scale(w, 22));
+    SelectObject(item.hDC, oldBrush);
+    SelectObject(item.hDC, oldPen);
+    DeleteObject(brush);
+    DeleteObject(pen);
+    r.left += Scale(w, 18);
+    r.right -= Scale(w, 18);
+    r.top += Scale(w, 12);
+    r.bottom = r.top + Scale(w, 24);
+    RECT date = r;
+    date.right -= Scale(w, 225);
+    auto stamp = Wide(share.at("created").get<std::string>());
+    if (stamp.size() >= 16 && stamp[10] == L'T') {
+        stamp = stamp.substr(0, 16);
+        stamp[10] = L' ';
+        stamp += L" UTC";
+    }
+    DrawTextLine(item.hDC, date, stamp, Ink, w.font);
+    RECT counter = r;
+    counter.left = counter.right - Scale(w, 220);
+    DrawTextLine(item.hDC, counter,
+                 std::to_wstring(share.at("record_count").get<int>()) + L" 条记录 · " +
+                     std::to_wstring(count) + L" 张图片",
+                 Muted, w.font, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+    r.top += Scale(w, 34);
+    r.bottom = r.top + Scale(w, 172);
+    FillRect(item.hDC, &r, backgroundBrush);
+    auto found = w.thumbnails.find(id);
+    if (found != w.thumbnails.end()) {
+        Gdiplus::Graphics graphics(item.hDC);
+        auto image = found->second;
+        double ratio = std::min(double(r.right - r.left) / image->GetWidth(),
+                                double(r.bottom - r.top) / image->GetHeight());
+        int width = int(image->GetWidth() * ratio), height = int(image->GetHeight() * ratio);
+        graphics.DrawImage(image.get(), r.left + (r.right - r.left - width) / 2,
+                           r.top + (r.bottom - r.top - height) / 2, width, height);
+        auto &order = w.shareCacheOrder;
+        order.erase(std::remove(order.begin(), order.end(), id), order.end());
+        order.push_back(id);
+    } else {
+        DrawTextLine(item.hDC, r,
+                     count == 0                ? L"文字分享 · 没有图片"
+                     : w.shareErrors.count(id) ? L"预览暂不可用 · 点击刷新重试"
+                                               : L"正在读取当时的图片…",
+                     Muted, w.font, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        if (count > 0)
+            QueueShareCover(w, share);
+    }
+    r.top = r.bottom + Scale(w, 10);
+    r.bottom = r.top + Scale(w, 24);
+    DrawTextLine(item.hDC, r,
+                 w.shareCoverLabels.count(id) ? w.shareCoverLabels[id] : L"当次导出的独立快照",
+                 Muted, w.font);
+    DrawTextLine(item.hDC, r, L"查看全部图片  ›", Accent, w.font,
+                 DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+}
 void DrawRecord(Window &w, const DRAWITEMSTRUCT &item) {
     const auto &rows = w.mode == Mode::Markdown ? w.records : w.filtered;
     if (item.itemID >= rows.size())
@@ -1929,6 +2126,11 @@ void DrawRecord(Window &w, const DRAWITEMSTRUCT &item) {
 LRESULT Dispatch(Window &w, UINT message, WPARAM wp, LPARAM lp) {
     switch (message) {
     case WM_ACTIVATE:
+        if ((w.mode == Mode::Shares || (w.mode == Mode::Image && !w.shareId.empty())) &&
+            LOWORD(wp) != WA_INACTIVE && w.scope != library->account().scope) {
+            PostMessageW(w.hwnd, WM_CLOSE, 0, 0);
+            return 0;
+        }
         if (w.mode == Mode::Settings && LOWORD(wp) != WA_INACTIVE) {
             auto account = library->account();
             Set(w, AccountButton,
@@ -1946,7 +2148,8 @@ LRESULT Dispatch(Window &w, UINT message, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_GETMINMAXINFO: {
         auto info = reinterpret_cast<MINMAXINFO *>(lp);
-        info->ptMinTrackSize = {Scale(w, w.mode == Mode::Library ? 780 : 680), Scale(w, 480)};
+        info->ptMinTrackSize = {Scale(w, w.mode == Mode::Library ? 780 : 680),
+                                Scale(w, w.mode == Mode::Shares ? 620 : 480)};
         return 0;
     }
     case WM_DPICHANGED: {
@@ -1963,14 +2166,17 @@ LRESULT Dispatch(Window &w, UINT message, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_MEASUREITEM: {
         auto item = reinterpret_cast<MEASUREITEMSTRUCT *>(lp);
-        item->itemHeight = static_cast<UINT>(Scale(w, 108));
+        item->itemHeight = static_cast<UINT>(Scale(w, w.mode == Mode::Shares ? 276 : 108));
         return TRUE;
     }
     case WM_DRAWITEM: {
         auto &item = *reinterpret_cast<DRAWITEMSTRUCT *>(lp);
-        if (item.CtlID == List)
-            DrawRecord(w, item);
-        else if (item.CtlID == Preview)
+        if (item.CtlID == List) {
+            if (w.mode == Mode::Shares)
+                DrawShare(w, item);
+            else
+                DrawRecord(w, item);
+        } else if (item.CtlID == Preview)
             DrawImage(w, item.hDC, item.rcItem);
         else
             DrawButton(item);
@@ -2174,8 +2380,11 @@ LRESULT CALLBACK Procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
 
 bool DrawButton(const DRAWITEMSTRUCT &item) {
     auto r = item.rcItem;
-    bool primary =
-        item.CtlID == Save || item.CtlID == Login || item.CtlID == NewNote || item.CtlID == 1007;
+    auto parent = windows.find(GetParent(item.hwndItem));
+    bool revoke =
+        item.CtlID == Save && parent != windows.end() && parent->second->mode == Mode::Shares;
+    bool primary = (item.CtlID == Save && !revoke) || item.CtlID == Login ||
+                   item.CtlID == NewNote || item.CtlID == 1007;
     bool disabled = (item.itemState & ODS_DISABLED) != 0;
     COLORREF fill = disabled ? RGB(237, 239, 245) : primary ? Accent : RGB(255, 255, 255);
     if (item.itemState & ODS_SELECTED)
@@ -2189,7 +2398,6 @@ bool DrawButton(const DRAWITEMSTRUCT &item) {
     DeleteObject(brush);
     DeleteObject(pen);
     auto font = reinterpret_cast<HFONT>(SendMessageW(item.hwndItem, WM_GETFONT, 0, 0));
-    auto parent = windows.find(GetParent(item.hwndItem));
     if (parent != windows.end() && parent->second->mode == Mode::Settings &&
         (item.CtlID == AccountButton || item.CtlID == Updates)) {
         auto &w = *parent->second;
@@ -2216,6 +2424,7 @@ bool DrawButton(const DRAWITEMSTRUCT &item) {
     }
     DrawTextLine(item.hDC, r, Text(item.hwndItem),
                  disabled  ? Muted
+                 : revoke  ? RGB(181, 48, 48)
                  : primary ? RGB(255, 255, 255)
                            : Ink,
                  font ? font : defaultFont, DT_CENTER | DT_VCENTER | DT_SINGLELINE);

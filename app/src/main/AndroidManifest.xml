@@ -16,6 +16,7 @@
         android:usesCleartextTraffic="false">
         <activity android:name=".MarkdownExportActivity" android:exported="false" android:label="导出 Markdown" />
         <activity android:name=".ShareHistoryActivity" android:exported="false" />
+        <activity android:name=".ShareGalleryActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" android:label="设置" />
         <activity android:name=".AppUpdateActivity" android:exported="false" android:label="版本与更新" />
         <provider android:name=".AppUpdateProvider" android:authorities="${applicationId}.updates"

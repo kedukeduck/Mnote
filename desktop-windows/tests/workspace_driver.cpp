@@ -170,12 +170,20 @@ int wmain(int argc, wchar_t **argv) {
         }
         return 0;
     }
-    if (action == L"shares-preview" || action == L"shares-revoke" || action == L"shares-empty" ||
-        action == L"shares-close") {
+    if (action == L"shares-covers-ready" || action == L"shares-preview" ||
+        action == L"shares-revoke" || action == L"shares-empty" || action == L"shares-close") {
         auto w = Window(L"Mnote · 导出链接管理");
         if (!w)
             return 34;
         auto list = GetDlgItem(w, 2005);
+        if (action == L"shares-covers-ready") {
+            wchar_t status[256]{};
+            GetDlgItemTextW(w, 2300, status, 256);
+            return std::wstring(status).find(L"已显示 1 次分享的图片预览") != std::wstring::npos &&
+                           !Window(L"Mnote · 历史分享图片（当时的快照）")
+                       ? 0
+                       : 51;
+        }
         if (action == L"shares-preview") {
             if (SendMessageW(list, LB_GETCOUNT, 0, 0) != 1)
                 return 35;
@@ -285,6 +293,27 @@ int wmain(int argc, wchar_t **argv) {
         Click(home, 2011);
         return 0;
     }
+    if (action == L"tags-existing") {
+        auto w = Editor();
+        if (!w)
+            return 12;
+        auto picker = GetDlgItem(w, 27005);
+        if (!picker || SendMessageW(picker, CB_GETCOUNT, 0, 0) != 3)
+            return 52;
+        SetDlgItemTextW(w, 2103, L"已编辑");
+        int index =
+            int(SendMessageW(picker, CB_FINDSTRINGEXACT, -1, reinterpret_cast<LPARAM>(L"灵感")));
+        if (index == CB_ERR)
+            return 53;
+        for (int i = 0; i < 2; ++i) {
+            SendMessageW(picker, CB_SETCURSEL, index, 0);
+            SendMessageW(w, WM_COMMAND, MAKEWPARAM(27005, CBN_SELCHANGE),
+                         reinterpret_cast<LPARAM>(picker));
+        }
+        wchar_t tags[256]{};
+        GetDlgItemTextW(w, 2103, tags, 256);
+        return std::wstring(tags) == L"已编辑，灵感" ? 0 : 54;
+    }
     if (action == L"edit") {
         auto w = Editor();
         if (!w)
@@ -296,7 +325,6 @@ int wmain(int argc, wchar_t **argv) {
             original += L"scrollable line " + std::to_wstring(i) + L"\r\n";
         original += L"original END";
         SetDlgItemTextW(w, 2102, original.c_str());
-        SetDlgItemTextW(w, 2103, L"已编辑");
         Click(w, 2106);
         return 0;
     }

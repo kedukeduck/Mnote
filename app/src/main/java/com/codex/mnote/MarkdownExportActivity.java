@@ -360,48 +360,9 @@ public final class MarkdownExportActivity extends Activity {
     private void manage() {
         if (busy || picker)
             return;
-        busy = true;
-        buttons();
-        status.setText("正在读取导出列表…");
-        worker.execute(() -> {
-            try {
-                JSONObject result;
-                synchronized (CaptureAccountSession.LOCK) {
-                    CaptureAccountSession.requireScope(this, scope);
-                    CaptureSyncPreferences.Config c = CaptureAccountSession.config(this);
-                    result = CaptureAccountHttp.request(
-                        c.baseUrl, "GET", "/v1/exports", c.writeToken, null, null);
-                }
-                JSONArray exports = result.getJSONArray("exports");
-                String[] labels = new String[exports.length()];
-                for (int i = 0; i < labels.length; i++) {
-                    JSONObject e = exports.getJSONObject(i);
-                    labels[i] = e.getString("created") + " · " + e.getInt("record_count") + " 条 / "
-                        + e.getInt("image_count") + " 张图";
-                }
-                ui(() -> {
-                    busy = false;
-                    buttons();
-                    if (!scope.equals(CaptureAccountSession.scope(this))) { finish(); return; }
-                    if (labels.length == 0) {
-                        notice("没有有效的导出分享链接。");
-                        return;
-                    }
-                    new AlertDialog.Builder(this)
-                        .setTitle("历史分享 · 点击查看图片")
-                        .setItems(labels,
-                            (d, which) -> {
-                                String id = exports.optJSONObject(which).optString("id");
-                                startActivity(new Intent(this, ShareHistoryActivity.class)
-                                    .putExtra("export_id", id).putExtra("scope", scope));
-                            })
-                        .setNegativeButton("关闭", null)
-                        .show();
-                });
-            } catch (Exception error) {
-                failure(error);
-            }
-        });
+        if(!scope.equals(CaptureAccountSession.scope(this))){finish();return;}
+        if(!CaptureAccountSession.hasAccount(this)){notice("请先登录后查看分享。");return;}
+        startActivity(new Intent(this,ShareGalleryActivity.class).putExtra("scope",scope));
     }
     private void failure(Exception error) {
         String code = error.getMessage();

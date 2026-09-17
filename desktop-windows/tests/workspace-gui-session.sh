@@ -58,6 +58,7 @@ drive tag 工作
 until_drive count 1
 drive open
 until_drive editor
+until_drive tags-existing
 drive edit
 until_drive count 0
 drive tag 全部标签
@@ -83,7 +84,7 @@ python3 - "${application_data}" <<'PY'
 import json,pathlib,sys
 rows=[json.loads(p.read_text()) for p in (pathlib.Path(sys.argv[1])/'Library/guest/records').glob('*.json')]
 edited=next(x for x in rows if x['record']['comment']=='edited-thought')
-assert edited['record']['tags']==['已编辑'] and not edited['deleted']
+assert edited['record']['tags']==['已编辑','灵感'] and not edited['deleted']
 assert edited['record']['evidence']['context']['text']['full_text'].endswith('original END')
 assert len(edited['assets'])==3
 clipboard=next(x for x in rows if x['record']['source']['text']=='explicit clipboard excerpt')
@@ -169,6 +170,8 @@ for path in paths:
 print('GUI: three selected records exported with full original and four accessible snapshot images')
 PY
 drive markdown-shares
+until_drive shares-covers-ready
+drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/share-gallery-preview.png"
 until_drive shares-preview
 until_drive history-ready
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/history-preview.png"
