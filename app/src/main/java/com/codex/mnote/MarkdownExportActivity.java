@@ -25,7 +25,9 @@ public final class MarkdownExportActivity extends Activity {
     private final Set<String> selected = new LinkedHashSet<>();
     private ListView list;
     private TextView status;
-    private Button export, all, clear, manage;
+    private Button export, all, clear;
+    private boolean inlineExport;
+    private boolean writing;
     private String scope;
     private boolean busy, picker;
     private volatile boolean destroyed;
@@ -34,10 +36,24 @@ public final class MarkdownExportActivity extends Activity {
     private Set<String> requestedIds;
     @Override
     public void onCreate(Bundle state) {
+        inlineExport = getIntent().getBooleanExtra("inline_export", false);
+        setTheme(inlineExport ? R.style.Theme_CaptureTrigger : R.style.Theme_Mnote);
         super.onCreate(state);
+        if (inlineExport && state != null && state.getBoolean("writing")) {
+            Toast
+                .makeText(this, "上次导出可能仍在处理中，请检查文件和分享管理后再重试。",
+                    Toast.LENGTH_LONG)
+                .show();
+            finish();
+            return;
+        }
         scope = CaptureAccountSession.scope(this);
         images = new RecordImageLoader(this, scope);
         ArrayList<String> requested = getIntent().getStringArrayListExtra("record_ids");
+        if (inlineExport && requested == null) {
+            finish();
+            return;
+        }
         if (requested != null) {
             if (!scope.equals(getIntent().getStringExtra("selection_scope")) || requested.isEmpty()
                 || requested.size() > 100) {
@@ -61,12 +77,9 @@ public final class MarkdownExportActivity extends Activity {
         header.addView(nav);
         Button back = button(nav, "返回");
         back.setOnClickListener(v -> finish());
-        manage = button(nav, "分享管理");
         back.setLayoutParams(new LinearLayout.LayoutParams(dp(72), dp(48)));
         nav.addView(new View(this), 1, new LinearLayout.LayoutParams(0, 1, 1));
-        manage.setLayoutParams(new LinearLayout.LayoutParams(dp(104), dp(48)));
         back.setBackgroundResource(android.R.color.transparent);
-        manage.setBackgroundResource(android.R.color.transparent);
         TextView title = text(header, "带走一些灵感", 30);
         title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         TextView intro = text(header, "把选中的想法与上下文，整理成一份 Markdown。", 14);
@@ -136,7 +149,6 @@ public final class MarkdownExportActivity extends Activity {
             checks();
         });
         export.setOnClickListener(v -> confirm());
-        manage.setOnClickListener(v -> manage());
         if (state != null && scope.equals(state.getString("scope"))) {
             ArrayList<String> ids = state.getStringArrayList("selected");
             if (ids != null)
@@ -148,6 +160,10 @@ public final class MarkdownExportActivity extends Activity {
                     pending = new JSONArray(json);
             } catch (Exception ignored) {
             }
+        }
+        if (inlineExport) {
+            root.setVisibility(View.INVISIBLE);
+            Toast.makeText(this, "正在检查所选记录…", Toast.LENGTH_SHORT).show();
         }
         load();
     }
@@ -222,6 +238,14 @@ public final class MarkdownExportActivity extends Activity {
                     });
                     busy = false;
                     checks();
+                    if (inlineExport && !picker) {
+                        if (!CaptureAccountSession.hasAccount(this) || requestedIds == null
+                            || !selected.equals(requestedIds)) {
+                            notice("所选记录尚未同步、禁止导出或已变化，请先刷新同步后重新选择。");
+                            finish();
+                        } else
+                            confirm();
+                    }
                 });
             } catch (Exception error) {
                 failure(error);
@@ -247,7 +271,6 @@ public final class MarkdownExportActivity extends Activity {
         all.setEnabled(!busy && !picker);
         clear.setEnabled(!busy && !picker);
         list.setEnabled(!busy && !picker);
-        manage.setEnabled(!busy && !picker && CaptureAccountSession.hasAccount(this));
     }
     private void confirm() {
         if (busy || picker || selected.isEmpty())
@@ -256,8 +279,16 @@ public final class MarkdownExportActivity extends Activity {
             .setTitle("导出 " + selected.size() + " 条记录？")
             .setMessage("将导出想法、摘录、原文及完整截图／圈选图链接。仅这些记录的图片会获得独立分"
                 + "享链接，任何持有链接的人均可访问。原笔记权限不变。\n\n请确认截图可分享。"
-                + "链接可在此页管理撤销，但已下载的副本无法收回。")
-            .setNegativeButton("取消", null)
+                + "链接可在设置 → 分享管理中撤销，但已下载的副本无法收回。")
+            .setOnCancelListener(d -> {
+                if (inlineExport)
+                    finish();
+            })
+            .setNegativeButton("取消",
+                (d, w) -> {
+                    if (inlineExport)
+                        finish();
+                })
             .setPositiveButton("选择保存位置",
                 (d, w) -> {
                     try {
@@ -279,6 +310,8 @@ public final class MarkdownExportActivity extends Activity {
                         picker = false;
                         notice("无法打开文件保存位置。");
                         buttons();
+                        if (inlineExport)
+                            finish();
                     }
                 })
             .show();
@@ -292,14 +325,19 @@ public final class MarkdownExportActivity extends Activity {
         if (result != RESULT_OK || data == null || data.getData() == null || pending == null) {
             pending = null;
             buttons();
+            if (inlineExport)
+                finish();
             return;
         }
         Uri target = data.getData();
         JSONArray selection = pending;
         pending = null;
         busy = true;
+        writing = true;
         buttons();
         status.setText("正在生成 Markdown 和图片分享链接…");
+        if (inlineExport)
+            Toast.makeText(this, "正在导出，请稍候…", Toast.LENGTH_LONG).show();
         worker.execute(() -> {
             String created = null;
             CaptureSyncPreferences.Config config = null;
@@ -339,8 +377,10 @@ public final class MarkdownExportActivity extends Activity {
                 }
                 ui(() -> {
                     busy = false;
-                    notice("Markdown 已保存，图片链接可在下方管理撤销。");
+                    notice("Markdown 已保存，可在设置 → 分享管理回看与撤销。");
                     buttons();
+                    if (inlineExport)
+                        finish();
                 });
             } catch (Exception error) {
                 failure(error);
@@ -350,19 +390,16 @@ public final class MarkdownExportActivity extends Activity {
                         CaptureAccountHttp.request(config.baseUrl, "DELETE",
                             "/v1/exports/" + created, config.writeToken, null, null);
                     } catch (Exception ignored) {
-                        ui(()
-                                -> notice("保存失败，自动撤销未完成，请到“管理导出图片链接”撤销此次"
-                                    + "分享。"));
+                        runOnUiThread(()
+                                          -> Toast
+                                              .makeText(getApplicationContext(),
+                                                  "保存失败，自动撤销未完成，请到“设置 → "
+                                                  + "分享管理”撤销此次分享。",
+                                                  Toast.LENGTH_LONG)
+                                              .show());
                     }
             }
         });
-    }
-    private void manage() {
-        if (busy || picker)
-            return;
-        if(!scope.equals(CaptureAccountSession.scope(this))){finish();return;}
-        if(!CaptureAccountSession.hasAccount(this)){notice("请先登录后查看分享。");return;}
-        startActivity(new Intent(this,ShareGalleryActivity.class).putExtra("scope",scope));
     }
     private void failure(Exception error) {
         String code = error.getMessage();
@@ -380,6 +417,8 @@ public final class MarkdownExportActivity extends Activity {
             busy = false;
             notice(message);
             buttons();
+            if (inlineExport)
+                finish();
         });
     }
     private void notice(String value) {
@@ -394,12 +433,20 @@ public final class MarkdownExportActivity extends Activity {
     }
     @Override
     protected void onSaveInstanceState(Bundle state) {
+        state.putBoolean("writing", writing);
         state.putString("scope", scope);
         state.putStringArrayList("selected", new ArrayList<>(selected));
         state.putBoolean("picker", picker);
         if (pending != null)
             state.putString("pending", pending.toString());
         super.onSaveInstanceState(state);
+    }
+    @Override
+    public void onBackPressed() {
+        if (inlineExport && writing && busy) {
+            Toast.makeText(this, "正在导出，请稍候…", Toast.LENGTH_SHORT).show();
+        } else
+            super.onBackPressed();
     }
     @Override
     protected void onDestroy() {

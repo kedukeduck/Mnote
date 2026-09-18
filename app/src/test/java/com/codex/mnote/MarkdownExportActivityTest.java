@@ -7,6 +7,7 @@ import android.app.Activity;
 import android.content.*;
 import android.os.Looper;
 import android.widget.*;
+import java.util.*;
 import java.util.concurrent.*;
 import org.json.*;
 import org.junit.*;
@@ -259,41 +260,32 @@ public class MarkdownExportActivityTest {
         }
     }
     @Test
-    public void managementOpensAccountScopedGalleryWithoutExtraDialog() throws Exception {
-        try (var controller = Robolectric.buildActivity(MarkdownExportActivity.class).setup()) {
-            var activity = controller.get();
-            drain(activity);
-            button(activity, "manage").performClick();
-            drain(activity);
-            assertEquals(0, Http.calls);
-            Intent intent=shadowOf(activity).getNextStartedActivity();
-            assertEquals(ShareGalleryActivity.class.getName(),intent.getComponent().getClassName());
-            assertEquals(CaptureAccountSession.scope(context),intent.getStringExtra("scope"));
-            CaptureAccountSession.clear(context);
-            // A stale window must not fetch another account's export list.
-            ReflectionHelpers.callInstanceMethod(activity, "manage");
-            drain(activity);
-            assertEquals(0, Http.calls);assertNull(shadowOf(activity).getNextStartedActivity());
+    public void inlineSelectionGoesStraightToConfirmationAndCancelReturns() throws Exception {
+        var record = note("chosen", true);
+        Intent intent = new Intent(context, MarkdownExportActivity.class)
+            .putExtra("inline_export",true)
+            .putExtra("selection_scope",CaptureAccountSession.scope(context))
+            .putStringArrayListExtra("record_ids",new ArrayList<>(List.of(record.id)));
+        try(var c=Robolectric.buildActivity(MarkdownExportActivity.class,intent).setup()) {
+            drain(c.get());
+            assertNotNull(ShadowAlertDialog.getLatestAlertDialog());
+            ListView list=ReflectionHelpers.getField(c.get(),"list");
+            assertFalse(list.isShown());
+            assertEquals(0,Http.created);
+            ShadowAlertDialog.getLatestAlertDialog().getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+            shadowOf(Looper.getMainLooper()).idle();
+            assertTrue(c.get().isFinishing());
         }
     }
     @Test
-    public void choosingHistoryOpensImagesInsteadOfRevocationDialog() throws Exception {
-        Http.history.put(new JSONObject()
-                .put("id", "e".repeat(32))
-                .put("created", "2026-09-17")
-                .put("record_count", 1)
-                .put("image_count", 3));
-        try (var controller = Robolectric.buildActivity(MarkdownExportActivity.class).setup()) {
-            var activity = controller.get();
-            drain(activity);
-            button(activity, "manage").performClick();
-            drain(activity);
-            Intent intent = shadowOf(activity).getNextStartedActivity();
-            assertEquals(
-                ShareGalleryActivity.class.getName(), intent.getComponent().getClassName());
+    public void inlineExportNeverSilentlyDropsUnsyncedSelection() throws Exception {
+        var record=note("not synced",false);
+        Intent intent=new Intent(context,MarkdownExportActivity.class).putExtra("inline_export",true)
+            .putExtra("selection_scope",CaptureAccountSession.scope(context))
+            .putStringArrayListExtra("record_ids",new ArrayList<>(List.of(record.id)));
+        try(var c=Robolectric.buildActivity(MarkdownExportActivity.class,intent).setup()) {
+            drain(c.get()); assertTrue(c.get().isFinishing()); assertEquals(0,Http.created);
             assertNull(ShadowAlertDialog.getLatestAlertDialog());
-            assertEquals(CaptureAccountSession.scope(context), intent.getStringExtra("scope"));
-            assertEquals(0, Http.revoked);
         }
     }
     @Test

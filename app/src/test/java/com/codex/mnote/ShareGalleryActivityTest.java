@@ -42,7 +42,9 @@ public class ShareGalleryActivityTest {
                             .put("id", "e".repeat(32))
                             .put("created", "2026-09-18T03:00:00Z")
                             .put("record_count", 1)
-                            .put("image_count", 2));
+                            .put("image_count", 2)
+                            .put("text_available",true)
+                            .put("text_preview","记录 1\n我的想法：从信息中留住自己的理解\n摘录：记录下触发灵感的那句话\n原文与上下文：这一刻的完整背景"));
                 return new JSONObject().put("exports", shares);
             }
             assertEquals("/v1/exports/"
@@ -97,6 +99,8 @@ public class ShareGalleryActivityTest {
             ImageView photo = ReflectionHelpers.getField(card, "photo");
             assertNotNull(photo.getDrawable());
             assertEquals(1, Http.downloads);
+            TextView excerpt=ReflectionHelpers.getField(card,"excerpt");
+            assertTrue(excerpt.getText().toString().contains("我的想法"));
             assertNull(shadowOf(activity).getNextStartedActivity());
             var root = SettingsActivityTest.layout(activity, 390, 844);
             drain(activity);
@@ -106,6 +110,8 @@ public class ShareGalleryActivityTest {
             assertEquals(
                 ShareHistoryActivity.class.getName(), intent.getComponent().getClassName());
             assertEquals(1, intent.getIntExtra("image_index", -1));
+            ((Button)ReflectionHelpers.getField(card,"read")).performClick();
+            assertEquals(ShareTextActivity.class.getName(),shadowOf(activity).getNextStartedActivity().getComponent().getClassName());
             SettingsActivityTest.layout(activity, 320, 568);
             drain(activity);
             SettingsActivityTest.render(root, "share-gallery-small.png");

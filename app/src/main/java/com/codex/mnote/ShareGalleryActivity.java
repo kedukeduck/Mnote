@@ -58,7 +58,7 @@ public final class ShareGalleryActivity extends Activity {
         nav.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
         refresh = button(nav, "刷新", this::reload);
         text(heading, "分享管理", 28, R.color.ink);
-        text(heading, "留住分享时的画面", 14, R.color.ink_muted);
+        text(heading, "回看分享时的想法与画面", 14, R.color.ink_muted);
         status = text(heading, "正在读取历史分享…", 12, R.color.ink_muted);
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         list = new ListView(this);
@@ -256,9 +256,9 @@ public final class ShareGalleryActivity extends Activity {
             .show();
     }
     private final class Card extends LinearLayout {
-        final TextView date, meta, caption;
+        final TextView date, meta, caption, excerpt;
         final ImageView photo;
-        final Button all, remove;
+        final Button all, remove, read;
         Card() {
             super(ShareGalleryActivity.this);
             setOrientation(VERTICAL);
@@ -270,6 +270,12 @@ public final class ShareGalleryActivity extends Activity {
             setBackground(bg);
             date = text(this, "", 17, R.color.ink);
             meta = text(this, "", 12, R.color.ink_muted);
+            excerpt = text(this, "", 14, R.color.ink);
+            excerpt.setMaxLines(7);
+            excerpt.setLineSpacing(dp(3), 1);
+            excerpt.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            read = button(this, "展开全部文字  ›", () -> {});
+            read.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
             photo = new ImageView(ShareGalleryActivity.this);
             photo.setScaleType(ImageView.ScaleType.FIT_CENTER);
             photo.setBackgroundColor(getColor(R.color.cream));
@@ -297,7 +303,17 @@ public final class ShareGalleryActivity extends Activity {
             } catch (Exception ignored) {
             }
             date.setText(stamp);
-            meta.setText(getString(R.string.share_gallery_counts, item.optInt("record_count"), count));
+            meta.setText(
+                getString(R.string.share_gallery_counts, item.optInt("record_count"), count));
+            excerpt.setText(
+                item.optString("text_preview", "旧版分享未保存文字快照，无法还原当时的文字。"));
+            read.setVisibility(item.optBoolean("text_available") ? VISIBLE : GONE);
+            read.setOnClickListener(v -> {
+                if (active() && !revoking)
+                    startActivity(new Intent(ShareGalleryActivity.this, ShareTextActivity.class)
+                            .putExtra("scope", scope)
+                            .putExtra("export_id", id));
+            });
             photo.setVisibility(count > 0 ? VISIBLE : GONE);
             photo.setImageBitmap(cache.get(id));
             photo.setContentDescription("历史分享截图预览");

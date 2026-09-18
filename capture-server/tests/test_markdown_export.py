@@ -70,6 +70,44 @@ class MarkdownExportTest(unittest.TestCase):
         self.assertEqual(200, self.call("DELETE", "/v1/exports/"+result["id"], token=self.a["access_token"])[0])
         self.assertEqual(404, self.call("GET", paths[0])[0])
 
+    def test_text_snapshot_is_private_immutable_and_revocable(self):
+        _, created, _ = self.export()
+        path = "/v1/exports/" + created["id"]
+        listing = self.call("GET", "/v1/exports", token=self.a["access_token"])[1]["exports"][0]
+        self.assertTrue(listing["text_available"])
+        for text in ("我的想法", "外部摘录", "完整保留的文字"):
+            self.assertIn(text, listing["text_preview"])
+        self.vault.soft_delete(self.record["id"], 1); self.vault.purge(self.record["id"])
+        status, result, headers = self.call("GET", path + "/text", token=self.a["access_token"])
+        self.assertEqual(200, status)
+        self.assertIn("完整保留的文字\n" * 300, result["text"])
+        self.assertNotIn("mns_", result["text"])
+        self.assertEqual("no-store", headers["Cache-Control"])
+        self.assertEqual(404, self.call("GET", path + "/text", token=self.b["access_token"])[0])
+        for token in (None, "write", "read", "ai"):
+            self.assertIn(self.call("GET", path + "/text", token=token)[0], (401,403))
+        token = re.search(r"/s/([a-f0-9]{64})/", created["markdown"]).group(1)
+        for name in ("text.json", "preview.json"):
+            self.assertEqual(404, self.call("GET", f"/s/{token}/{name}")[0])
+            self.assertEqual(404, self.call("GET", path + "/assets/" + name, token=self.a["access_token"])[0])
+        self.call("DELETE", path, token=self.a["access_token"])
+        self.assertEqual(404, self.call("GET", path + "/text", token=self.a["access_token"])[0])
+        self.assertFalse((self.server.RequestHandlerClass.exports.root / created["id"]).exists())
+
+    def test_legacy_text_missing_and_text_only_exports(self):
+        _, created, _ = self.export()
+        folder = self.server.RequestHandlerClass.exports.root / created["id"]
+        for name in ("text.json", "preview.json"): (folder / name).unlink()
+        listing = self.call("GET", "/v1/exports", token=self.a["access_token"])[1]["exports"][0]
+        self.assertFalse(listing["text_available"])
+        self.assertIn("旧版", listing["text_preview"])
+        self.assertEqual(404, self.call("GET", "/v1/exports/" + created["id"] + "/text", token=self.a["access_token"])[0])
+        self.record = self.vault.put("text-only-test", {"comment":"纯文字想法", "ai_access":"local_only"})
+        status, created, _ = self.export()
+        self.assertEqual(200, status); self.assertEqual(0, created["image_count"])
+        text = self.call("GET", "/v1/exports/" + created["id"] + "/text", token=self.a["access_token"])[1]
+        self.assertIn("纯文字想法", text["text"])
+
     def test_encoded_response_and_storage_errors_leave_no_public_snapshot(self):
         with patch("heartnote_capture.markdown_export.render", return_value="\\" * (5 * 1024 * 1024)):
             self.assertEqual(400, self.export()[0])

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(MnoteWindows VERSION 1.11.0 LANGUAGES CXX RC)
+project(MnoteWindows VERSION 1.12.0 LANGUAGES CXX RC)
 
 # Pinned, hash-verified build dependency; no third-party runtime is installed.
 set(JSON_HEADER "${CMAKE_CURRENT_BINARY_DIR}/deps/json.hpp")

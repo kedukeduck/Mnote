@@ -69,6 +69,41 @@ int wmain(int argc, wchar_t **argv) {
         Click(home, 25000);
         return 0;
     }
+    if (action == L"inline-ready") {
+        return home && IsWindowEnabled(home) && IsWindowVisible(GetDlgItem(home, 27003)) &&
+                       !Window(L"Mnote · 导出给 AI") && !FindWindowW(L"#32770", L"Mnote · 确认导出")
+                   ? 0
+                   : 55;
+    }
+    if (action == L"settings-shares" || action == L"settings-close") {
+        auto settings = Window(L"Mnote · 设置");
+        if (!settings)
+            return 23;
+        if (action == L"settings-close")
+            PostMessageW(settings, WM_CLOSE, 0, 0);
+        else
+            Click(settings, 25003);
+        return 0;
+    }
+    if (action == L"share-text" || action == L"share-text-ready" || action == L"share-text-close") {
+        if (action == L"share-text") {
+            auto w = Window(L"Mnote · 导出链接管理");
+            if (!w)
+                return 34;
+            Click(w, 27006);
+            return 0;
+        }
+        auto w = Window(L"Mnote · 分享时的文字");
+        if (!w)
+            return 56;
+        wchar_t text[30000]{};
+        GetDlgItemTextW(w, 2102, text, 30000);
+        if (std::wstring(text).find(L"original END") == std::wstring::npos)
+            return 57;
+        if (action == L"share-text-close")
+            PostMessageW(w, WM_CLOSE, 0, 0);
+        return 0;
+    }
     if (action == L"multi-begin") {
         SendDlgItemMessageW(home, 2005, LB_SETCURSEL, 0, 0);
         SendMessageW(GetDlgItem(home, 2005), WM_CONTEXTMENU, 0, -1);
@@ -146,11 +181,11 @@ int wmain(int argc, wchar_t **argv) {
         PostMessageW(dialog, WM_COMMAND, IDOK, 0);
         return 0;
     }
-    if (action == L"markdown-confirm") {
+    if (action == L"markdown-confirm" || action == L"markdown-confirm-cancel") {
         auto dialog = FindWindowW(L"#32770", L"Mnote · 确认导出");
         if (!dialog)
             return 37;
-        PostMessageW(dialog, WM_COMMAND, IDYES, 0);
+        PostMessageW(dialog, WM_COMMAND, action == L"markdown-confirm" ? IDYES : IDNO, 0);
         return 0;
     }
     if (action == L"history-ready" || action == L"history-next" || action == L"history-close") {

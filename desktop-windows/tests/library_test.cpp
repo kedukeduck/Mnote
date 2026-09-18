@@ -34,6 +34,7 @@ struct FakeServer {
             ++exports;return {200,Json{{"id",std::string(32,'e')},{"markdown","# Mnote 记录导出\n\n我的想法\n"}}.dump()};
         }
         if(path==L"/v1/exports") return {200,Json{{"exports",Json::array({{{"id",std::string(32,'e')}}})}}.dump()};
+        if(path==L"/v1/exports/"+std::wstring(32,L'e')+L"/text")return {200,Json{{"text","我的想法\n摘录\n原文 END"}}.dump()};
         if(path==L"/v1/exports/"+std::wstring(32,L'e')) {
             if(method==L"GET")return {200,Json{{"images",Json::array({{{"name","1-context.png"},{"size",bytes.size()},{"role","context"},{"record_index",1}}})}}.dump()};
             ++revoked;return {200,"{}"};
@@ -110,6 +111,9 @@ void Cases(const fs::path& folder) {
     library.exportMarkdown(account.scope,{synced},folder/L"export.md");
     Expect(Read(folder/L"export.md")=="# Mnote 记录导出\n\n我的想法\n");Expect(server.exports==1);
     Expect(library.markdownExports(account.scope).size()==1);
+    Expect(library.markdownExportText(account.scope,std::string(32,'e'))=="我的想法\n摘录\n原文 END");
+    Throws([&]{library.markdownExportText("guest",std::string(32,'e'));},"account_changed");
+    Throws([&]{library.markdownExportText(account.scope,"../bad");},"invalid_export");
     auto images=library.markdownExportImages(account.scope,std::string(32,'e'));Expect(images.size()==1);
     Expect(library.markdownExportImage(account.scope,std::string(32,'e'),images[0])==server.bytes);
     Throws([&]{library.markdownExportImages("guest",std::string(32,'e'));},"account_changed");

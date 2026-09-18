@@ -162,13 +162,9 @@ public final class CaptureInboxActivity extends Activity {
                 findViewById(R.id.capture_selection_export).performClick();
                 return;
             }
-            int filter = filterGroup.getCheckedRadioButtonId();
-            int type = filter == R.id.capture_filter_excerpt ? 1
-                    : filter == R.id.capture_filter_thought ? 2
-                    : filter == R.id.capture_filter_todo ? 3 : 0;
-            startActivity(new Intent(this, MarkdownExportActivity.class)
-                    .putExtra("query", searchInput.getText().toString().trim())
-                    .putExtra("tag", tagFilter).putExtra("type", type));
+            selecting = true;
+            selectedRecords.clear();
+            updateSelection();
         });
         findViewById(R.id.capture_settings_button).setOnClickListener(view -> startActivity(new Intent(this,SettingsActivity.class)));
         filterGroup.setOnCheckedChangeListener((group, id) -> { visibleLimit=RECORD_LIMIT; renderFilteredRecords(); });
@@ -586,6 +582,7 @@ public final class CaptureInboxActivity extends Activity {
         Button export = selectionButton(actions,R.id.capture_selection_export,"导出 Markdown",()->{
             if (selectedRecords.isEmpty() || !filterScope.equals(CaptureAccountSession.scope(this))) return;
             startActivity(new Intent(this,MarkdownExportActivity.class)
+                .putExtra("inline_export", true)
                 .putExtra("selection_scope",filterScope).putStringArrayListExtra("record_ids",new ArrayList<>(selectedRecords)));
         });
         export.setBackgroundResource(R.drawable.bg_button_primary); export.setTextColor(getColor(R.color.white));

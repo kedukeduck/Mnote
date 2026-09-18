@@ -65,6 +65,7 @@ class Library {
     void exportMarkdown(const std::string &scope, const std::vector<Record> &records,
                         const fs::path &destination);
     Json markdownExports(const std::string &scope);
+    std::string markdownExportText(const std::string &scope, const std::string &id);
     Json existingTags(const std::string &scope);
     Json markdownExportImages(const std::string &scope, const std::string &id);
     std::string markdownExportImage(const std::string &scope, const std::string &id,

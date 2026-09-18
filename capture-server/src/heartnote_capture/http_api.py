@@ -249,11 +249,13 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
                 else:
                     self._json(200, {"exports": self.exports.list(self.account["id"])})
                 return
-            if parts[:2] == ["v1", "exports"] and (len(parts) == 3 or (len(parts) == 5 and parts[3] == "assets")):
+            if parts[:2] == ["v1", "exports"] and (len(parts) == 3 or (len(parts) == 4 and parts[3] == "text") or (len(parts) == 5 and parts[3] == "assets")):
                 if scope != "account":
                     self._problem(403, "forbidden", "Account required")
                 elif len(parts) == 3:
                     self._json(200, self.exports.detail(self.account["id"], parts[2]))
+                elif len(parts) == 4:
+                    self._json(200, self.exports.text(self.account["id"], parts[2]))
                 else:
                     data, content_type = self.exports.owner_image(self.account["id"], parts[2], parts[4])
                     self.send_response(200)

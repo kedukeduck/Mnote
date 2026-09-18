@@ -33,6 +33,16 @@ public final class SettingsActivity extends Activity {
         section(root, "我的空间");
         accountSummary = row(root, "账号与同步", "", R.id.settings_account,
             () -> startActivity(new Intent(this, CaptureAccountActivity.class)));
+        section(root, "分享");
+        row(root, "分享管理", "回看已导出的文字与图片，管理分享链接", R.id.settings_shares, () -> {
+            if (!CaptureAccountSession.hasAccount(this)) {
+                Toast.makeText(this, "请先登录后查看分享", Toast.LENGTH_LONG).show();
+                startActivity(new Intent(this, CaptureAccountActivity.class));
+            } else {
+                startActivity(new Intent(this, ShareGalleryActivity.class)
+                    .putExtra("scope", CaptureAccountSession.scope(this)));
+            }
+        });
         section(root, "应用");
         String version = "";
         try {

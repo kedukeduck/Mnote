@@ -495,6 +495,15 @@ void Library::revokeMarkdownExport(const std::string &scope, const std::string &
         throw std::runtime_error("invalid_export");
     Success(request(account_, L"DELETE", L"/v1/exports/" + Wide(id)));
 }
+std::string Library::markdownExportText(const std::string &scope, const std::string &id) {
+    std::lock_guard<std::recursive_mutex> guard(mutex_);
+    require(scope);
+    if (!account_.signedIn() || !Hex(id, 32))
+        throw std::runtime_error("invalid_export");
+    auto response = request(account_, L"GET", L"/v1/exports/" + Wide(id) + L"/text");
+    Success(response);
+    return Parse(response.body).at("text").get<std::string>();
+}
 Json Library::markdownExportImages(const std::string &scope, const std::string &id) {
     std::lock_guard<std::recursive_mutex> guard(mutex_);
     require(scope);

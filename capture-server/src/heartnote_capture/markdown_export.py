@@ -69,6 +69,29 @@ def ordering(record):
     return (created.replace(tzinfo=timezone.utc) if created.tzinfo is None else created.astimezone(timezone.utc), record["id"])
 
 
+def text_snapshot(records):
+    full, preview = [], []
+    for n, record in enumerate(records, 1):
+        source = obj(record.get("source"))
+        sections = [("我的想法", record.get("comment") or "未填写"),
+                    ("摘录", source.get("text") or "未保留"),
+                    ("原文与上下文", original(record).get("full_text") or "未保留")]
+        full.extend([f"记录 {n} · {record['id']}", record.get("created_at", ""),
+                     "标签：" + "、".join(record.get("tags") or []), ""])
+        for title, value in sections:
+            full.extend([title, value, ""])
+        full.extend(["来源：" + (source.get("app_name") or source.get("app_id") or "未获取"),
+                     "链接：" + (source.get("url") or "未获取"), "", "────────", ""])
+        if n <= 2:
+            preview.append(f"记录 {n}")
+            for title, value in sections:
+                flat = " ".join(value.split())
+                preview.append(title + "：" + flat[:100] + ("…" if len(flat) > 100 else ""))
+    if len(records) > 2:
+        preview.append(f"另有 {len(records) - 2} 条记录 · 展开查看全部文字")
+    return "\n".join(full), "\n".join(preview)
+
+
 def render(records, links, created, export_id, scope):
     lines = ["# Mnote 记录导出", "", "## 一、文档说明", "", "### 这是什么文档", "",
         "这是用户从 Mnote 中主动选择导出的个人记录快照，包含外部摘录、自己的想法和已保留的上下文。",
@@ -221,6 +244,15 @@ class MarkdownExports:
                 # Both clients cap the complete JSON response at 8 MiB, including escaping.
                 if len(json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > 8 * 1024 * 1024:
                     raise CaptureValidationError("export_document_too_large")
+                text, preview = text_snapshot(records)
+                text_bytes = json.dumps({"text": text}, ensure_ascii=False).encode("utf-8")
+                if len(text_bytes) > 8 * 1024 * 1024:
+                    raise CaptureValidationError("export_document_too_large")
+                # Private owner-only snapshots, deliberately excluded from the public assets map.
+                for name, data in (("text.json", text_bytes), ("preview.json",
+                        json.dumps({"text_available": True, "text_preview": preview}, ensure_ascii=False).encode("utf-8"))):
+                    with (stage / name).open("xb") as output:
+                        output.write(data); output.flush(); os.fsync(output.fileno())
                 stage.rename(destination)
                 with self.db() as db:
                     db.execute("INSERT INTO exports VALUES (?,?,?,?,0,?,?,?)", (export_id, owner,
@@ -236,8 +268,37 @@ class MarkdownExports:
                             shutil.rmtree(folder)
 
     def list(self, owner):
-        with self.db() as db:
-            return [dict(r) for r in db.execute("SELECT id,created,revoked,record_count,image_count FROM exports WHERE owner=? AND revoked=0 ORDER BY created DESC", (owner,))]
+        with self.lock, self.db() as db:
+            rows = [dict(r) for r in db.execute("SELECT id,created,revoked,record_count,image_count FROM exports WHERE owner=? AND revoked=0 ORDER BY created DESC", (owner,))]
+            for row in rows:
+                row.update(self._preview(row["id"]))
+            return rows
+
+    def _preview(self, export_id):
+        try:
+            path = self.root / export_id / "preview.json"
+            if path.stat().st_size > 8192:
+                raise ValueError("invalid_preview")
+            result = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(result, dict) or result.get("text_available") is not True or not isinstance(result.get("text_preview"), str):
+                raise ValueError("invalid_preview")
+            return {"text_available": True, "text_preview": result["text_preview"]}
+        except (OSError, ValueError):
+            return {"text_available": False, "text_preview": "旧版分享未保存文字快照，无法还原当时的文字。重新导出后可保留文字。"}
+
+    def text(self, owner, export_id):
+        with self.lock:
+            self.detail(owner, export_id)  # Validate owner, ID and revocation before touching files.
+            path = self.root / export_id / "text.json"
+            try:
+                if path.stat().st_size > 8 * 1024 * 1024:
+                    raise CaptureNotFound(export_id)
+                result = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(result.get("text"), str):
+                    raise CaptureNotFound(export_id)
+                return result
+            except (OSError, ValueError) as error:
+                raise CaptureNotFound(export_id) from error
 
     def revoke(self, owner, export_id):
         if not re.fullmatch(r"[a-f0-9]{32}", export_id):
@@ -251,6 +312,8 @@ class MarkdownExports:
             try:
                 folder = self.root / export_id
                 for name in json.loads(row["assets"]):
+                    (folder / name).unlink(missing_ok=True)
+                for name in ("text.json", "preview.json"):
                     (folder / name).unlink(missing_ok=True)
                 if folder.exists(): folder.rmdir()
             except OSError:

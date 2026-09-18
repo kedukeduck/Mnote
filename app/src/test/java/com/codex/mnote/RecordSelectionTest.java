@@ -183,6 +183,24 @@ public class RecordSelectionTest {
         }
     }
     @Test
+    public void exportEntrySelectsInlineAndUsesTheSameDockAsLongPress() throws Exception {
+        note("one"); note("two");
+        try(var c=Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
+            var a=c.get();
+            a.findViewById(R.id.capture_export_markdown).performClick();
+            assertNull(shadowOf(a).getNextStartedActivity());
+            assertEquals(View.VISIBLE,a.findViewById(R.id.capture_selection_dock).getVisibility());
+            assertFalse(a.findViewById(R.id.capture_selection_export).isEnabled());
+            ((LinearLayout)a.findViewById(R.id.capture_records)).getChildAt(0).performClick();
+            a.findViewById(R.id.capture_selection_export).performClick();
+            Intent intent=shadowOf(a).getNextStartedActivity();
+            assertTrue(intent.getBooleanExtra("inline_export",false));
+            assertEquals(1,intent.getStringArrayListExtra("record_ids").size());
+            a.findViewById(R.id.capture_selection_cancel).performClick();
+            assertEquals(View.GONE,a.findViewById(R.id.capture_selection_dock).getVisibility());
+        }
+    }
+    @Test
     public void requestedExportCannotExpandToEntireLibrary() throws Exception {
         login("a");
         var a = note("chosen");

@@ -142,16 +142,16 @@ sleep 0.3
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/library-preview.png"
 drive multi-begin
 until_drive multi-ready
+drive multi-cancel
+drive markdown
+until_drive inline-ready
 drive multi-all
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/multiselect-preview.png"
 drive markdown
-until_drive markdown-preselected
-until_drive markdown-select
-sleep 0.4
-drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/markdown-preview.png"
-drive markdown-preview-image
-until_drive image-close
-drive markdown-save
+until_drive markdown-confirm-cancel
+[[ ! -f "${test_dir}/Mnote-export.md" ]]
+until_drive inline-ready
+drive markdown
 until_drive markdown-confirm
 until_drive markdown-file
 for _ in $(seq 1 100); do [[ -s "${test_dir}/Mnote-export.md" ]] && break; sleep 0.15; done
@@ -169,9 +169,15 @@ for path in paths:
         assert response.status==200 and response.read().startswith(b'\x89PNG')
 print('GUI: three selected records exported with full original and four accessible snapshot images')
 PY
-drive markdown-shares
+drive settings
+until_drive settings-ready
+drive settings-shares
 until_drive shares-covers-ready
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/share-gallery-preview.png"
+drive share-text
+until_drive share-text-ready
+drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/share-text-preview.png"
+drive share-text-close
 until_drive shares-preview
 until_drive history-ready
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/history-preview.png"
@@ -182,7 +188,7 @@ until_drive shares-revoke
 until_drive confirm
 until_drive shares-empty
 drive shares-close
-drive markdown-close
+drive settings-close
 drive multi-cancel
 python3 - "${test_dir}" <<'PY'
 import pathlib,re,sys,urllib.request,urllib.error

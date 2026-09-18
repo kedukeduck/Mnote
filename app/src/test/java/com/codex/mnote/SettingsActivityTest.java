@@ -40,8 +40,14 @@ public class SettingsActivityTest {
             activity.findViewById(R.id.settings_updates).performClick();
             assertEquals(AppUpdateActivity.class.getName(),
                 shadowOf(activity).getNextStartedActivity().getComponent().getClassName());
+            activity.findViewById(R.id.settings_shares).performClick();
+            var share = shadowOf(activity).getNextStartedActivity();
+            assertEquals(ShareGalleryActivity.class.getName(), share.getComponent().getClassName());
+            assertEquals(CaptureAccountSession.scope(context), share.getStringExtra("scope"));
             CaptureAccountSession.clear(context);
             controller.pause().resume();
+            activity.findViewById(R.id.settings_shares).performClick();
+            assertEquals(CaptureAccountActivity.class.getName(), shadowOf(activity).getNextStartedActivity().getComponent().getClassName());
             var summary = (android.widget.TextView) org.robolectric.util.ReflectionHelpers.getField(
                 activity, "accountSummary");
             assertTrue(summary.getText().toString().contains("登录后"));
