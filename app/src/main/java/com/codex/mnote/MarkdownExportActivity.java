@@ -236,9 +236,9 @@ public final class MarkdownExportActivity extends Activity {
                             return false;
                         }
                     });
-                    busy = false;
+                    busy = writing;
                     checks();
-                    if (inlineExport && !picker) {
+                    if (inlineExport && !picker && !writing) {
                         if (!CaptureAccountSession.hasAccount(this) || requestedIds == null
                             || !selected.equals(requestedIds)) {
                             notice("所选记录尚未同步、禁止导出或已变化，请先刷新同步后重新选择。");
