@@ -1340,7 +1340,8 @@ void OpenMarkdown(Window &source, bool shares = false) {
         return;
     }
     if (!library->account().signedIn()) {
-        StatusText(source, L"请先登录并刷新同步，再导出当前账号的记录。");
+        StatusText(source, shares ? L"请先登录后查看分享管理。"
+                                  : L"请先登录并刷新同步，再导出当前账号的记录。");
         return;
     }
     if (source.showTrash && !shares) {
@@ -2108,9 +2109,11 @@ void DrawShare(Window &w, const DRAWITEMSTRUCT &item) {
     r.bottom = r.top + Scale(w, 100);
     auto excerpt = Wide(
         share.value("text_preview", std::string("旧版分享未保存文字快照，无法还原当时的文字。")));
-    DrawTextLine(item.hDC, r, excerpt, Ink, w.font, DT_WORDBREAK | DT_END_ELLIPSIS | DT_EDITCONTROL);
+    DrawTextLine(item.hDC, r, excerpt, Ink, w.font,
+                 DT_WORDBREAK | DT_END_ELLIPSIS | DT_EDITCONTROL);
     r.top = r.bottom + Scale(w, 12);
-    r.bottom = r.top + std::max(Scale(w, 24), item.rcItem.bottom - item.rcItem.top - Scale(w, 212));
+    r.bottom =
+        r.top + std::max<LONG>(Scale(w, 24), item.rcItem.bottom - item.rcItem.top - Scale(w, 212));
     FillRect(item.hDC, &r, backgroundBrush);
     auto found = w.thumbnails.find(id);
     if (found != w.thumbnails.end()) {

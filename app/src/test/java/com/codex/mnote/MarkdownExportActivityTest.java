@@ -262,30 +262,75 @@ public class MarkdownExportActivityTest {
     @Test
     public void inlineSelectionGoesStraightToConfirmationAndCancelReturns() throws Exception {
         var record = note("chosen", true);
-        Intent intent = new Intent(context, MarkdownExportActivity.class)
-            .putExtra("inline_export",true)
-            .putExtra("selection_scope",CaptureAccountSession.scope(context))
-            .putStringArrayListExtra("record_ids",new ArrayList<>(List.of(record.id)));
-        try(var c=Robolectric.buildActivity(MarkdownExportActivity.class,intent).setup()) {
+        Intent intent =
+            new Intent(context, MarkdownExportActivity.class)
+                .putExtra("inline_export", true)
+                .putExtra("selection_scope", CaptureAccountSession.scope(context))
+                .putStringArrayListExtra("record_ids", new ArrayList<>(List.of(record.id)));
+        try (var c = Robolectric.buildActivity(MarkdownExportActivity.class, intent).setup()) {
             drain(c.get());
             assertNotNull(ShadowAlertDialog.getLatestAlertDialog());
-            ListView list=ReflectionHelpers.getField(c.get(),"list");
+            ListView list = ReflectionHelpers.getField(c.get(), "list");
             assertFalse(list.isShown());
-            assertEquals(0,Http.created);
-            ShadowAlertDialog.getLatestAlertDialog().getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
+            assertEquals(0, Http.created);
+            ShadowAlertDialog.getLatestAlertDialog()
+                .getButton(DialogInterface.BUTTON_NEGATIVE)
+                .performClick();
             shadowOf(Looper.getMainLooper()).idle();
             assertTrue(c.get().isFinishing());
         }
     }
     @Test
     public void inlineExportNeverSilentlyDropsUnsyncedSelection() throws Exception {
-        var record=note("not synced",false);
-        Intent intent=new Intent(context,MarkdownExportActivity.class).putExtra("inline_export",true)
-            .putExtra("selection_scope",CaptureAccountSession.scope(context))
-            .putStringArrayListExtra("record_ids",new ArrayList<>(List.of(record.id)));
-        try(var c=Robolectric.buildActivity(MarkdownExportActivity.class,intent).setup()) {
-            drain(c.get()); assertTrue(c.get().isFinishing()); assertEquals(0,Http.created);
+        var record = note("not synced", false);
+        Intent intent =
+            new Intent(context, MarkdownExportActivity.class)
+                .putExtra("inline_export", true)
+                .putExtra("selection_scope", CaptureAccountSession.scope(context))
+                .putStringArrayListExtra("record_ids", new ArrayList<>(List.of(record.id)));
+        try (var c = Robolectric.buildActivity(MarkdownExportActivity.class, intent).setup()) {
+            drain(c.get());
+            assertTrue(c.get().isFinishing());
+            assertEquals(0, Http.created);
             assertNull(ShadowAlertDialog.getLatestAlertDialog());
+        }
+    }
+    @Test
+    public void restoredWritingTaskCannotCreateAnotherShare() throws Exception {
+        var state = new android.os.Bundle();
+        state.putBoolean("writing", true);
+        Intent intent =
+            new Intent(context, MarkdownExportActivity.class).putExtra("inline_export", true);
+        try (var c = Robolectric.buildActivity(MarkdownExportActivity.class, intent)
+                 .create(state)
+                 .start()
+                 .resume()) {
+            assertTrue(c.get().isFinishing());
+            assertEquals(0, Http.created);
+        }
+    }
+    @Test
+    public void pickerReturnDuringReloadCannotShowSecondConfirmation() throws Exception {
+        var record = note("chosen", true);
+        Intent intent =
+            new Intent(context, MarkdownExportActivity.class)
+                .putExtra("inline_export", true)
+                .putExtra("selection_scope", CaptureAccountSession.scope(context))
+                .putStringArrayListExtra("record_ids", new ArrayList<>(List.of(record.id)));
+        try (var c = Robolectric.buildActivity(MarkdownExportActivity.class, intent).setup()) {
+            drain(c.get());
+            var dialog = ShadowAlertDialog.getLatestAlertDialog();
+            dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+            shadowOf(Looper.getMainLooper()).idle();
+            assertFalse(dialog.isShowing());
+            ReflectionHelpers.setField(c.get(), "writing", true);
+            ReflectionHelpers.setField(c.get(), "picker", false);
+            ReflectionHelpers.callInstanceMethod(c.get(), "load");
+            drain(c.get());
+            assertSame(dialog, ShadowAlertDialog.getLatestAlertDialog());
+            assertFalse(dialog.isShowing());
+            assertEquals(0, Http.created);
+            assertTrue(ReflectionHelpers.<Boolean>getField(c.get(), "busy"));
         }
     }
     @Test

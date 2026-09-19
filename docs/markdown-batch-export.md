@@ -36,6 +36,8 @@ Android 和 Windows：首页按搜索、标签或类型筛选 →「选择导出
 
 ## 部署与兼容
 
+1.12.0 的文字预览需要 Capture Server 0.5.0；新增账号专属文字快照与摘要，不迁移数据库。旧分享图片继续可用，但没有历史文字可还原。以下为最初批量 Markdown 导出能力的部署约定。
+
 需要 Capture Server 0.3.0，环境变量 `MNOTE_PUBLIC_BASE_URL` 为外部可访问的 HTTPS API 根地址，例如 `https://chenyu.online/heartnote-capture`。代理应将同一前缀下的 `/s/` 转发到 API，并继续关闭包含 URL 的访问日志。未配置时带图导出被拒绝；不降低为 HTTP，也不自动公开原资产接口。
 
 数据库新增在现有数据根目录的 `markdown-exports/exports.sqlite3`，不改现有账号或记录表。回滚到旧服务器版本后私有同步仍可用，但公开分享路径不再提供。上线仅重启捕获 API 服务，先备份虚拟环境、配置和数据，不修改 SSH 或网络规则。
