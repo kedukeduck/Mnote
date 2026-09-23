@@ -31,6 +31,7 @@ WEB_ASSETS = {
     "/index.html": "index.html",
     "/assets/app.css": "app.css",
     "/assets/app.js": "app.js",
+    "/assets/share-card.css": "share-card.css",
 }
 
 
@@ -217,6 +218,22 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
             return
         if self.releases.serve(self, parsed.path):
             return
+        if parsed.path.startswith("/c/"):
+            try:
+                parts = self._parts(parsed.path)
+                if len(parts) != 2:
+                    raise CaptureNotFound("card")
+                data = self.exports.card_page(parts[1])
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Robots-Tag", "noindex, nofollow, noarchive")
+                self.end_headers()
+                if self.command != "HEAD": self.wfile.write(data)
+            except CaptureNotFound:
+                self._problem(404, "not_found", "分享不存在或已被撤销")
+            return
         if parsed.path.startswith("/s/"):
             try:
                 parts = self._parts(parsed.path)
@@ -398,6 +415,15 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
             return
         parts = self._parts(urlparse(self.path).path)
         try:
+            if parts == ["v1", "exports", "card"]:
+                if not getattr(self, "account", None):
+                    self._problem(403, "forbidden", "Account required")
+                    return
+                try:
+                    self._json(200, self.exports.create_card(self.account["id"], self.store, self._body()))
+                except OSError:
+                    self._problem(503, "export_storage_unavailable", "Export storage is unavailable")
+                return
             if parts == ["v1", "exports", "markdown"]:
                 if not getattr(self, "account", None):
                     self._problem(403, "forbidden", "Account required")

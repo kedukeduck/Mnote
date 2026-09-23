@@ -274,6 +274,101 @@ class MarkdownExports:
                 row.update(self._preview(row["id"]))
             return rows
 
+    def create_card(self, owner, store, body):
+        """Publish only explicitly selected QR fields, never the whole record or its assets."""
+        token = body.get("token", "")
+        fields = body.get("fields")
+        if (not isinstance(token, str) or not re.fullmatch(r"[a-f0-9]{64}", token)
+                or not isinstance(fields, list) or not fields
+                or any(f not in ("original", "source") for f in fields)
+                or len(set(fields)) != len(fields) or body.get("publish") is not True
+                or not isinstance(body.get("id"), str) or type(body.get("revision")) is not int):
+            raise CaptureValidationError("invalid_card_selection")
+        if not self.public_base:
+            raise CaptureValidationError("export_public_url_not_configured")
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        export_id = digest[:32]
+        request = {"id": body["id"], "revision": body["revision"], "fields": sorted(fields)}
+        result = {"id": export_id, "url": self.public_base + "/c/" + token}
+        with self.lock, store._lock:
+            with self.db() as db:
+                existing = db.execute("SELECT owner,revoked FROM exports WHERE id=?", (export_id,)).fetchone()
+                if existing:
+                    if existing["owner"] != owner or existing["revoked"]:
+                        raise CaptureValidationError("card_token_unavailable")
+                    saved = json.loads((self.root / export_id / "card.json").read_text())
+                    if saved["request"] != request:
+                        raise CaptureValidationError("card_token_unavailable")
+                    return result
+                if db.execute("SELECT count(*) FROM exports WHERE owner=? AND revoked=0", (owner,)).fetchone()[0] >= 50:
+                    raise CaptureValidationError("export_quota_revoke_old_links")
+            record = store.get(body["id"])
+            if record["revision"] != body["revision"]:
+                raise CaptureConflict(record["revision"])
+            # This is a human-initiated share, not AI export; consent is specific to these fields.
+            data = {}
+            if "original" in fields:
+                data["original"] = original(record).get("full_text") or ""
+                if not data["original"]:
+                    raise CaptureValidationError("card_original_missing")
+            if "source" in fields:
+                value = obj(record.get("source")).get("url") or ""
+                try:
+                    u = urlsplit(value)
+                    valid = (u.scheme in ("http", "https") and u.hostname and not u.username and not u.password
+                             and not any(c.isspace() or ord(c) < 32 or c == "\\" for c in value))
+                    _ = u.port
+                except ValueError:
+                    valid = False
+                if not valid:
+                    raise CaptureValidationError("card_source_invalid")
+                data["source"] = value
+            encoded = json.dumps({"request": request, "data": data}, ensure_ascii=False)
+            if len(encoded.encode()) > 8 * 1024 * 1024:
+                raise CaptureValidationError("card_text_too_large")
+            text = "分享卡片 · 二维码内容\n\n" + "\n\n".join(
+                ("保存的原文\n" if k == "original" else "来源链接\n") + v for k, v in data.items())
+            stage = Path(tempfile.mkdtemp(prefix="staging-", dir=self.root))
+            destination = self.root / export_id
+            committed = False
+            try:
+                (stage / "card.json").write_text(encoded, encoding="utf-8")
+                (stage / "text.json").write_text(json.dumps({"text": text}, ensure_ascii=False), encoding="utf-8")
+                (stage / "preview.json").write_text(json.dumps({"text_available": True,
+                    "text_preview": text[:400]}, ensure_ascii=False), encoding="utf-8")
+                stage.rename(destination)
+                with self.db() as db:
+                    db.execute("INSERT INTO exports VALUES (?,?,?,?,0,1,0,?)",
+                               (export_id, owner, digest, utc_now(), "{}"))
+                    db.commit()
+                committed = True
+                return result
+            finally:
+                if not committed:
+                    for folder in (stage, destination):
+                        if folder.is_dir():
+                            shutil.rmtree(folder)
+
+    def card_page(self, token):
+        if not re.fullmatch(r"[a-f0-9]{64}", token):
+            raise CaptureNotFound("card")
+        with self.lock, self.db() as db:
+            row = db.execute("SELECT id FROM exports WHERE token_hash=? AND revoked=0",
+                             (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+            if row is None:
+                raise CaptureNotFound("card")
+            try:
+                data = json.loads((self.root / row["id"] / "card.json").read_text(encoding="utf-8"))["data"]
+            except (OSError, ValueError, KeyError):
+                raise CaptureNotFound("card")
+            content = ""
+            if "original" in data:
+                content += '<section><h2>保存的原文</h2><p class="hint">这是记录时保存的文字，不保证包含完整页面。</p><div class="original">' + html.escape(data["original"]) + '</div></section>'
+            if "source" in data:
+                content += '<section><h2>来源</h2><p class="hint">以下链接由分享者提供，将前往外部网站。</p><a rel="noreferrer noopener" href="' + html.escape(data["source"], quote=True) + '">打开来源 ↗</a></section>'
+            css = html.escape(self.public_base + "/assets/share-card.css", quote=True)
+            return ('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><title>Mnote · 分享的原文与来源</title><link rel="stylesheet" href="' + css + '"></head><body><main><header>Mnote</header><h1>原文与来源</h1><p class="hint">仅展示分享者选择公开的内容。</p>' + content + '<footer>分享者可随时撤销此页面。请勿转发含私人信息的内容。</footer></main></body></html>').encode("utf-8")
+
     def _preview(self, export_id):
         try:
             path = self.root / export_id / "preview.json"
@@ -313,7 +408,7 @@ class MarkdownExports:
                 folder = self.root / export_id
                 for name in json.loads(row["assets"]):
                     (folder / name).unlink(missing_ok=True)
-                for name in ("text.json", "preview.json"):
+                for name in ("text.json", "preview.json", "card.json"):
                     (folder / name).unlink(missing_ok=True)
                 if folder.exists(): folder.rmdir()
             except OSError:
