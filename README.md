@@ -32,7 +32,7 @@ Windows 已补齐应用内查看 / 编辑 / 删除、标签 / 未分类筛选、
 
 ## Android 构建
 
-当前 Android 增量测试版：[1.12.0-test APK](https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.12.0-test/Mnote-Android-1.12.0-test.apk)。分享管理移到设置，直接预览文字与图片；首页“选择导出”改为原地多选并直接导出。旧分享没有保留文字快照，需重新导出才能显示历史文字。详见 [1.12.0 说明](docs/share-text-1.12.0-release-notes.md)。安装前保存草稿，覆盖安装，不要卸载旧版。使用原调试/测试签名，非正式商店版。
+当前 Android 增量测试版：[1.13.0-test APK](https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.13.0-test/Mnote-Android-1.13.0-test.apk)。记录详情顶部“分享”支持实时选择模块、自动排成一屏卡片并保存到相册；原文与来源通过明确确认后的可撤销二维码查看。详见 [1.13.0 说明](docs/share-card-1.13.0-release-notes.md)。安装前保存草稿，覆盖安装，不要卸载旧版。使用原调试/测试签名，非正式商店版。Windows 仍为 1.12.0-test，本次未增加卡片制作入口。
 
 1.10.1 修复“分享管理”无法查看历史图片：点击历史分享即可查看当次导出的图片快照，兼容旧分享，不依赖原记录是否仍在本机。详见 [历史分享图片说明](docs/share-history-1.10.1-release-notes.md)。
 
