@@ -36,6 +36,12 @@ final class CaptureRecordPage {
         Button editButton=new Button(activity);editButton.setText("编辑");editButton.setId(R.id.record_edit_open);
         headerAction(activity,editButton);
         header.addView(edit==null ? remove : editButton,new LinearLayout.LayoutParams(-2,-2));
+        Button share=new Button(activity);share.setId(R.id.share_card_open);share.setText("分享");
+        headerAction(activity,share);
+        share.setOnClickListener(v->activity.startActivity(new android.content.Intent(activity,ShareCardActivity.class)
+                .putExtra(CaptureRecordEditActivity.ID,record.id)
+                .putExtra(CaptureRecordEditActivity.SCOPE,CaptureAccountSession.scope(activity))));
+        header.addView(share,new LinearLayout.LayoutParams(-2,-2));
         page.addView(header);
         ScrollView scroll=new ScrollView(activity); scroll.setFillViewport(true); scroll.setVerticalScrollBarEnabled(false);
         LinearLayout body=column(activity); body.setId(R.id.capture_review_body);

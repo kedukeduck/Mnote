@@ -11,8 +11,8 @@ android {
         applicationId "com.codex.mnote"
         minSdk 26
         targetSdk 35
-        versionCode 27
-        versionName "1.12.0-test"
+        versionCode 28
+        versionName "1.13.0-test"
     }
 
     buildTypes {
@@ -50,6 +50,7 @@ android {
 dependencies {
     implementation "androidx.core:core:1.15.0"
     implementation "androidx.work:work-runtime:2.11.2"
+    implementation "com.google.zxing:core:3.5.3"
     testImplementation "junit:junit:4.13.2"
     testImplementation "org.robolectric:robolectric:4.14.1"
 }
