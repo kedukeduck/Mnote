@@ -58,12 +58,21 @@ public class ShareCardTest {
     @Implements(value = ShareCardAlbum.class, isInAndroidSdk = false)
     public static class Album {
         static Bitmap saved;
+        static ShareCardRenderer.Document savedDocument;
         static boolean fail;
         @Implementation
         protected static android.net.Uri save(Context c, Bitmap bitmap) throws IOException {
             if (fail)
                 throw new IOException("disk_full");
             saved = bitmap;
+            return android.net.Uri.parse("content://media/1");
+        }
+        @Implementation
+        protected static android.net.Uri save(Context c, ShareCardRenderer.Document document)
+            throws IOException {
+            if (fail)
+                throw new IOException("disk_full");
+            savedDocument = document;
             return android.net.Uri.parse("content://media/1");
         }
     }
@@ -97,6 +106,7 @@ public class ShareCardTest {
         Http.fail = Http.logout = false;
         Http.body = null;
         Album.saved = null;
+        Album.savedDocument = null;
         Album.fail = false;
     }
     void drain(ShareCardActivity a) throws Exception {
@@ -121,13 +131,14 @@ public class ShareCardTest {
             var r = ShareCardRenderer.render(QUOTE, THOUGHT, image, image, mask, qr);
             assertEquals("mask " + mask, "", r.error);
             assertEquals(1080, r.bitmap.getWidth());
-            assertEquals(1920, r.bitmap.getHeight());
+            assertTrue(r.bitmap.getHeight() <= 1920);
             if (mask == 63) {
-                int[] pixels = new int[1080 * 1920];
-                r.bitmap.getPixels(pixels, 0, 1080, 0, 0, 1080, 1920);
+                int height = r.bitmap.getHeight();
+                int[] pixels = new int[1080 * height];
+                r.bitmap.getPixels(pixels, 0, 1080, 0, 0, 1080, height);
                 String decoded = new MultiFormatReader()
                                      .decode(new BinaryBitmap(new HybridBinarizer(
-                                         new RGBLuminanceSource(1080, 1920, pixels))))
+                                         new RGBLuminanceSource(1080, height, pixels))))
                                      .getText();
                 assertEquals(url, decoded);
             }
@@ -137,10 +148,11 @@ public class ShareCardTest {
     @Test
     public void longTextMissingImagesAndEmptySelectionFailExplicitly() {
         assertNull(ShareCardRenderer.render("x", "y", null, null, 0, null).bitmap);
-        assertTrue(ShareCardRenderer.render("长文".repeat(5000), "", null, null, 1, null)
-                .error.contains("一屏"));
-        assertTrue(ShareCardRenderer.render("长文".repeat(1000), "", null, null, 1, null)
-                .error.contains("没有截断"));
+        var longQuote = ShareCardRenderer.render("长文".repeat(5000), "", null, null, 1, null);
+        assertEquals("", longQuote.error);
+        assertTrue(longQuote.document.quoteTruncated);
+        assertTrue(longQuote.document.displayedQuote.length() < 10000);
+        longQuote.bitmap.recycle();
         assertTrue(ShareCardRenderer.render("", "", null, null, 4, null).error.contains("截图"));
     }
     @Test
@@ -272,6 +284,27 @@ public class ShareCardTest {
             }
             SettingsActivityTest.render(
                 SettingsActivityTest.layout(a, 390, 844), "share-card-full-preview.png");
+            a.findViewById(R.id.share_card_adjust_context).performClick();
+            var dialog = ShadowAlertDialog.getLatestAlertDialog();
+            SeekBar position = dialog.findViewById(R.id.share_card_context_position);
+            assertNotNull(position);
+            position.setProgress(1000);
+            shadowOf(position).getOnSeekBarChangeListener().onProgressChanged(position, 1000, true);
+            drain(a);
+            ShareCardRenderer.Document moved = ReflectionHelpers.getField(a, "previewDocument");
+            assertEquals(1f, moved.contextPosition, 0);
+            assertFalse(finalImage.sameAs(ReflectionHelpers.getField(a, "previewBitmap")));
+            Bundle savedState = new Bundle();
+            c.saveInstanceState(savedState);
+            assertEquals(1000, savedState.getInt("page_position"));
+            var root = dialog.getWindow().getDecorView();
+            root.measure(android.view.View.MeasureSpec.makeMeasureSpec(
+                             390, android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(
+                    844, android.view.View.MeasureSpec.AT_MOST));
+            root.layout(0, 0, root.getMeasuredWidth(), root.getMeasuredHeight());
+            SettingsActivityTest.render(root, "share-card-context-adjust.png");
+            dialog.dismiss();
             choice(a, 64).setChecked(false);
             drain(a);
             assertNotNull(ReflectionHelpers.getField(a, "previewBitmap"));
@@ -341,6 +374,42 @@ public class ShareCardTest {
             drain(a);
             assertNotNull(Album.saved);
             assertEquals(0, Http.creates);
+        }
+    }
+    @Test
+    public void tallThoughtUsesScrollableReaderAndExportsFullDocument() throws Exception {
+        String thought = ("完整保留我的想法，不应被删节。\n").repeat(80) + "最后一句也必须保留。";
+        record
+        = CaptureStore.save(context, null, null, null, null, "thought", thought, "clipboard", QUOTE,
+            "", "", "", false, new JSONObject());
+        intent.putExtra(CaptureRecordEditActivity.ID, record.id);
+        try (var c = Robolectric.buildActivity(ShareCardActivity.class, intent).setup()) {
+            var a = c.get();
+            drain(a);
+            ShareCardRenderer.Document doc = ReflectionHelpers.getField(a, "previewDocument");
+            assertEquals(thought, doc.fullThought);
+            assertTrue(doc.height > ShareCardRenderer.PREVIEW_HEIGHT);
+            a.findViewById(R.id.share_card_preview).performClick();
+            var dialog = ShadowAlertDialog.getLatestAlertDialog();
+            ScrollView reader = dialog.findViewById(R.id.share_card_reader);
+            assertNotNull(reader);
+            var window=dialog.getWindow().getDecorView();
+            window.measure(android.view.View.MeasureSpec.makeMeasureSpec(
+                               390, android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(
+                    844, android.view.View.MeasureSpec.EXACTLY));
+            window.layout(0,0,390,844);
+            assertTrue(reader.getChildAt(0).getHeight() > 700);
+            reader.scrollTo(0, reader.getChildAt(0).getHeight());
+            assertTrue(reader.getScrollY() > 0);
+            SettingsActivityTest.render(window, "share-card-long-reader.png");
+            dialog.dismiss();
+            a.findViewById(R.id.share_card_save).performClick();
+            drain(a);
+            assertSame(doc, Album.savedDocument);
+            assertNull(Album.saved);
+            assertEquals(0, Http.creates);
+            assertEquals(thought, CaptureStore.find(context, record.id).comment);
         }
     }
 }

@@ -102,6 +102,31 @@ public class ShareCardAlbumTest {
         provider.file.delete();
     }
     @Test
+    public void streamedCardUsesSameMediaStoreTransaction() throws Exception {
+        var card = ShareCardRenderer.render("", "完整的想法。", null, null, 2, null);
+        ShareCardAlbum.save(app, card.document);
+        assertTrue(provider.file.length() > 0);
+        assertEquals(0, provider.deleted);
+        var decoded = android.graphics.BitmapFactory.decodeFile(provider.file.getAbsolutePath());
+        assertEquals(card.document.height, decoded.getHeight());
+        assertTrue(card.bitmap.sameAs(decoded));
+        decoded.recycle();
+        card.bitmap.recycle();
+    }
+    @Test
+    public void streamedWriteFailureCleansOnlyItsPendingImage() {
+        var card = ShareCardRenderer.render("", "完整的想法。", null, null, 2, null);
+        provider.failOpen = true;
+        try {
+            ShareCardAlbum.save(app, card.document);
+            fail();
+        } catch (IOException expected) {
+        }
+        assertEquals(1, provider.deleted);
+        assertNull(provider.updated);
+        card.bitmap.recycle();
+    }
+    @Test
     public void savesPngAndPublishesPendingImageOnlyAfterWrite() throws Exception {
         Uri uri = ShareCardAlbum.save(app, bitmap);
         assertTrue(uri.toString().endsWith("/42"));

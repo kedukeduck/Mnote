@@ -4,9 +4,13 @@
     <item type="id" name="share_card_save" />
     <item type="id" name="share_card_modules" />
     <item type="id" name="share_card_status" />
+    <item type="id" name="share_card_layout_status" />
+    <item type="id" name="share_card_context_position" />
+    <item type="id" name="share_card_adjust_context" />
+    <item type="id" name="share_card_reader" />
     <string name="share_card_title">分享卡片</string>
     <string name="share_card_save">保存到相册</string>
-    <string name="share_card_hint">一屏尺寸 · 勾选后实时预览 · 点击图片放大</string>
+    <string name="share_card_hint">随内容适配 · 想法完整保留 · 点击图片放大</string>
     <string name="share_card_publish_hint">保存并确认后，二维码才会生效。仅发布所选原文／来源；截图内已有的信息不会自动隐藏。</string>
     <string name="share_card_local_hint">图片仅保存到本机，不发布到网络。截图内已有的信息不会自动隐藏。</string>
     <string name="share_card_confirm">创建可扫码的分享？</string>

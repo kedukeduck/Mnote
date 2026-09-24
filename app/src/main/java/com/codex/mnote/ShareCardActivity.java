@@ -22,8 +22,13 @@ public final class ShareCardActivity extends Activity {
     private String id, scope, token, base = "", fingerprint;
     private CaptureStore.CaptureRecord record;
     private Bitmap originalImage, annotatedImage, contextImage, previewBitmap;
+    private ShareCardRenderer.Document previewDocument;
     private ImageView preview;
-    private TextView status;
+    private TextView status, layoutStatus;
+    private Button contextAdjust;
+    private View contextCropPreview;
+    private SeekBar contextPosition;
+    private int pagePosition;
     private Button save;
     private LinearLayout modules;
     private final List<CheckBox> choices = new ArrayList<>();
@@ -79,6 +84,9 @@ public final class ShareCardActivity extends Activity {
                     published = sameSnapshot && state.getBoolean("published");
                     if (state != null && !sameSnapshot)
                         token = freshToken();
+                    pagePosition = state == null
+                        ? 0
+                        : Math.max(0, Math.min(1000, state.getInt("page_position")));
                     loading = false;
                     buildChoices();
                     schedule(false);
@@ -111,6 +119,8 @@ public final class ShareCardActivity extends Activity {
         head.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
         root.addView(head);
         TextView hint = label(getString(R.string.share_card_hint), 12);
+        layoutStatus = hint;
+        hint.setId(R.id.share_card_layout_status);
         hint.setPadding(dp(20), 0, dp(20), dp(8));
         root.addView(hint);
         preview = new ImageView(this);
@@ -120,15 +130,15 @@ public final class ShareCardActivity extends Activity {
         preview.setContentDescription("最终分享图片预览，点击放大");
         root.addView(preview, new LinearLayout.LayoutParams(-1, 0, 1));
         preview.setOnClickListener(v -> {
-            if (previewBitmap == null)
+            if (previewDocument == null)
                 return;
-            ImageView big = new ImageView(this);
-            big.setImageBitmap(previewBitmap);
-            big.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            big.setBackgroundColor(ShareCardRenderer.PAPER);
-            big.setContentDescription("放大的最终分享卡片");
+            ScrollView reader = new ScrollView(this);
+            reader.setId(R.id.share_card_reader);
+            reader.setBackgroundColor(ShareCardRenderer.PAPER);
+            reader.addView(new ShareCardReadingView(this, previewDocument),
+                new ScrollView.LayoutParams(-1, -2));
             AlertDialog dialog = new AlertDialog.Builder(this)
-                                     .setView(big)
+                                     .setView(reader)
                                      .setPositiveButton("返回预览", null)
                                      .create();
             dialog.show();
@@ -169,14 +179,66 @@ public final class ShareCardActivity extends Activity {
         addChoice("摘录", 1, !record.sourceText.isEmpty());
         addChoice("我的想法", 2, !record.comment.isEmpty());
         addChoice("圈选截图", 4, originalImage != null || annotatedImage != null);
-        addChoice("完整截图", 8, contextImage != null);
+        addChoice("页面截图", 8, contextImage != null);
         addChoice("原文 · 二维码", 16, synced && !CaptureRecordEdits.original(record).isEmpty());
         addChoice("来源 · 二维码", 32, synced && validSource(record.sourceUrl));
         addChoice("截图保留批注", 64, annotatedImage != null && originalImage != null);
+        contextAdjust = new Button(this);
+        contextAdjust.setId(R.id.share_card_adjust_context);
+        contextAdjust.setText("调整页面位置");
+        contextAdjust.setTextSize(13);
+        ((LinearLayout) modules.getChildAt(modules.getChildCount() - 1))
+            .addView(contextAdjust, new LinearLayout.LayoutParams(0, dp(48), 1));
+        contextAdjust.setVisibility(
+            previewDocument != null && previewDocument.contextCropped ? View.VISIBLE : View.GONE);
+        contextAdjust.setOnClickListener(v -> showContextPosition());
         if (!synced) {
             TextView t = label("本机卡片无需登录；二维码需要登录并先同步此记录。", 12);
             modules.addView(t);
         }
+    }
+    private void showContextPosition() {
+        if (saving || previewDocument == null || !previewDocument.contextCropped)
+            return;
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(16), dp(8), dp(16), dp(8));
+        contextCropPreview = new View(this) {
+            @Override
+            protected void onDraw(android.graphics.Canvas canvas) {
+                super.onDraw(canvas);
+                if (previewDocument != null)
+                    previewDocument.drawContextPreview(canvas, getWidth(), getHeight());
+            }
+        };
+        contextCropPreview.setBackgroundColor(ShareCardRenderer.PAPER);
+        contextCropPreview.setContentDescription("卡片中页面截图的实际展示区域");
+        panel.addView(contextCropPreview, new LinearLayout.LayoutParams(-1, dp(220)));
+        panel.addView(label("局部预览 · 向左看顶部，向右看底部；不修改原截图", 12));
+        contextPosition = new SeekBar(this);
+        contextPosition.setId(R.id.share_card_context_position);
+        contextPosition.setMax(1000);
+        contextPosition.setProgress(pagePosition);
+        contextPosition.setContentDescription("页面截图展示位置，左侧为顶部，右侧为底部");
+        panel.addView(contextPosition, new LinearLayout.LayoutParams(-1, dp(48)));
+        contextPosition.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar bar, int progress, boolean user) {
+                if (user && !saving) {
+                    pagePosition = progress;
+                    schedule(true);
+                }
+            }
+            @Override
+            public void onStartTrackingTouch(SeekBar bar) {}
+            @Override
+            public void onStopTrackingTouch(SeekBar bar) {}
+        });
+        new AlertDialog.Builder(this)
+            .setTitle("页面截图展示位置")
+            .setView(panel)
+            .setPositiveButton("完成", null)
+            .show();
     }
     private void addChoice(String title, int flag, boolean available) {
         if (!available)
@@ -221,6 +283,7 @@ public final class ShareCardActivity extends Activity {
             published = false;
         }
         int version = generation.incrementAndGet(), selected = mask;
+        float position = pagePosition / 1000f;
         String url = base + "/c/" + token;
         save.setEnabled(false);
         handler.removeCallbacksAndMessages(null);
@@ -235,16 +298,29 @@ public final class ShareCardActivity extends Activity {
                     : originalImage != null                                    ? originalImage
                                                                                : annotatedImage;
                 result = ShareCardRenderer.render(record.sourceText, record.comment, chosen,
-                    contextImage, selected, qr, getResources().getFont(R.font.noto_serif_cjk));
+                    contextImage, selected, qr, getResources().getFont(R.font.noto_serif_cjk),
+                    position);
             } catch (Exception | OutOfMemoryError e) {
                 result = new ShareCardRenderer.Result(null, "图片生成失败，请减少图片模块后重试。");
             }
             ShareCardRenderer.Result rendered = result;
             runOnUiThread(() -> {
-                if (!active() || version != generation.get())
+                if (!active() || version != generation.get()) {
+                    if (rendered.bitmap != null)
+                        rendered.bitmap.recycle();
                     return;
+                }
                 previewBitmap = rendered.bitmap;
+                previewDocument = rendered.document;
                 preview.setImageBitmap(previewBitmap);
+                layoutStatus.setText(previewDocument == null
+                        ? getString(R.string.share_card_hint)
+                        : previewDocument.summary + " · 点击放大");
+                contextAdjust.setVisibility(
+                    previewDocument != null && previewDocument.contextCropped ? View.VISIBLE
+                                                                              : View.GONE);
+                if (contextCropPreview != null)
+                    contextCropPreview.invalidate();
                 status.setText(rendered.error.isEmpty() ? published
                             ? "二维码已生效，可在设置 → 分享管理撤销。"
                             : getString((selected & 48) != 0 ? R.string.share_card_publish_hint
@@ -284,8 +360,12 @@ public final class ShareCardActivity extends Activity {
         saving = true;
         save.setEnabled(false);
         for (CheckBox c : choices) c.setEnabled(false);
+        contextAdjust.setEnabled(false);
+        if (contextPosition != null)
+            contextPosition.setEnabled(false);
         status.setText("正在保存，请稍候…");
         final Bitmap bitmap = previewBitmap;
+        final ShareCardRenderer.Document document = previewDocument;
         final int selected = mask;
         final String shareToken = token;
         final boolean existing = published;
@@ -336,7 +416,10 @@ public final class ShareCardActivity extends Activity {
                 }
                 synchronized (CaptureAccountSession.LOCK) {
                     CaptureAccountSession.requireScope(app, scope);
-                    ShareCardAlbum.save(app, bitmap);
+                    if (document.height > ShareCardRenderer.PREVIEW_HEIGHT)
+                        ShareCardAlbum.save(app, document);
+                    else
+                        ShareCardAlbum.save(app, bitmap);
                 }
                 message = "已保存到相册" + ((selected & 48) != 0 ? "，二维码已生效。" : "。");
                 success = true;
@@ -411,6 +494,7 @@ public final class ShareCardActivity extends Activity {
         state.putBoolean("loading", loading);
         state.putString("fingerprint", fingerprint);
         state.putInt("revision", record == null ? -1 : record.serverRevision);
+        state.putInt("page_position", pagePosition);
     }
     @Override
     protected void onDestroy() {
