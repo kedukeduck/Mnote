@@ -383,22 +383,23 @@ public class ShareCardTest {
         = CaptureStore.save(context, null, null, null, null, "thought", thought, "clipboard", QUOTE,
             "", "", "", false, new JSONObject());
         intent.putExtra(CaptureRecordEditActivity.ID, record.id);
-        try (var c = Robolectric.buildActivity(ShareCardActivity.class, intent).setup()) {
+        try (var c = Robolectric.buildActivity(ShareCardActivity.class, intent).setup().visible()) {
             var a = c.get();
             drain(a);
             ShareCardRenderer.Document doc = ReflectionHelpers.getField(a, "previewDocument");
             assertEquals(thought, doc.fullThought);
             assertTrue(doc.height > ShareCardRenderer.PREVIEW_HEIGHT);
             a.findViewById(R.id.share_card_preview).performClick();
+            drain(a);
             var dialog = ShadowAlertDialog.getLatestAlertDialog();
             ScrollView reader = dialog.findViewById(R.id.share_card_reader);
             assertNotNull(reader);
-            var window=dialog.getWindow().getDecorView();
+            var window = dialog.getWindow().getDecorView();
             window.measure(android.view.View.MeasureSpec.makeMeasureSpec(
                                390, android.view.View.MeasureSpec.EXACTLY),
                 android.view.View.MeasureSpec.makeMeasureSpec(
                     844, android.view.View.MeasureSpec.EXACTLY));
-            window.layout(0,0,390,844);
+            window.layout(0, 0, 390, 844);
             assertTrue(reader.getChildAt(0).getHeight() > 700);
             reader.scrollTo(0, reader.getChildAt(0).getHeight());
             assertTrue(reader.getScrollY() > 0);

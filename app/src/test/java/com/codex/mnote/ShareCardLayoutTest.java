@@ -67,6 +67,10 @@ public class ShareCardLayoutTest {
         RectF source = ShareCardRenderer.contextSource(page, 300, 1);
         assertEquals(2000f, source.bottom, 0.01f);
         assertTrue(source.top > 0);
+        var pageOnly = render("", "", null, page, 8, 0);
+        assertEquals(1920, pageOnly.document.height);
+        assertTrue(pageOnly.document.contextCropped);
+        pageOnly.bitmap.recycle();
         save(all, "share-card-truncated.png");
         for (var r : List.of(all, freed, lower)) r.bitmap.recycle();
         crop.recycle();

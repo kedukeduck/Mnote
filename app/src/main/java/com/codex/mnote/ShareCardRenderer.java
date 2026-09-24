@@ -224,6 +224,8 @@ final class ShareCardRenderer {
     private static Document layout(String quote, String thought, Bitmap crop, Bitmap context,
         int mask, Bitmap qr, Typeface serif, float position, boolean compact) {
         int heading = compact ? 56 : 64, gap = compact ? 22 : 30, top = compact ? 150 : 170;
+        int moduleCount = Integer.bitCount(mask & 15);
+        int singleImageBudget = HEIGHT - top - MARGIN - (qr == null ? 0 : 292);
         List<Block> blocks = new ArrayList<>(), optional = new ArrayList<>();
         if ((mask & QUOTE) != 0) {
             Block b = new Block();
@@ -238,7 +240,7 @@ final class ShareCardRenderer {
             optional.add(b);
         }
         if ((mask & CROP) != 0) {
-            Block b = image(CROP, crop, 700, 3);
+            Block b = image(CROP, crop, moduleCount == 1 ? singleImageBudget : 700, 3);
             blocks.add(b);
             optional.add(b);
         }
@@ -250,7 +252,11 @@ final class ShareCardRenderer {
             blocks.add(b);
         }
         if ((mask & CONTEXT) != 0) {
-            Block b = image(CONTEXT, context, 560, 1);
+            Block b = image(CONTEXT, context,
+                moduleCount == 1       ? singleImageBudget - NOTICE
+                    : moduleCount == 2 ? 900
+                                       : 560,
+                1);
             blocks.add(b);
             optional.add(b);
         }
