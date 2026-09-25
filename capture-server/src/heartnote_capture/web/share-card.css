@@ -11,4 +11,6 @@ section { margin-top: 32px; }
 .original { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.9; font-size: 17px; }
 a { display: inline-block; padding: 14px 22px; border: 1px solid #a95035; border-radius: 8px; color: #843b26; text-decoration: none; }
 a:focus-visible { outline: 3px solid #843b26; outline-offset: 4px; }
+.image-link { display: block; padding: 0; border: 0; border-radius: 12px; overflow: hidden; }
+.image-link img { display: block; width: 100%; height: auto; }
 footer { margin-top: 48px; border-top: 1px solid #c9bdae; padding-top: 20px; }

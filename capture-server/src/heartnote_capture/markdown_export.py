@@ -275,12 +275,12 @@ class MarkdownExports:
             return rows
 
     def create_card(self, owner, store, body):
-        """Publish only explicitly selected QR fields, never the whole record or its assets."""
+        """Publish an immutable snapshot of exactly the selected text and image modules."""
         token = body.get("token", "")
         fields = body.get("fields")
         if (not isinstance(token, str) or not re.fullmatch(r"[a-f0-9]{64}", token)
                 or not isinstance(fields, list) or not fields
-                or any(f not in ("original", "source") for f in fields)
+                or any(f not in ("thought", "excerpt", "crop", "context", "original", "source") for f in fields)
                 or len(set(fields)) != len(fields) or body.get("publish") is not True
                 or not isinstance(body.get("id"), str) or type(body.get("revision")) is not int):
             raise CaptureValidationError("invalid_card_selection")
@@ -289,7 +289,13 @@ class MarkdownExports:
         digest = hashlib.sha256(token.encode()).hexdigest()
         export_id = digest[:32]
         request = {"id": body["id"], "revision": body["revision"], "fields": sorted(fields)}
-        result = {"id": export_id, "url": self.public_base + "/c/" + token}
+        if "crop" in fields:
+            if body.get("crop_role") not in ("original", "annotated"):
+                raise CaptureValidationError("invalid_card_crop_role")
+            request["crop_role"] = body["crop_role"]
+        elif "crop_role" in body:
+            raise CaptureValidationError("unexpected_card_crop_role")
+        result = {"id": export_id, "url": self.public_base + "/c/" + token, "format": 2}
         with self.lock, store._lock:
             with self.db() as db:
                 existing = db.execute("SELECT owner,revoked FROM exports WHERE id=?", (export_id,)).fetchone()
@@ -307,6 +313,12 @@ class MarkdownExports:
                 raise CaptureConflict(record["revision"])
             # This is a human-initiated share, not AI export; consent is specific to these fields.
             data = {}
+            for field, value in (("thought", record.get("comment")),
+                                 ("excerpt", obj(record.get("source")).get("text"))):
+                if field in fields:
+                    if not isinstance(value, str) or not value:
+                        raise CaptureValidationError("card_text_missing")
+                    data[field] = value
             if "original" in fields:
                 data["original"] = original(record).get("full_text") or ""
                 if not data["original"]:
@@ -323,23 +335,44 @@ class MarkdownExports:
                 if not valid:
                     raise CaptureValidationError("card_source_invalid")
                 data["source"] = value
-            encoded = json.dumps({"request": request, "data": data}, ensure_ascii=False)
-            if len(encoded.encode()) > 8 * 1024 * 1024:
-                raise CaptureValidationError("card_text_too_large")
-            text = "分享卡片 · 二维码内容\n\n" + "\n\n".join(
-                ("保存的原文\n" if k == "original" else "来源链接\n") + v for k, v in data.items())
             stage = Path(tempfile.mkdtemp(prefix="staging-", dir=self.root))
             destination = self.root / export_id
             committed = False
             try:
+                assets, size = {}, 0
+                for field, role in (("crop", request.get("crop_role")), ("context", "context")):
+                    if field not in fields:
+                        continue
+                    if role not in record["assets"]:
+                        raise CaptureValidationError("card_image_missing")
+                    path, content_type, asset_digest = store.asset(record["id"], role)
+                    size += path.stat().st_size
+                    if size > MAX_IMAGES:
+                        raise CaptureValidationError("export_images_too_large")
+                    image = path.read_bytes()
+                    if hashlib.sha256(image).hexdigest() != asset_digest:
+                        raise CaptureValidationError("export_image_integrity")
+                    name = f"1-{role}{CONTENT_EXTENSIONS[content_type]}"
+                    with (stage / name).open("xb") as output:
+                        output.write(image); output.flush(); os.fsync(output.fileno())
+                    assets[name] = {"content_type": content_type, "size": len(image)}
+                    data[field] = {"name": name}
+                encoded = json.dumps({"request": request, "data": data}, ensure_ascii=False)
+                if len(encoded.encode()) > 8 * 1024 * 1024:
+                    raise CaptureValidationError("card_text_too_large")
+                titles = {"thought": "我的想法", "excerpt": "摘录", "crop": "圈选截图",
+                          "context": "页面截图", "original": "保存的原文", "source": "来源链接"}
+                text = "分享卡片 · 二维码内容\n\n" + "\n\n".join(
+                    title + "\n" + (data[k] if isinstance(data[k], str) else "已保留图片快照")
+                    for k, title in titles.items() if k in data)
                 (stage / "card.json").write_text(encoded, encoding="utf-8")
                 (stage / "text.json").write_text(json.dumps({"text": text}, ensure_ascii=False), encoding="utf-8")
                 (stage / "preview.json").write_text(json.dumps({"text_available": True,
                     "text_preview": text[:400]}, ensure_ascii=False), encoding="utf-8")
                 stage.rename(destination)
                 with self.db() as db:
-                    db.execute("INSERT INTO exports VALUES (?,?,?,?,0,1,0,?)",
-                               (export_id, owner, digest, utc_now(), "{}"))
+                    db.execute("INSERT INTO exports VALUES (?,?,?,?,0,1,?,?)",
+                               (export_id, owner, digest, utc_now(), len(assets), json.dumps(assets)))
                     db.commit()
                 committed = True
                 return result
@@ -362,12 +395,19 @@ class MarkdownExports:
             except (OSError, ValueError, KeyError):
                 raise CaptureNotFound("card")
             content = ""
+            for field, title in (("thought", "我的想法"), ("excerpt", "摘录")):
+                if field in data:
+                    content += '<section><h2>' + title + '</h2><div class="original">' + html.escape(data[field]) + '</div></section>'
+            for field, title in (("crop", "圈选截图"), ("context", "页面截图")):
+                if field in data:
+                    src = html.escape(self.public_base + "/s/" + token + "/" + data[field]["name"], quote=True)
+                    content += '<section><h2>' + title + '</h2><a class="image-link" href="' + src + '" aria-label="打开' + title + '原图"><img loading="lazy" src="' + src + '" alt="' + title + '"></a><p class="hint">点击图片查看原图。</p></section>'
             if "original" in data:
                 content += '<section><h2>保存的原文</h2><p class="hint">这是记录时保存的文字，不保证包含完整页面。</p><div class="original">' + html.escape(data["original"]) + '</div></section>'
             if "source" in data:
                 content += '<section><h2>来源</h2><p class="hint">以下链接由分享者提供，将前往外部网站。</p><a rel="noreferrer noopener" href="' + html.escape(data["source"], quote=True) + '">打开来源 ↗</a></section>'
             css = html.escape(self.public_base + "/assets/share-card.css", quote=True)
-            return ('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><title>Mnote · 分享的原文与来源</title><link rel="stylesheet" href="' + css + '"></head><body><main><header>Mnote</header><h1>原文与来源</h1><p class="hint">仅展示分享者选择公开的内容。</p>' + content + '<footer>分享者可随时撤销此页面。请勿转发含私人信息的内容。</footer></main></body></html>').encode("utf-8")
+            return ('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><title>Mnote · 本次分享</title><link rel="stylesheet" href="' + css + '"></head><body><main><header>Mnote</header><h1>本次分享</h1><p class="hint">仅展示分享者选择公开的内容，保留分享时的快照。</p>' + content + '<footer>分享者可随时撤销此页面。请勿转发含私人信息的内容。</footer></main></body></html>').encode("utf-8")
 
     def _preview(self, export_id):
         try:
