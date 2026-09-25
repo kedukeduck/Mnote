@@ -130,6 +130,7 @@ public class ShareCardTest {
         for (int mask = 1; mask < 64; mask++) {
             var r = ShareCardRenderer.render(QUOTE, THOUGHT, image, image, mask, qr);
             assertEquals("mask " + mask, "", r.error);
+            assertContentOrder(r.document, mask);
             assertEquals(1080, r.bitmap.getWidth());
             assertTrue(r.bitmap.getHeight() <= 1920);
             if (mask == 63) {
@@ -144,6 +145,17 @@ public class ShareCardTest {
             }
             r.bitmap.recycle();
         }
+    }
+    static void assertContentOrder(ShareCardRenderer.Document document, int mask) {
+        java.util.List<Integer> expected = new java.util.ArrayList<>();
+        for (int kind : new int[] {2, 1, 4, 8})
+            if ((mask & kind) != 0)
+                expected.add(kind);
+        java.util.List<?> blocks = ReflectionHelpers.getField(document, "blocks");
+        java.util.List<Integer> actual = new java.util.ArrayList<>();
+        for (Object block : blocks)
+            actual.add(ReflectionHelpers.<Integer>getField(block, "kind"));
+        assertEquals("thought, excerpt, then images for mask " + mask, expected, actual);
     }
     @Test
     public void longTextMissingImagesAndEmptySelectionFailExplicitly() {

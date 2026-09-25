@@ -227,6 +227,14 @@ final class ShareCardRenderer {
         int moduleCount = Integer.bitCount(mask & 15);
         int singleImageBudget = HEIGHT - top - MARGIN - (qr == null ? 0 : 292);
         List<Block> blocks = new ArrayList<>(), optional = new ArrayList<>();
+        // Keep personal thoughts first and all image modules after the text.
+        if ((mask & THOUGHT) != 0) {
+            Block b = new Block();
+            b.kind = THOUGHT;
+            b.text = text(thought, 52, Typeface.create("sans-serif", Typeface.NORMAL));
+            b.height = heading + b.text.getHeight();
+            blocks.add(b);
+        }
         if ((mask & QUOTE) != 0) {
             Block b = new Block();
             b.kind = QUOTE;
@@ -243,13 +251,6 @@ final class ShareCardRenderer {
             Block b = image(CROP, crop, moduleCount == 1 ? singleImageBudget : 700, 3);
             blocks.add(b);
             optional.add(b);
-        }
-        if ((mask & THOUGHT) != 0) {
-            Block b = new Block();
-            b.kind = THOUGHT;
-            b.text = text(thought, 52, Typeface.create("sans-serif", Typeface.NORMAL));
-            b.height = heading + b.text.getHeight();
-            blocks.add(b);
         }
         if ((mask & CONTEXT) != 0) {
             Block b = image(CONTEXT, context,

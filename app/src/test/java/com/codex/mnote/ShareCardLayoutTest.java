@@ -37,6 +37,7 @@ public class ShareCardLayoutTest {
         assertEquals("", longCard.error);
         assertTrue(longCard.document.height > 1920);
         assertEquals(thought, longCard.document.fullThought);
+        ShareCardTest.assertContentOrder(longCard.document, 3);
         assertTrue(longCard.document.quoteTruncated);
         assertFalse(longCard.document.displayedQuote.isEmpty());
         assertTrue(longCard.bitmap.getHeight() <= 4096);
@@ -55,6 +56,7 @@ public class ShareCardLayoutTest {
         String quote = "记录，不只是保存信息。也保留那些被触动的时刻。".repeat(4);
         var all = render(quote, ShareCardTest.THOUGHT, crop, page, 63, 0);
         assertEquals("", all.error);
+        ShareCardTest.assertContentOrder(all.document, 63);
         assertTrue(all.document.quoteTruncated);
         assertTrue(all.document.contextCropped);
         assertEquals(ShareCardTest.THOUGHT, all.document.fullThought);
@@ -106,6 +108,7 @@ public class ShareCardLayoutTest {
         var result = render("摘录。", thought, null, null, 51, 0);
         assertTrue(result.document.height > 4096);
         assertEquals(thought, result.document.fullThought);
+        ShareCardTest.assertContentOrder(result.document, 51);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         ShareCardPng.write(result.document, out);
         byte[] png = out.toByteArray();
