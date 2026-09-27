@@ -16,15 +16,29 @@ int wmain(int argc, wchar_t **argv) {
     if (argc < 2)
         return 2;
     std::wstring action = argv[1];
-    if (action == L"screenshot" && argc == 3) {
+    if ((action == L"screenshot" && argc == 3) || (action == L"window-screenshot" && argc == 4)) {
+        HWND target = action == L"window-screenshot" ? Window(argv[3]) : nullptr;
+        if (action == L"window-screenshot" && !target) return 19;
         ULONG_PTR token = 0;
         Gdiplus::GdiplusStartupInput input;
         Gdiplus::GdiplusStartup(&token, &input, nullptr);
         HDC screen = GetDC(nullptr), memory = CreateCompatibleDC(screen);
         int width = GetSystemMetrics(SM_CXSCREEN), height = GetSystemMetrics(SM_CYSCREEN);
+        if (target) {
+            ShowWindow(target, SW_SHOWNORMAL);
+            SetWindowPos(target, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+            RECT bounds{}; GetWindowRect(target, &bounds);
+            width = bounds.right - bounds.left; height = bounds.bottom - bounds.top;
+            RedrawWindow(target, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+        }
         HBITMAP bitmap = CreateCompatibleBitmap(screen, width, height);
         auto previous = SelectObject(memory, bitmap);
-        BitBlt(memory, 0, 0, width, height, screen, 0, 0, SRCCOPY);
+        if (target) {
+            Sleep(350);
+            RECT bounds{}; GetWindowRect(target, &bounds);
+            BitBlt(memory, 0, 0, width, height, screen, bounds.left, bounds.top, SRCCOPY);
+            SetWindowPos(target, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        } else BitBlt(memory, 0, 0, width, height, screen, 0, 0, SRCCOPY);
         const CLSID encoder = {
             0x557cf406, 0x1a04, 0x11d3, {0x9a, 0x73, 0x00, 0x00, 0xf8, 0x1e, 0xf3, 0x2e}};
         int result = 0;
@@ -65,6 +79,14 @@ int wmain(int argc, wchar_t **argv) {
     }
     if (action == L"ready")
         return main && home ? 0 : 10;
+    if (action == L"read-record" && argc == 3) {
+        auto list = GetDlgItem(home, 2005);
+        int index = std::stoi(argv[2]);
+        if (!list || index < 0 || index >= SendMessageW(list, LB_GETCOUNT, 0, 0)) return 20;
+        SendMessageW(list, LB_SETCURSEL, index, 0);
+        SendMessageW(home, WM_COMMAND, MAKEWPARAM(2005, LBN_SELCHANGE), reinterpret_cast<LPARAM>(list));
+        return 0;
+    }
     if (action == L"markdown") {
         Click(home, 25000);
         return 0;

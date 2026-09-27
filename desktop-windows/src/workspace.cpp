@@ -15,9 +15,11 @@ namespace Mnote::Workspace {
 namespace {
 constexpr wchar_t ClassName[] = L"Mnote.Workspace";
 constexpr UINT Complete = WM_APP + 40;
-constexpr COLORREF Background = RGB(247, 248, 252), Ink = RGB(31, 36, 49),
-                   Muted = RGB(111, 119, 139), Accent = RGB(86, 92, 244),
-                   Border = RGB(225, 229, 239);
+constexpr COLORREF Background = RGB(247, 244, 236), Ink = RGB(36, 43, 43),
+                   Muted = RGB(102, 108, 102), Accent = RGB(36, 73, 78),
+                   Border = RGB(221, 216, 205), Surface = RGB(239, 235, 227),
+                   Selected = RGB(227, 233, 227), Copper = RGB(149, 85, 48),
+                   Danger = RGB(175, 73, 66);
 enum Control {
     Title = 2000,
     Subtitle,
@@ -76,7 +78,20 @@ enum Control {
     MultiDelete,
     ExportPreview,
     TagsPicker,
-    ShareText
+    ShareText,
+    Brand,
+    AllRecords,
+    FilterToggle,
+    ReaderPanel,
+    ReaderTitle,
+    ReaderEmpty,
+    MoreOptions,
+    ReaderThought,
+    ReaderExcerpt,
+    ReaderOriginal,
+    ReaderCrop,
+    ReaderContext,
+    ReaderSource
 };
 enum class Mode {
     Library,
@@ -88,7 +103,8 @@ enum class Mode {
     Markdown,
     Shares,
     Settings,
-    ShareText
+    ShareText,
+    Reader
 };
 struct Placement {
     HWND control;
@@ -102,7 +118,7 @@ struct Window {
     std::uint64_t serial = 0;
     Mode mode = Mode::Library;
     int dpi = 96, scroll = 0, extent = 0;
-    HFONT font = nullptr, heading = nullptr;
+    HFONT font = nullptr, heading = nullptr, brand = nullptr, reading = nullptr;
     std::vector<Placement> placements;
     bool busy = false, dirty = false, loading = false, showTrash = false, editing = false;
     std::string scope, baseline;
@@ -110,6 +126,11 @@ struct Window {
     Record record;
     std::vector<Record> records, filtered;
     bool selecting = false;
+    bool filtersOpen = false, moreOptions = false;
+    HWND reader = nullptr;
+    std::string readerKey;
+    std::map<int, std::shared_ptr<Gdiplus::Bitmap>> readerImages;
+    int readerGeneration = 0;
     std::set<std::string> selectedIds;
     std::map<std::string, std::shared_ptr<Gdiplus::Bitmap>> thumbnails;
     Json shares = Json::array();
@@ -147,6 +168,9 @@ void OpenEditor(Draft, const Record *record = nullptr);
 void OpenAccount();
 void SelectionControls(Window &);
 void DrawImage(Window &, HDC, RECT);
+void RefreshReader(Window &);
+void LayoutReader(Window &);
+void QueueLibraryThumbnail(Window &, const Record &);
 int Scale(const Window &w, int n) { return MulDiv(n, w.dpi, 96); }
 HWND ControlOf(Window &w, int id) { return GetDlgItem(w.hwnd, id); }
 std::wstring Text(HWND control) {
@@ -288,14 +312,25 @@ void Fonts(Window &w) {
         DeleteObject(w.font);
     if (w.heading)
         DeleteObject(w.heading);
+    if (w.brand)
+        DeleteObject(w.brand);
+    if (w.reading)
+        DeleteObject(w.reading);
     w.font = CreateFontW(-Scale(w, 15), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, 0,
                          0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-    w.heading = CreateFontW(-Scale(w, 28), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+    w.heading = CreateFontW(-Scale(w, 25), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+                            DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    w.brand = CreateFontW(-Scale(w, 34), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                          DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Georgia");
+    w.reading = CreateFontW(-Scale(w, 19), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                             DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
     for (auto &p : w.placements)
         SendMessageW(
             p.control, WM_SETFONT,
-            reinterpret_cast<WPARAM>(GetDlgCtrlID(p.control) == Title ? w.heading : w.font), TRUE);
+            reinterpret_cast<WPARAM>(GetDlgCtrlID(p.control) == Brand ? w.brand
+                                     : GetDlgCtrlID(p.control) == Title ? w.heading
+                                     : GetDlgCtrlID(p.control) == ReaderThought ? w.reading
+                                                                                : w.font), TRUE);
 }
 Window &Create(Mode mode, const std::wstring &title, int width, int height) {
     auto state = std::make_unique<Window>();
@@ -325,29 +360,53 @@ void Layout(Window &w) {
                    r.bottom - Scale(w, 56), TRUE);
         return;
     }
+    if (w.mode == Mode::Reader) {
+        LayoutReader(w);
+        return;
+    }
     if (w.mode == Mode::Library) {
         auto move = [&](int id, int x, int y, int ww, int hh) {
             MoveWindow(ControlOf(w, id), Scale(w, x), Scale(w, y), Scale(w, ww), Scale(w, hh),
                        TRUE);
         };
-        move(Title, 28, 24, width - 270, 40);
-        move(Subtitle, 28, 70, width - 56, 24);
-        move(SettingsButton, width - 128, 28, 100, 36);
-        move(NewNote, 28, 110, 132, 40);
-        move(Capture, 170, 110, 132, 40);
-        move(Refresh, width - 152, 110, 124, 40);
-        move(Search, 28, 174, std::max(150, width - 466), 38);
-        move(TagFilter, width - 426, 174, 190, 280);
-        move(KindFilter, width - 226, 174, 198, 280);
-        move(List, 28, 230, width - 56, std::max(80, height - 326));
-        move(Trash, 28, height - 80, 120, 36);
-        move(BatchExport, 314, 110, 124, 40);
-        move(OpenRecord, width - 176, height - 80, 148, 36);
-        move(MultiSelect, 160, height - 80, 100, 36);
-        move(MultiCancel, 28, height - 80, 100, 36);
-        move(MultiAll, 140, height - 80, 130, 36);
-        move(MultiDelete, width - 176, height - 80, 148, 36);
-        move(Status, 28, height - 36, width - 56, 24);
+        bool wide = width >= 1080;
+        int sidebar = wide ? 180 : 152, left = sidebar + 24;
+        int listWidth = wide ? std::clamp((width - sidebar) * 38 / 100, 330, 410)
+                             : width - left - 24;
+        int split = left + listWidth + 24;
+        move(Brand, 24, 22, sidebar - 32, 48);
+        move(AllRecords, 12, 102, sidebar - 24, 42);
+        move(Trash, 12, 154, sidebar - 24, 42);
+        move(SettingsButton, 12, height - 126, sidebar - 24, 40);
+        move(AccountButton, 12, height - 78, sidebar - 24, 38);
+        move(Title, left, 24, listWidth - 100, 40);
+        move(MultiSelect, left + listWidth - 80, 25, 80, 36);
+        move(Search, left, 84, listWidth - 88, 38);
+        move(FilterToggle, left + listWidth - 78, 84, 78, 38);
+        move(TagFilter, left, 132, (listWidth - 12) / 2, 280);
+        move(KindFilter, left + (listWidth + 12) / 2, 132, (listWidth - 12) / 2, 280);
+        ShowWindow(ControlOf(w, TagFilter), w.filtersOpen ? SW_SHOW : SW_HIDE);
+        ShowWindow(ControlOf(w, KindFilter), w.filtersOpen ? SW_SHOW : SW_HIDE);
+        int listTop = w.filtersOpen ? 182 : 140;
+        move(List, left, listTop, listWidth, std::max(80, height - listTop - 102));
+        SendMessageW(ControlOf(w, List), LB_SETITEMHEIGHT, 0, Scale(w, 134));
+        move(BatchExport, left + listWidth - 134, height - 82, 134, 38);
+        move(MultiCancel, left, height - 82, 62, 38);
+        move(MultiAll, left + 68, height - 82, 82, 38);
+        move(MultiDelete, left + listWidth - 102, 25, 102, 36);
+        move(OpenRecord, wide ? split + 24 : left, height - 82, 100, 38);
+        move(ReaderTitle, split + 24, 28, 100, 36);
+        move(Capture, wide ? width - 354 : left, wide ? 28 : height - 132, 88, 38);
+        move(NewNote, wide ? width - 256 : left + 100, wide ? 28 : height - 132, 108, 38);
+        move(Refresh, width - 138, wide ? 28 : height - 132, 114, 38);
+        if (!wide)
+            move(List, left, listTop, listWidth, std::max(80, height - listTop - 160));
+        move(Subtitle, 24, height - 32, sidebar - 36, 22);
+        move(Status, left, height - 34, width - left - 24, 24);
+        move(ReaderPanel, split, 92, std::max(120, width - split - 12), height - 190);
+        ShowWindow(ControlOf(w, ReaderPanel), wide ? SW_SHOW : SW_HIDE);
+        ShowWindow(ControlOf(w, ReaderTitle), wide ? SW_SHOW : SW_HIDE);
+        InvalidateRect(w.hwnd, nullptr, TRUE);
         return;
     }
     if (w.mode == Mode::Markdown || w.mode == Mode::Shares) {
@@ -400,6 +459,12 @@ void Layout(Window &w) {
     SetScrollInfo(w.hwnd, SB_VERT, &info, TRUE);
     for (auto &p : w.placements) {
         int id = GetDlgCtrlID(p.control), y = p.y - w.scroll;
+    if (w.mode == Mode::Editor && !w.moreOptions && p.y >= 10000) {
+            ShowWindow(p.control, SW_HIDE);
+            continue;
+        }
+        if (w.mode == Mode::Editor && p.y >= 10000)
+            y -= 10000;
         if (id == Status)
             y = height - 44;
         else if (id == Save || id == Login)
@@ -417,6 +482,192 @@ void Layout(Window &w) {
                          TRUE);
         ShowWindow(p.control, footer || (y + p.h > 0 && y < view) ? SW_SHOW : SW_HIDE);
     }
+}
+LRESULT CALLBACK ReaderTextProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp, UINT_PTR,
+                                DWORD_PTR) {
+    if (message == WM_MOUSEWHEEL)
+        return SendMessageW(GetParent(hwnd), message, wp, lp);
+    if (message == WM_NCDESTROY)
+        RemoveWindowSubclass(hwnd, ReaderTextProc, 1);
+    return DefSubclassProc(hwnd, message, wp, lp);
+}
+void LayoutReader(Window &w) {
+    RECT client{};
+    GetClientRect(w.hwnd, &client);
+    int width = MulDiv(client.right, 96, w.dpi), height = MulDiv(client.bottom, 96, w.dpi);
+    int contentWidth = std::min(680, std::max(160, width - 56));
+    int left = std::max(24, (width - contentWidth) / 2), y = 22;
+    auto dc = GetDC(w.hwnd);
+    for (auto &p : w.placements) {
+        int id = GetDlgCtrlID(p.control);
+        p.x = left;
+        p.w = id == 28102 ? 70 : contentWidth;
+        p.y = y;
+        auto image = w.readerImages.find(id);
+        if (id == ReaderCrop || id == ReaderContext) {
+            p.h = image == w.readerImages.end() ? 40
+                      : std::max(80, int(double(contentWidth) * image->second->GetHeight() /
+                                        image->second->GetWidth()));
+        } else if (id == ReaderThought || id == ReaderExcerpt || id == ReaderOriginal ||
+                   id == ReaderEmpty) {
+            auto previous = SelectObject(dc, id == ReaderThought ? w.reading : w.font);
+            RECT measured{0, 0, Scale(w, contentWidth - 8), 0};
+            auto value = Text(p.control);
+            DrawTextW(dc, value.c_str(), -1, &measured,
+                      DT_CALCRECT | DT_WORDBREAK | DT_EDITCONTROL | DT_NOPREFIX);
+            SelectObject(dc, previous);
+            p.h = std::max(30, MulDiv(measured.bottom, 96, w.dpi) + 12);
+        } else
+            p.h = id == ReaderSource ? 42 : 28;
+        y += p.h + ((id == ReaderThought || id == ReaderExcerpt || id == ReaderOriginal ||
+                     id == ReaderCrop || id == ReaderContext) ? 28 : 10);
+    }
+    ReleaseDC(w.hwnd, dc);
+    w.extent = y;
+    w.scroll = std::clamp(w.scroll, 0, std::max(0, y - height));
+    SCROLLINFO info{sizeof(info), SIF_RANGE | SIF_PAGE | SIF_POS, 0, y - 1,
+                    static_cast<UINT>(height), w.scroll, 0};
+    SetScrollInfo(w.hwnd, SB_VERT, &info, TRUE);
+    for (const auto &p : w.placements)
+        MoveWindow(p.control, Scale(w, p.x), Scale(w, p.y - w.scroll), Scale(w, p.w),
+                   Scale(w, p.h), TRUE);
+    InvalidateRect(w.hwnd, nullptr, TRUE);
+}
+void RefreshReader(Window &from) {
+    auto found = windows.find(from.reader);
+    if (found == windows.end())
+        return;
+    auto &w = *found->second;
+    auto index = SendMessageW(ControlOf(from, List), LB_GETCURSEL, 0, 0);
+    const Record *record = index >= 0 && static_cast<std::size_t>(index) < from.filtered.size()
+                               ? &from.filtered[static_cast<std::size_t>(index)] : nullptr;
+    auto key = record ? from.scope + ":" + record->id + ":" + Library::fingerprint(*record) : std::string();
+    if (key == from.readerKey && !w.placements.empty())
+        return;
+    from.readerKey = key;
+    ++w.readerGeneration;
+    for (const auto &p : w.placements)
+        DestroyWindow(p.control);
+    w.placements.clear();
+    w.readerImages.clear();
+    w.scroll = 0;
+    w.scope = from.scope;
+    if (!record) {
+        Add(w, ReaderEmpty, L"STATIC",
+            from.records.empty() ? L"留住一个想法\r\n\r\n从随手记或截图开始，记录会出现在这里。"
+                                  : L"没有匹配的记录\r\n\r\n试试其他关键词，或清除筛选条件。",
+            SS_LEFT, 24, 22, 500, 120);
+        Layout(w);
+        return;
+    }
+    w.record = *record;
+    w.draft.data = record->data;
+    w.draft.assets = record->assets;
+    auto section = [&](int labelId, int id, const std::wstring &title, const std::wstring &value) {
+        if (value.empty())
+            return;
+        Label(w, labelId, title, 0);
+        if (labelId == 28102) {
+            auto label = ControlOf(w, labelId);
+            SetWindowLongPtrW(label, GWL_STYLE, (GetWindowLongPtrW(label, GWL_STYLE) & ~SS_TYPEMASK) | SS_CENTER);
+        }
+        auto body = Add(w, id, L"EDIT", value, ES_MULTILINE | ES_READONLY | WS_TABSTOP,
+                        24, 0, 500, 100);
+        SendMessageW(body, WM_SETFONT,
+                     reinterpret_cast<WPARAM>(id == ReaderThought ? w.reading : w.font), TRUE);
+        SetWindowSubclass(body, ReaderTextProc, 1, 0);
+    };
+    section(28101, ReaderThought, L"我的想法", Field(record->data, "comment"));
+    auto source = Object(record->data, "source");
+    section(28102, ReaderExcerpt, L"摘录", Field(source, "text"));
+    std::map<int, fs::path> assets;
+    for (auto role : {"annotated", "original"}) {
+        auto asset = record->assets.find(role);
+        if (asset != record->assets.end()) {
+            assets[ReaderCrop] = asset->second;
+            break;
+        }
+    }
+    if (auto image = record->assets.find("context"); image != record->assets.end())
+        assets[ReaderContext] = image->second;
+    for (const auto &[id, path] : assets) {
+        (void)path;
+        Label(w, id == ReaderCrop ? 28103 : 28104,
+              id == ReaderCrop ? L"圈选截图" : L"完整页面截图", 0);
+        Add(w, id, L"BUTTON", L"正在读取图片…", BS_OWNERDRAW | WS_TABSTOP, 24, 0, 500, 40);
+    }
+    section(28105, ReaderOriginal, L"页面原文", OriginalText(record->data));
+    if (!Field(source, "url").empty())
+        Button(w, ReaderSource, L"打开来源网页", 24, 0, 240);
+    Layout(w);
+    auto hwnd = w.hwnd;
+    auto serial = w.serial;
+    auto generation = w.readerGeneration;
+    if (!assets.empty())
+        Enqueue([hwnd, serial, generation, assets] {
+            std::map<int, std::shared_ptr<Gdiplus::Bitmap>> decoded;
+            for (const auto &[id, path] : assets) {
+                std::unique_ptr<Gdiplus::Bitmap> image(Gdiplus::Bitmap::FromFile(path.c_str()));
+                if (!image || image->GetLastStatus() != Gdiplus::Ok || !image->GetWidth() ||
+                    !image->GetHeight() || std::uint64_t(image->GetWidth()) * image->GetHeight() > 32000000)
+                    continue;
+                decoded[id].reset(image->Clone(0, 0, static_cast<INT>(image->GetWidth()),
+                                               static_cast<INT>(image->GetHeight()), PixelFormat32bppARGB));
+            }
+            Post([hwnd, serial, generation, decoded] {
+                auto form = Find(hwnd, serial);
+                if (!form || generation != form->readerGeneration)
+                    return;
+                form->readerImages = decoded;
+                for (auto id : {ReaderCrop, ReaderContext})
+                    if (ControlOf(*form, id) && !decoded.count(id))
+                        Set(*form, id, L"图片暂不可用，点击打开图片窗口重试");
+                Layout(*form);
+            });
+        });
+}
+void QueueLibraryThumbnail(Window &w, const Record &record) {
+    if (w.thumbnails.count(record.id) || w.shareLoading.count(record.id) ||
+        w.shareErrors.count(record.id) || record.assets.empty())
+        return;
+    fs::path path;
+    for (auto role : {"annotated", "original", "context"})
+        if (auto found = record.assets.find(role); found != record.assets.end()) {
+            path = found->second;
+            break;
+        }
+    if (path.empty())
+        return;
+    w.shareLoading.insert(record.id);
+    auto hwnd = w.hwnd;
+    auto serial = w.serial;
+    auto scope = w.scope, id = record.id;
+    Enqueue([hwnd, serial, scope, id, path] {
+        std::shared_ptr<Gdiplus::Bitmap> thumb;
+        std::unique_ptr<Gdiplus::Bitmap> image(Gdiplus::Bitmap::FromFile(path.c_str()));
+        if (image && image->GetLastStatus() == Gdiplus::Ok && image->GetWidth() && image->GetHeight() &&
+            std::uint64_t(image->GetWidth()) * image->GetHeight() <= 32000000) {
+            double ratio = std::min(180.0 / image->GetWidth(), 180.0 / image->GetHeight());
+            thumb = std::make_shared<Gdiplus::Bitmap>(std::max(1, int(image->GetWidth() * ratio)),
+                                                     std::max(1, int(image->GetHeight() * ratio)), PixelFormat32bppARGB);
+            Gdiplus::Graphics graphics(thumb.get());
+            graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+            graphics.DrawImage(image.get(), 0, 0, thumb->GetWidth(), thumb->GetHeight());
+        }
+        Post([hwnd, serial, scope, id, thumb] {
+            auto form = Find(hwnd, serial);
+            if (!form || form->scope != scope)
+                return;
+            form->shareLoading.erase(id);
+            if (thumb) {
+                if (form->thumbnails.size() >= 100)
+                    form->thumbnails.erase(form->thumbnails.begin());
+                form->thumbnails[id] = thumb;
+            } else
+                form->shareErrors.insert(id);
+            InvalidateRect(ControlOf(*form, List), nullptr, FALSE);
+        });
+    });
 }
 void Populate(Window &w) {
     KillTimer(ControlOf(w, List), 82);
@@ -458,7 +709,7 @@ void Populate(Window &w) {
         auto source = Object(record.data, "source");
         std::wstring haystack = Field(record.data, "comment") + L" " + Field(source, "text") +
                                 L" " + OriginalText(record.data) + L" " + TagText(record.data) +
-                                L" " + Field(source, "window_title");
+                                L" " + Field(source, "window_title") + L" " + Field(source, "url");
         if (!query.empty() && lower(haystack).find(query) == std::wstring::npos)
             continue;
         if (record.id == selected)
@@ -470,7 +721,8 @@ void Populate(Window &w) {
                  static_cast<WPARAM>(selection < 0 ? 0 : selection), 0);
     SendMessageW(ControlOf(w, List), WM_SETREDRAW, TRUE, 0);
     InvalidateRect(ControlOf(w, List), nullptr, TRUE);
-    Set(w, OpenRecord, w.showTrash ? L"恢复选中记录" : L"查看 / 修改");
+    Set(w, OpenRecord, w.showTrash ? L"恢复记录" : L"编辑记录");
+    Set(w, Title, w.showTrash ? L"回收站" : L"全部记录");
     for (auto it = w.selectedIds.begin(); it != w.selectedIds.end();) {
         if (std::none_of(w.filtered.begin(), w.filtered.end(),
                          [&](const Record &r) { return r.id == *it; }))
@@ -479,6 +731,7 @@ void Populate(Window &w) {
             ++it;
     }
     SelectionControls(w);
+    RefreshReader(w);
 }
 void SelectionControls(Window &w) {
     for (int id : {Trash, OpenRecord, MultiSelect})
@@ -492,6 +745,7 @@ void SelectionControls(Window &w) {
     if (w.selecting)
         StatusText(w, L"已选 " + std::to_wstring(w.selectedIds.size()) +
                           L" 条 · 点击勾选 · Esc 退出多选 · 最多 100 条");
+    Layout(w);
     InvalidateRect(ControlOf(w, List), nullptr, FALSE);
 }
 LRESULT CALLBACK LibraryListProc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp, UINT_PTR,
@@ -623,6 +877,9 @@ void Load() {
                 SendMessageW(ControlOf(*w, TagFilter), CB_SETCURSEL, static_cast<WPARAM>(selected),
                              0);
                 if (changed) {
+                    w->thumbnails.clear();
+                    w->shareLoading.clear();
+                    w->shareErrors.clear();
                     w->selecting = false;
                     w->selectedIds.clear();
                     Set(*w, Search, L"");
@@ -631,8 +888,7 @@ void Load() {
                 }
                 Set(*w, AccountButton, account.signedIn() ? Wide(account.username) : L"登录账号");
                 Set(*w, Subtitle,
-                    account.signedIn() ? L"你的知识与灵感 · 按账号自动同步"
-                                       : L"本机笔记 · 登录后可手动导入到个人账号");
+                    account.signedIn() ? L"按账号自动同步" : L"本机记录");
                 Populate(*w);
             });
         } catch (const std::exception &error) {
@@ -798,10 +1054,16 @@ void OpenEditor(Draft draft, const Record *record) {
     Add(w, Preview, L"BUTTON", L"截图预览 · 点击放大", BS_OWNERDRAW | WS_TABSTOP, 28, 112, 660, 188,
         true);
     LoadPreview(w);
-    int y = 320;
+    if (!w.preview)
+        w.placements.back().h = 0;
+    int y = w.preview ? 320 : 124;
     Label(w, 2400, L"我的想法", y);
-    Edit(w, Note, Field(data, "comment"), y + 30, 130, 20000);
-    y += 182;
+    Edit(w, Note, Field(data, "comment"), y + 30, 210, 20000);
+    y += 258;
+    Button(w, MoreOptions, L"更多选项 · 摘录、标签与上下文", 28, y, 340);
+    y += 58;
+    int moreStart = y;
+    w.moreOptions = w.editing;
     Label(w, 2401, L"标签 · 选择已有，也可输入新标签", y);
     Edit(w, TagsInput, TagText(data), y + 30, 38, 4096, false);
     auto picker =
@@ -893,6 +1155,11 @@ void OpenEditor(Draft draft, const Record *record) {
     Button(w, Export, L"复制记录 JSON", 182, y, 180);
     y += 56;
     w.extent = y;
+    for (auto &p : w.placements)
+        if (p.y >= moreStart)
+            p.y += 10000;
+    if (!w.moreOptions)
+        w.extent = moreStart;
     Button(w, Save, L"保存记录", 28, 0, 148);
     Button(w, Cancel, L"取消", 190, 0, 100);
     if (w.editing)
@@ -1633,6 +1900,20 @@ void Command(Window &w, int id, int event) {
     if (w.mode == Mode::Library) {
         if (w.busy)
             return;
+        if (id == FilterToggle) {
+            w.filtersOpen = !w.filtersOpen;
+            Set(w, FilterToggle, w.filtersOpen ? L"收起筛选" : L"筛选");
+            Layout(w);
+            return;
+        }
+        if (id == AllRecords) {
+            w.selecting = false;
+            w.selectedIds.clear();
+            w.showTrash = false;
+            Set(w, Trash, L"回收站");
+            Populate(w);
+            return;
+        }
         if (id == MultiSelect) {
             if (!w.showTrash) {
                 w.selecting = true;
@@ -1725,6 +2006,8 @@ void Command(Window &w, int id, int event) {
         }
         if (id == Search && event == EN_CHANGE)
             Populate(w);
+        else if (id == List && event == LBN_SELCHANGE)
+            RefreshReader(w);
         else if ((id == TagFilter || id == KindFilter) && event == CBN_SELCHANGE)
             Populate(w);
         else if (!w.selecting && (id == OpenRecord || (id == List && event == LBN_DBLCLK)))
@@ -1746,6 +2029,35 @@ void Command(Window &w, int id, int event) {
             Set(w, Trash, w.showTrash ? L"返回记录" : L"回收站");
             Populate(w);
         }
+        return;
+    }
+    if (w.mode == Mode::Reader) {
+        if (id == ReaderCrop || id == ReaderContext) {
+            w.previewRole = id == ReaderContext ? L"context" : L"annotated";
+            OpenImage(w);
+        } else if (id == ReaderSource) {
+            auto url = Field(Object(w.record.data, "source"), "url");
+            if (url.rfind(L"https://", 0) == 0 || url.rfind(L"http://", 0) == 0)
+                ShellExecuteW(w.hwnd, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            else
+                notify(L"仅直接打开 HTTP(S) 网页；其他应用链接请从编辑页复制。", true);
+        }
+        return;
+    }
+    if (id == MoreOptions && w.mode == Mode::Editor) {
+        w.moreOptions = !w.moreOptions;
+        int extent = 0;
+        for (const auto &p : w.placements) {
+            int control = GetDlgCtrlID(p.control);
+            if (control == Save || control == Cancel || control == Delete || control == Status)
+                continue;
+            if (p.y >= 10000 && !w.moreOptions)
+                continue;
+            extent = std::max(extent, (p.y >= 10000 ? p.y - 10000 : p.y) + p.h + 24);
+        }
+        w.extent = extent;
+        Set(w, MoreOptions, w.moreOptions ? L"收起更多选项" : L"更多选项 · 摘录、标签与上下文");
+        Layout(w);
         return;
     }
     if (w.mode == Mode::Image) {
@@ -2008,7 +2320,7 @@ void DrawImage(Window &w, HDC dc, RECT r) {
         if (!s.empty() && image.value("purpose", std::string()) != "page_context") {
             double left = s.value("left", 0.0), top = s.value("top", 0.0),
                    right = s.value("right", 0.0), bottom = s.value("bottom", 0.0);
-            Gdiplus::Pen pen(Gdiplus::Color(255, 86, 92, 244), 3.0f);
+            Gdiplus::Pen pen(Gdiplus::Color(255, 36, 73, 78), 3.0f);
             graphics.DrawRectangle(&pen, x + static_cast<float>(left * ratio),
                                    y + static_cast<float>(top * ratio),
                                    static_cast<float>((right - left) * ratio),
@@ -2077,11 +2389,11 @@ void DrawShare(Window &w, const DRAWITEMSTRUCT &item) {
     FillRect(item.hDC, &r, backgroundBrush);
     r.bottom -= Scale(w, 12);
     auto brush =
-        CreateSolidBrush((item.itemState & ODS_SELECTED) ? RGB(238, 241, 254) : RGB(255, 255, 255));
+        CreateSolidBrush((item.itemState & ODS_SELECTED) ? Selected : Background);
     auto pen = CreatePen(PS_SOLID, Scale(w, 1), Border);
     auto oldBrush = SelectObject(item.hDC, brush);
     auto oldPen = SelectObject(item.hDC, pen);
-    RoundRect(item.hDC, r.left, r.top, r.right, r.bottom, Scale(w, 22), Scale(w, 22));
+    RoundRect(item.hDC, r.left, r.top, r.right, r.bottom, Scale(w, 12), Scale(w, 12));
     SelectObject(item.hDC, oldBrush);
     SelectObject(item.hDC, oldPen);
     DeleteObject(brush);
@@ -2153,7 +2465,7 @@ void DrawRecord(Window &w, const DRAWITEMSTRUCT &item) {
     HDC dc = item.hDC;
     bool chosen = w.mode == Mode::Library && w.selecting ? w.selectedIds.count(record.id) > 0
                                                          : (item.itemState & ODS_SELECTED) != 0;
-    HBRUSH brush = CreateSolidBrush(chosen ? RGB(234, 235, 255) : RGB(255, 255, 255));
+    HBRUSH brush = CreateSolidBrush(chosen ? Selected : Background);
     if (w.mode == Mode::Markdown || (w.mode == Mode::Library && w.selecting)) {
         FillRect(dc, &r, backgroundBrush);
         r.top += Scale(w, 5);
@@ -2161,7 +2473,7 @@ void DrawRecord(Window &w, const DRAWITEMSTRUCT &item) {
         auto oldBrush = SelectObject(dc, brush);
         auto pen = CreatePen(PS_SOLID, 1, chosen ? Accent : Border);
         auto oldPen = SelectObject(dc, pen);
-        RoundRect(dc, r.left, r.top, r.right - 1, r.bottom, Scale(w, 20), Scale(w, 20));
+        RoundRect(dc, r.left, r.top, r.right - 1, r.bottom, Scale(w, 10), Scale(w, 10));
         SelectObject(dc, oldPen);
         SelectObject(dc, oldBrush);
         DeleteObject(pen);
@@ -2172,6 +2484,59 @@ void DrawRecord(Window &w, const DRAWITEMSTRUCT &item) {
     } else
         FillRect(dc, &r, brush);
     DeleteObject(brush);
+    if (w.mode == Mode::Library) {
+        if (chosen) {
+            RECT marker{r.left, r.top + Scale(w, 10), r.left + Scale(w, 4), r.bottom - Scale(w, 10)};
+            auto accent = CreateSolidBrush(Accent);
+            FillRect(dc, &marker, accent);
+            DeleteObject(accent);
+        }
+        RECT line{r.left + Scale(w, 14), r.bottom - 1, r.right - Scale(w, 14), r.bottom};
+        auto border = CreateSolidBrush(Border);
+        FillRect(dc, &line, border);
+        DeleteObject(border);
+        r.left += Scale(w, 18);
+        r.right -= Scale(w, 14);
+        r.top += Scale(w, 16);
+        auto image = w.thumbnails.find(record.id);
+        if (!record.assets.empty()) {
+            QueueLibraryThumbnail(w, record);
+            if (image != w.thumbnails.end()) {
+                auto bitmap = image->second;
+                int box = Scale(w, 72);
+                double ratio = std::min(double(box) / bitmap->GetWidth(), double(box) / bitmap->GetHeight());
+                int iw = int(bitmap->GetWidth() * ratio), ih = int(bitmap->GetHeight() * ratio);
+                Gdiplus::Graphics graphics(dc);
+                graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+                graphics.DrawImage(bitmap.get(), r.right - box + (box - iw) / 2, r.top + (box - ih) / 2, iw, ih);
+                r.right -= box + Scale(w, 14);
+            }
+        }
+        auto content = Field(record.data, "comment");
+        if (content.empty())
+            content = Field(Object(record.data, "source"), "text");
+        if (content.empty())
+            content = OriginalText(record.data);
+        if (content.empty())
+            content = L"保存的一刻 · 页面截图";
+        r.bottom = r.top + Scale(w, 74);
+        DrawTextLine(dc, r, content, Ink, w.font, DT_WORDBREAK | DT_EDITCONTROL | DT_END_ELLIPSIS);
+        r.top = item.rcItem.bottom - Scale(w, 28);
+        r.bottom = item.rcItem.bottom - Scale(w, 5);
+        r.right = item.rcItem.right - Scale(w, 16);
+        auto stamp = Field(record.data, "created_at");
+        if (stamp.size() >= 16 && stamp[10] == L'T') {
+            stamp = stamp.substr(0, 16);
+            stamp[10] = L' ';
+            stamp += L" UTC";
+        }
+        auto sync = record.state == "synced" ? L"" : record.state == "local" ? L" · 本机保存"
+                   : record.state == "error" ? L" · 同步待处理" : L" · 等待同步";
+        DrawTextLine(dc, r, stamp + sync, Muted, w.font);
+        if (item.itemState & ODS_FOCUS)
+            DrawFocusRect(dc, &item.rcItem);
+        return;
+    }
     int pad = Scale(w, 18);
     r.left += pad;
     r.right -= pad;
@@ -2270,6 +2635,18 @@ LRESULT Dispatch(Window &w, UINT message, WPARAM wp, LPARAM lp) {
                 DrawShare(w, item);
             else
                 DrawRecord(w, item);
+        } else if (w.mode == Mode::Reader && (item.CtlID == ReaderCrop || item.CtlID == ReaderContext)) {
+            FillRect(item.hDC, &item.rcItem, backgroundBrush);
+            if (auto found = w.readerImages.find(item.CtlID); found != w.readerImages.end()) {
+                Gdiplus::Graphics graphics(item.hDC);
+                graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+                graphics.DrawImage(found->second.get(), static_cast<INT>(item.rcItem.left), static_cast<INT>(item.rcItem.top),
+                                   static_cast<INT>(item.rcItem.right - item.rcItem.left), static_cast<INT>(item.rcItem.bottom - item.rcItem.top));
+                if (item.itemState & ODS_FOCUS)
+                    DrawFocusRect(item.hDC, &item.rcItem);
+            } else
+                DrawTextLine(item.hDC, item.rcItem, Text(item.hwndItem), Muted, w.font,
+                             DT_WORDBREAK | DT_VCENTER);
         } else if (item.CtlID == Preview)
             DrawImage(w, item.hDC, item.rcItem);
         else
@@ -2278,15 +2655,35 @@ LRESULT Dispatch(Window &w, UINT message, WPARAM wp, LPARAM lp) {
     }
     case WM_CTLCOLORSTATIC:
     case WM_CTLCOLORBTN:
+        if (w.mode == Mode::Reader) {
+            int id = GetDlgCtrlID(reinterpret_cast<HWND>(lp));
+            if (id == 28102 || id == ReaderExcerpt) {
+                auto dc = reinterpret_cast<HDC>(wp);
+                SetBkMode(dc, OPAQUE);
+                SetBkColor(dc, id == 28102 ? Accent : Surface);
+                SetTextColor(dc, id == 28102 ? RGB(255,255,255) : Ink);
+                SetDCBrushColor(dc, id == 28102 ? Accent : Surface);
+                return reinterpret_cast<LRESULT>(GetStockObject(DC_BRUSH));
+            }
+        }
         SetBkMode(reinterpret_cast<HDC>(wp), TRANSPARENT);
-        SetTextColor(reinterpret_cast<HDC>(wp),
-                     GetDlgCtrlID(reinterpret_cast<HWND>(lp)) == Status ? Accent : Ink);
+        {
+            int id = GetDlgCtrlID(reinterpret_cast<HWND>(lp));
+            SetTextColor(reinterpret_cast<HDC>(wp), id == Status || id == Subtitle ? Muted
+                         : id == 2400 || (id >= 28101 && id <= 28105) ? Copper : Ink);
+        }
         return reinterpret_cast<LRESULT>(backgroundBrush);
-    case WM_CTLCOLOREDIT:
     case WM_CTLCOLORLISTBOX:
-        SetBkColor(reinterpret_cast<HDC>(wp), RGB(255, 255, 255));
+        if (w.mode == Mode::Library && reinterpret_cast<HWND>(lp) == ControlOf(w, List)) {
+            SetBkColor(reinterpret_cast<HDC>(wp), Background);
+            SetTextColor(reinterpret_cast<HDC>(wp), Ink);
+            return reinterpret_cast<LRESULT>(backgroundBrush);
+        }
+        [[fallthrough]];
+    case WM_CTLCOLOREDIT:
+        SetBkColor(reinterpret_cast<HDC>(wp), w.mode == Mode::Reader ? Background : Surface);
         SetTextColor(reinterpret_cast<HDC>(wp), Ink);
-        return reinterpret_cast<LRESULT>(whiteBrush);
+        return reinterpret_cast<LRESULT>(w.mode == Mode::Reader ? backgroundBrush : whiteBrush);
     case WM_ERASEBKGND: {
         RECT r;
         GetClientRect(w.hwnd, &r);
@@ -2301,6 +2698,41 @@ LRESULT Dispatch(Window &w, UINT message, WPARAM wp, LPARAM lp) {
             GetClientRect(w.hwnd, &r);
             r.top = Scale(w, 64);
             DrawImage(w, dc, r);
+        } else if (w.mode == Mode::Reader) {
+            auto pen = CreatePen(PS_SOLID, 1, Border);
+            auto old = SelectObject(dc, pen);
+            for (const auto &p : w.placements) {
+                int id = GetDlgCtrlID(p.control);
+                if (id >= 28102 && id <= 28105 && p.y > 50) {
+                    int y = Scale(w, p.y - w.scroll - 12);
+                    MoveToEx(dc, Scale(w, p.x), y, nullptr);
+                    RECT r{}; GetClientRect(w.hwnd, &r);
+                    LineTo(dc, r.right - Scale(w, 28), y);
+                }
+            }
+            SelectObject(dc, old); DeleteObject(pen);
+        } else if (w.mode == Mode::Library) {
+            RECT client{};
+            GetClientRect(w.hwnd, &client);
+            int width = MulDiv(client.right, 96, w.dpi);
+            int sidebar = width >= 1080 ? 180 : 152;
+            auto pen = CreatePen(PS_SOLID, 1, Border);
+            auto old = SelectObject(dc, pen);
+            MoveToEx(dc, Scale(w, sidebar), 0, nullptr);
+            LineTo(dc, Scale(w, sidebar), client.bottom);
+            if (width >= 1080) {
+                int split = sidebar + 48 + std::clamp((width - sidebar) * 38 / 100, 330, 410);
+                MoveToEx(dc, Scale(w, split), 0, nullptr);
+                LineTo(dc, Scale(w, split), client.bottom);
+                MoveToEx(dc, Scale(w, split + 24), Scale(w, 82), nullptr);
+                LineTo(dc, client.right - Scale(w, 24), Scale(w, 82));
+            }
+            SelectObject(dc, old);
+            DeleteObject(pen);
+            RECT tab{Scale(w, 24), Scale(w, 74), Scale(w, 66), Scale(w, 80)};
+            auto accent = CreateSolidBrush(Accent);
+            FillRect(dc, &tab, accent);
+            DeleteObject(accent);
         }
         EndPaint(w.hwnd, &paint);
         return 0;
@@ -2449,6 +2881,10 @@ LRESULT CALLBACK Procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             DeleteObject(w->font);
         if (w->heading)
             DeleteObject(w->heading);
+        if (w->brand)
+            DeleteObject(w->brand);
+        if (w->reading)
+            DeleteObject(w->reading);
         // Remove only this draft's explicitly allocated staging files, never the
         // library or Inbox.
         if (w->mode == Mode::Editor && !w->draft.staging.empty()) {
@@ -2480,11 +2916,16 @@ bool DrawButton(const DRAWITEMSTRUCT &item) {
     bool primary = (item.CtlID == Save && !revoke) || item.CtlID == Login ||
                    item.CtlID == NewNote || item.CtlID == 1007;
     bool disabled = (item.itemState & ODS_DISABLED) != 0;
-    COLORREF fill = disabled ? RGB(237, 239, 245) : primary ? Accent : RGB(255, 255, 255);
+    bool navigation = parent != windows.end() && parent->second->mode == Mode::Library &&
+                      (item.CtlID == AllRecords || item.CtlID == Trash || item.CtlID == SettingsButton ||
+                       item.CtlID == AccountButton);
+    bool navSelected = navigation && (item.CtlID == AllRecords ? !parent->second->showTrash
+                                      : item.CtlID == Trash && parent->second->showTrash);
+    COLORREF fill = disabled ? Surface : primary ? Accent : navSelected ? Selected : Background;
     if (item.itemState & ODS_SELECTED)
-        fill = primary ? RGB(67, 73, 211) : RGB(234, 235, 250);
+        fill = primary ? RGB(27, 57, 61) : Selected;
     auto brush = CreateSolidBrush(fill);
-    auto pen = CreatePen(PS_SOLID, 1, primary ? fill : Border);
+    auto pen = CreatePen(PS_SOLID, 1, primary || navigation ? fill : Border);
     auto oldBrush = SelectObject(item.hDC, brush), oldPen = SelectObject(item.hDC, pen);
     RoundRect(item.hDC, r.left + 1, r.top + 1, r.right - 1, r.bottom - 1, 14, 14);
     SelectObject(item.hDC, oldBrush);
@@ -2518,7 +2959,7 @@ bool DrawButton(const DRAWITEMSTRUCT &item) {
     }
     DrawTextLine(item.hDC, r, Text(item.hwndItem),
                  disabled  ? Muted
-                 : revoke  ? RGB(181, 48, 48)
+                 : revoke || item.CtlID == Delete || item.CtlID == MultiDelete ? Danger
                  : primary ? RGB(255, 255, 255)
                            : Ink,
                  font ? font : defaultFont, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
@@ -2557,7 +2998,7 @@ void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> ca
     };
     library = std::make_unique<Library>(root);
     backgroundBrush = CreateSolidBrush(Background);
-    whiteBrush = CreateSolidBrush(RGB(255, 255, 255));
+    whiteBrush = CreateSolidBrush(Surface);
     defaultFont = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, 0, 0,
                               CLEARTYPE_QUALITY, 0, L"Segoe UI");
     WNDCLASSEXW cls{};
@@ -2569,13 +3010,19 @@ void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> ca
     cls.hbrBackground = backgroundBrush;
     cls.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
     RegisterClassExW(&cls);
-    auto &w = Create(Mode::Library, L"Mnote · 我的知识库", 1020, 800);
+    auto &w = Create(Mode::Library, L"Mnote · 我的知识库", 1240, 900);
     home = w.hwnd;
-    Label(w, Title, L"我的知识库", 24);
-    Label(w, Subtitle, L"把遇见的内容，变成自己的思考。", 70);
+    auto brand = Add(w, Brand, L"STATIC", L"Mnote", SS_LEFT, 24, 22, 144, 48);
+    SendMessageW(brand, WM_SETFONT, reinterpret_cast<WPARAM>(w.brand), TRUE);
+    Label(w, Title, L"全部记录", 24);
+    Label(w, ReaderTitle, L"记录", 28);
+    Label(w, Subtitle, L"本机记录", 70);
+    Button(w, AllRecords, L"全部记录", 12, 102, 156);
+    Button(w, AccountButton, L"登录账号", 12, 0, 156);
+    Button(w, FilterToggle, L"筛选", 0, 84, 78);
     Button(w, SettingsButton, L"设置", 0, 0, 100);
-    Button(w, NewNote, L"＋ 随手记", 28, 110, 132);
-    Button(w, Capture, L"单次摘录", 170, 110, 132);
+    Button(w, NewNote, L"随手记", 28, 110, 132);
+    Button(w, Capture, L"截图", 170, 110, 132);
     Button(w, Refresh, L"刷新与同步", 0, 110, 124);
     Add(w, Search, L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 28, 174, 360, 38);
     SendMessageW(ControlOf(w, Search), EM_SETCUEBANNER, TRUE,
@@ -2598,6 +3045,22 @@ void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> ca
     Button(w, MultiDelete, L"删除已选", 0, 0, 148);
     SetWindowSubclass(ControlOf(w, List), LibraryListProc, 1, 0);
     Label(w, Status, L"Ctrl+Shift+F8 随手记  ·  Ctrl+Shift+F9 截图摘录", 0);
+    auto readerState = std::make_unique<Window>();
+    readerState->serial = ++nextSerial;
+    readerState->mode = Mode::Reader;
+    readerState->scope = w.scope;
+    readerState->dpi = w.dpi;
+    auto raw = readerState.get();
+    HWND reader = CreateWindowExW(WS_EX_CONTROLPARENT, ClassName, L"记录正文",
+                                  WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_VSCROLL,
+                                  0, 0, 500, 600, w.hwnd,
+                                  reinterpret_cast<HMENU>(static_cast<INT_PTR>(ReaderPanel)), instance, raw);
+    if (!reader)
+        throw std::runtime_error("window_failed");
+    readerState->hwnd = reader;
+    Fonts(*readerState);
+    windows.emplace(reader, std::move(readerState));
+    w.reader = reader;
     Layout(w);
     SelectionControls(w);
     worker = std::thread([] {
@@ -2676,7 +3139,8 @@ void Show() {
 }
 void Hide() {
     for (const auto &item : windows)
-        ShowWindow(item.first, SW_HIDE);
+        if (item.second->mode != Mode::Reader)
+            ShowWindow(item.first, SW_HIDE);
 }
 std::string Scope() { return library->account().scope; }
 fs::path Staging() {

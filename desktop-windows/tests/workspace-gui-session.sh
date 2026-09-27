@@ -11,6 +11,10 @@ trap cleanup EXIT
 drive() { wine "${driver}" "$@"; }
 until_drive() { for _ in $(seq 1 100); do if drive "$@" >/dev/null 2>&1; then return; fi; sleep 0.15; done; drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/failed-timeout.png" || true; echo "GUI timeout: $*" >&2; exit 1; }
 wineboot -u >/dev/null 2>&1
+if [[ -f /usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf ]]; then
+    cp /usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf "${WINEPREFIX}/drive_c/windows/Fonts/"
+    wine reg add 'HKLM\Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes' /v 'Georgia' /d 'Liberation Serif' /f >/dev/null 2>&1
+fi
 if [[ -f /root/.cache/mnote-build-tools/root/usr/share/fonts/truetype/wqy/wqy-microhei.ttc ]]; then
     cp /root/.cache/mnote-build-tools/root/usr/share/fonts/truetype/wqy/wqy-microhei.ttc "${WINEPREFIX}/drive_c/windows/Fonts/"
     wine reg add 'HKLM\Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes' /v 'Segoe UI' /d 'WenQuanYi Micro Hei' /f >/dev/null 2>&1
@@ -140,6 +144,9 @@ until_drive close-account
 drive show
 sleep 0.3
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/library-preview.png"
+drive read-record 2
+sleep 0.3
+drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/journal-library.png" "Mnote · 我的知识库"
 drive multi-begin
 until_drive multi-ready
 drive multi-cancel
@@ -147,6 +154,7 @@ drive markdown
 until_drive inline-ready
 drive multi-all
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/multiselect-preview.png"
+drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/journal-multiselect.png" "Mnote · 我的知识库"
 drive markdown
 until_drive markdown-confirm-cancel
 [[ ! -f "${test_dir}/Mnote-export.md" ]]
