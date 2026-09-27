@@ -16,7 +16,8 @@ Android 的全部记录、筛选、原地多选、随手记、截图编辑、连
 
 ## 自动验证
 
-- `bash scripts/verify-mnote-v1.sh` 七阶段全部通过。初次日志 `/tmp/mnote-journal-verification.log`；最后布局和校验修正后的完整日志 `/tmp/mnote-journal-verification-final.log`，以 `Mnote V1 automated verification passed` 结束。
+- `bash scripts/verify-mnote-v1.sh` 初轮七阶段通过且执行会话退出 `0`，日志 `/tmp/mnote-journal-verification.log`。最后布局和校验修正后的日志 `/tmp/mnote-journal-verification-final.log` 也完成全部七阶段，各子项通过，并以 `Mnote V1 automated verification passed` 结束；但收取该执行会话时返回 `143`。原因未确认，不能把最后一次会话退出码描述为 `0`，也未把它隐去。
+- 随后独立重跑 `assembleDebug lintDebug`、APK manifest 身份检查、Android / Windows 打包载荷逐字节比较、`git diff --check`，整个复核命令明确退出 `0`；日志 `/tmp/mnote-journal-delivery-check.log`。两个安装包目录的 `sha256sum -c SHA256SUMS` 也分别退出 `0`。
 - 最终 Android 全量 **577 项：576 通过、0 失败、0 errors、1 项可选联网检查跳过**。包括筛选取消/确认、关键词搜索、多选、独立页面上下文、焦点与小屏输入、隐藏字段校验、页面截图不冒充选区、账号隔离、同步及分享。
 - 完整回归后补充更新页原生截图测试，`PrivateJournalAuxiliaryUiTest` **4 项全通过**，覆盖账号、权限、激活/登录密码规则、更新前确认及取消。日志 `/tmp/mnote-journal-update-visual.log`；该轮仅新增测试，不改变 APK 生产代码。
 - Android assemble / lint 成功；lint **0 errors / 118 warnings**。警告包括布局中的中文硬编码及既有依赖/资源提醒，未添加抑制或基线，不能描述为零警告。
