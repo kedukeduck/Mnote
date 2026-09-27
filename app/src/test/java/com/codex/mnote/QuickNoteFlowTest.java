@@ -163,18 +163,13 @@ public class QuickNoteFlowTest {
     }
 
     @Test
-    public void inboxOffersIndependentEntryAndExpandableSetup() {
+    public void inboxOffersIndependentEntryAndMovesSetupToSettings() {
         try (ActivityController<CaptureInboxActivity> controller =
                      Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
             CaptureInboxActivity activity = controller.get();
-            View panel = activity.findViewById(R.id.capture_setup_panel);
-            assertEquals(View.GONE, panel.getVisibility());
-            activity.findViewById(R.id.capture_setup_toggle).performClick();
-            assertEquals(View.VISIBLE, panel.getVisibility());
-            assertTrue(activity.findViewById(R.id.capture_add_note_tile_button).isShown());
-            assertTrue(activity.findViewById(R.id.capture_add_tile_button).isShown());
-            activity.findViewById(R.id.capture_setup_toggle).performClick();
-            assertEquals(View.GONE, panel.getVisibility());
+            assertNull(activity.findViewById(R.id.capture_setup_panel));
+            activity.findViewById(R.id.capture_settings_button).performClick();
+            assertEquals(SettingsActivity.class.getName(),shadowOf(activity).getNextStartedActivity().getComponent().getClassName());
             activity.findViewById(R.id.capture_quick_note_button).performClick();
             Intent intent = shadowOf(activity).getNextStartedActivity();
             assertEquals(new ComponentName(activity, QuickNoteActivity.class), intent.getComponent());

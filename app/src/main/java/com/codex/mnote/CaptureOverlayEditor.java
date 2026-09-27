@@ -94,9 +94,9 @@ final class CaptureOverlayEditor {
                 int bottom = composing ? usableBottom(height) : height - bottomInset;
                 if (column != null) {
                     FrameLayout.LayoutParams dock = (FrameLayout.LayoutParams) column.getLayoutParams();
-                    dock.gravity = composing || toolsAtTop ? Gravity.TOP : Gravity.BOTTOM;
+                    dock.gravity = !composing && toolsAtTop ? Gravity.TOP : Gravity.BOTTOM;
                     dock.topMargin = topInset + dp(8);
-                    dock.bottomMargin = bottomInset + dp(8);
+                    dock.bottomMargin = composing ? height-bottom+dp(8) : bottomInset + dp(8);
                     dock.height = FrameLayout.LayoutParams.WRAP_CONTENT;
                 }
                 if (composerScroll != null) {
@@ -105,10 +105,10 @@ final class CaptureOverlayEditor {
                 if (preview != null && composing) {
                     int room = bottom - topInset;
                     comment.setMinHeight(dp(room < dp(600) ? 80 : 144));
-                    comment.setMaxLines(room < dp(600) ? 2 : 6);
+                    comment.setMaxLines(Integer.MAX_VALUE);
                     preview.getLayoutParams().height = room < dp(600)
                             ? Math.max(dp(64), Math.min(dp(100), Math.round(room * .20f)))
-                            : Math.min(dp(320), Math.round(room * .40f));
+                            : Math.min(dp(168), Math.round(room * .24f));
                 }
                 super.onMeasure(widthSpec, heightSpec);
                 if (composerScroll == null || column == null) return;
@@ -132,8 +132,7 @@ final class CaptureOverlayEditor {
                 if(composing && usableBottom(b-t)-topInset < dp(600)) {
                     View focused=findFocus();
                     if(focused instanceof EditText) {
-                        focusedBounds.set(0,0,focused.getWidth(),focused.getHeight());
-                        focused.requestRectangleOnScreen(focusedBounds,true);
+                        CaptureReadingLayout.revealCursor((EditText)focused);
                     }
                 }
             }
@@ -152,6 +151,7 @@ final class CaptureOverlayEditor {
         editor.setBackgroundResource(R.drawable.bg_overlay_panel);
         editor.setClipToOutline(true);
         root.addView(editor);
+        CaptureReadingLayout.bindOptions(root);
         // Constrain the lower sheet on small/landscape displays and with an
         // IME open. Its fields can scroll instead of falling below the window.
         LinearLayout composer = root.findViewById(R.id.capture_composer);
@@ -228,7 +228,7 @@ final class CaptureOverlayEditor {
         tags = new CaptureTags.Field(root);
         CaptureLongText.enableScrolling(comment);
         // Keep the lower panel compact when the keyboard or link field opens.
-        comment.setMaxLines(6);
+        comment.setMaxLines(Integer.MAX_VALUE);
         comment.setMinHeight(dp(144));
         comment.setOnFocusChangeListener((view, focused) -> { if (focused) keepFocusedInputVisible(); });
         kind = root.findViewById(R.id.capture_kind_group);
@@ -305,9 +305,9 @@ final class CaptureOverlayEditor {
 
     private void positionDock() {
         FrameLayout.LayoutParams dock = (FrameLayout.LayoutParams) column.getLayoutParams();
-        dock.gravity = composing || toolsAtTop ? Gravity.TOP : Gravity.BOTTOM;
+        dock.gravity = !composing && toolsAtTop ? Gravity.TOP : Gravity.BOTTOM;
         dock.topMargin = topInset + dp(12);
-        dock.bottomMargin = bottomInset + dp(12);
+        dock.bottomMargin = composing ? Math.max(bottomInset,root.getHeight()-usableBottom(root.getHeight()))+dp(12) : bottomInset + dp(12);
         column.setLayoutParams(dock);
         TextView move = root.findViewById(R.id.capture_tool_move);
         if (move != null) move.setContentDescription(context.getString(toolsAtTop
@@ -332,8 +332,7 @@ final class CaptureOverlayEditor {
         root.post(() -> {
             if (closed || !composing) return;
             View focused = root.findFocus();
-            if (focused instanceof EditText) focused.requestRectangleOnScreen(
-                    new Rect(0, 0, focused.getWidth(), focused.getHeight()), false);
+            if (focused instanceof EditText) CaptureReadingLayout.revealCursor((EditText)focused);
         });
     }
 
@@ -549,11 +548,12 @@ final class CaptureOverlayEditor {
         if (closed || loading || saving || !composing || sourceBitmap == null) return;
         String url = sourceLink.validated();
         if (url == null) {
+            CaptureReadingLayout.showOptions(root,true);
             CaptureAccessibilityService.showFeedback(context, R.string.capture_url_invalid);
             return;
         }
         String note = comment.getText().toString().trim();
-        org.json.JSONArray savedTags = tags.validated(); if (savedTags == null) return;
+        org.json.JSONArray savedTags = tags.validated(); if (savedTags == null) { CaptureReadingLayout.showOptions(root,true); return; }
         String urlOrigin = sourceLink.origin(url);
         int selected = kind.getCheckedRadioButtonId();
         String recordKind = selected == R.id.capture_kind_thought ? "thought"

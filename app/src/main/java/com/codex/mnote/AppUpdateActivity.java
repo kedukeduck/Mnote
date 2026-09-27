@@ -32,32 +32,32 @@ public final class AppUpdateActivity extends Activity {
         scroll.setBackgroundColor(getColor(R.color.cream));
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(24), dp(20), dp(24), dp(32));
+        root.setPadding(dp(22), dp(8), dp(22), dp(32));
         scroll.addView(root);
         setContentView(scroll);
-        Button back = button(root, "返回");
-        back.setOnClickListener(v -> finish());
-        text(root, "让 Mnote 保持最新", 25);
+        JournalUi.header(this, root, "版本与更新", this::finish);
+        JournalUi.rule(root);
         try {
             current = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
         } catch (Exception error) {
             current = "0.0.0";
         }
-        text(root, "当前版本：" + current, 15);
-        text(root,
-            "更新不会清空账号和笔记。请先保存尚未完成的想法；下载后由系统确认覆盖安装，不要卸载旧版"
-            + "。测试版会检查测试及正式发布，正式版只检查正式发布。",
-            14);
+        JournalUi.section(root, "当前版本");
+        text(root, current, 24);
+        JournalUi.rule(root);
         status = text(root, "点击检查更新，获取 Android 最新版本。", 15);
         status.setAccessibilityLiveRegion(android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE);
         details = text(root, "", 14);
         details.setTextIsSelectable(true);
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);
+        progress.setProgressTintList(android.content.res.ColorStateList.valueOf(getColor(R.color.coral)));
         root.addView(progress);
         check = button(root, "检查更新");
         download = button(root, "下载更新");
         install = button(root, "安装更新");
+        JournalUi.primary(download);
+        JournalUi.primary(install);
         check.setOnClickListener(v -> check());
         download.setOnClickListener(v -> download());
         install.setOnClickListener(v -> install());
@@ -69,6 +69,8 @@ public final class AppUpdateActivity extends Activity {
                 status.setText("找不到可用浏览器。");
             }
         });
+        TextView help = text(root, "安装包来自 Mnote 服务器，无需笔记账号。\n\n更新不会清空账号和笔记。请先保存草稿，再覆盖安装；无需卸载旧版。测试版检查测试及正式发布，正式版只检查正式发布。", 13);
+        help.setTextColor(getColor(R.color.ink_muted));
         buttons();
         check();
     }
@@ -76,6 +78,9 @@ public final class AppUpdateActivity extends Activity {
         check.setEnabled(!busy);
         download.setEnabled(!busy && release != null);
         install.setEnabled(!busy && packageFile != null);
+        download.setVisibility(release != null && packageFile == null ? android.view.View.VISIBLE : android.view.View.GONE);
+        install.setVisibility(packageFile != null ? android.view.View.VISIBLE : android.view.View.GONE);
+        progress.setVisibility(busy ? android.view.View.VISIBLE : android.view.View.GONE);
     }
     private void ui(Runnable action) {
         runOnUiThread(() -> {
@@ -98,6 +103,7 @@ public final class AppUpdateActivity extends Activity {
         packageFile = null;
         details.setText("");
         status.setText("正在查询官方发布…");
+        progress.setIndeterminate(true);
         buttons();
         executor.execute(() -> {
             try {
@@ -129,13 +135,17 @@ public final class AppUpdateActivity extends Activity {
             .setPositiveButton("下载",
                 (d, which) -> {
                     busy = true;
+                    progress.setIndeterminate(false);
                     buttons();
                     status.setText("正在下载…");
                     progress.setProgress(0);
                     executor.execute(() -> {
                         try {
                             File file = AppUpdateClient.download(getApplicationContext(), selected,
-                                p -> ui(() -> progress.setProgress(p)));
+                                p -> ui(() -> {
+                                    progress.setProgress(p);
+                                    status.setText(p < 100 ? "正在下载 " + p + "%" : "正在校验安装包…");
+                                }));
                             ui(() -> {
                                 packageFile = file;
                                 busy = false;
@@ -178,6 +188,7 @@ public final class AppUpdateActivity extends Activity {
         File file = packageFile;
         AppRelease selected = release;
         busy = true;
+        progress.setIndeterminate(true);
         buttons();
         status.setText("正在复核安装包…");
         executor.execute(() -> {
@@ -219,6 +230,7 @@ public final class AppUpdateActivity extends Activity {
         view.setText(value);
         view.setTextSize(size);
         view.setTextColor(getColor(R.color.ink));
+        view.setLineSpacing(dp(4), 1);
         view.setPadding(0, dp(10), 0, dp(12));
         root.addView(view);
         return view;
@@ -228,7 +240,10 @@ public final class AppUpdateActivity extends Activity {
         view.setText(value);
         view.setAllCaps(false);
         view.setMinHeight(dp(52));
-        root.addView(view, new LinearLayout.LayoutParams(-1, -2));
+        JournalUi.quiet(view);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
+        p.topMargin = dp(12);
+        root.addView(view, p);
         return view;
     }
 }

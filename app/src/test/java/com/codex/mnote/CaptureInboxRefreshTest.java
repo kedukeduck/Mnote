@@ -113,14 +113,13 @@ public class CaptureInboxRefreshTest {
         assertEquals(1,CaptureStore.list(failingBroadcast,10).size());
     }
 
-    @Test public void sourceSettingsRemainAccessibleInCompactSetupSection() {
-        try (ActivityController<CaptureInboxActivity> controller = Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
-            CaptureInboxActivity activity = controller.get();
-            assertEquals(android.view.View.GONE,activity.findViewById(R.id.capture_setup_panel).getVisibility());
-            assertFalse(activity.findViewById(R.id.capture_source_settings_button).isShown());
-            activity.findViewById(R.id.capture_setup_toggle).performClick();
-            assertTrue(activity.findViewById(R.id.capture_source_settings_button).isShown());
-            activity.findViewById(R.id.capture_source_settings_button).performClick();
+    @Test public void sourceSettingsLiveInDedicatedSettingsPermissionPage() {
+        try (var controller=Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
+            assertNull(controller.get().findViewById(R.id.capture_setup_panel));
+        }
+        try (var controller=Robolectric.buildActivity(CapturePermissionsActivity.class).setup()) {
+            android.view.View diagnostic=PrivateJournalAuxiliaryUiTest.findText(controller.get().getWindow().getDecorView(),"查看页面读取诊断");
+            assertNotNull(diagnostic); diagnostic.performClick();
             assertNotNull(org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog());
         }
     }

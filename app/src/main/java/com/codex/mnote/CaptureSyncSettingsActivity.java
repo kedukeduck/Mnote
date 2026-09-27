@@ -51,29 +51,7 @@ public final class CaptureSyncSettingsActivity extends Activity {
                 ScrollView.LayoutParams.WRAP_CONTENT
         ));
 
-        LinearLayout header = new LinearLayout(this);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        Button back = new Button(this);
-        back.setText(R.string.capture_sync_settings_back);
-        back.setAllCaps(false);
-        back.setTextColor(getColor(R.color.coral));
-        back.setOnClickListener(view -> finish());
-        header.addView(back, new LinearLayout.LayoutParams(dp(72), dp(48)));
-        TextView title = text(
-                getString(R.string.capture_sync_settings_title),
-                20,
-                R.color.ink
-        );
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
-                0,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                1f
-        );
-        titleParams.setMarginStart(dp(8));
-        header.addView(title, titleParams);
-        root.addView(header);
+        JournalUi.header(this, root, getString(R.string.capture_sync_settings_title), this::finish);
 
         TextView intro = text(
                 getString(R.string.capture_sync_settings_intro),
@@ -100,6 +78,7 @@ public final class CaptureSyncSettingsActivity extends Activity {
         );
         urlRule.setVisibility(View.GONE);
         Button urlHelp = new Button(this);
+        JournalUi.quiet(urlHelp);
         urlHelp.setText(R.string.capture_sync_url_help);
         urlHelp.setTextSize(12);
         urlHelp.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
@@ -134,7 +113,6 @@ public final class CaptureSyncSettingsActivity extends Activity {
         addLabel(root, R.string.capture_sync_ai_label, 22);
         aiAccessGroup = new RadioGroup(this);
         aiAccessGroup.setOrientation(RadioGroup.VERTICAL);
-        aiAccessGroup.setBackgroundResource(R.drawable.bg_card);
         aiAccessGroup.setPadding(dp(12), dp(8), dp(12), dp(8));
         addAiChoice(
                 CaptureSyncPreferences.AI_DENY,
@@ -172,6 +150,7 @@ public final class CaptureSyncSettingsActivity extends Activity {
         saveButton.setTextSize(15);
         saveButton.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         saveButton.setBackgroundResource(R.drawable.bg_button_primary);
+        JournalUi.primary(saveButton);
         saveButton.setOnClickListener(view -> save());
         LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,

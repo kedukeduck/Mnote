@@ -59,10 +59,7 @@ public final class CaptureInboxActivity extends Activity {
         }
     };
 
-    private TextView accessStatus;
     private Button captureButton;
-    private Button addTileButton;
-    private Button addNoteTileButton;
     private TextView recordCount;
     private TextView syncStatus;
     private Button syncAllButton;
@@ -141,10 +138,7 @@ public final class CaptureInboxActivity extends Activity {
     }
 
     private void bindViews() {
-        accessStatus = findViewById(R.id.capture_access_status);
         captureButton = findViewById(R.id.capture_start_button);
-        addTileButton = findViewById(R.id.capture_add_tile_button);
-        addNoteTileButton = findViewById(R.id.capture_add_note_tile_button);
         recordCount = findViewById(R.id.capture_record_count);
         syncStatus = findViewById(R.id.capture_sync_status);
         syncAllButton = findViewById(R.id.capture_sync_all_button);
@@ -170,7 +164,6 @@ public final class CaptureInboxActivity extends Activity {
         filterGroup.setOnCheckedChangeListener((group, id) -> { visibleLimit=RECORD_LIMIT; renderFilteredRecords(); });
         findViewById(R.id.capture_tag_filter).setOnClickListener(view -> chooseTag());
         findViewById(R.id.capture_load_more).setOnClickListener(view -> { visibleLimit+=RECORD_LIMIT; renderFilteredRecords(); });
-        findViewById(R.id.capture_crash_diagnostic).setOnClickListener(view -> MnoteApplication.showDiagnostic(this));
         searchInput.setOnEditorActionListener((view, actionId, event) -> {
             if (actionId != android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) return false;
             getSystemService(android.view.inputmethod.InputMethodManager.class)
@@ -187,37 +180,27 @@ public final class CaptureInboxActivity extends Activity {
             @Override public void afterTextChanged(Editable s) { }
         });
         captureButton.setOnClickListener(view -> startCaptureOrSetup());
-        addTileButton.setOnClickListener(view -> requestTile(false));
-        addNoteTileButton.setOnClickListener(view -> requestTile(true));
-        findViewById(R.id.capture_setup_toggle).setOnClickListener(view -> {
-            View panel = findViewById(R.id.capture_setup_panel);
-            boolean expanded = panel.getVisibility() != View.VISIBLE;
-            panel.setVisibility(expanded ? View.VISIBLE : View.GONE);
-            ((TextView) view).setText(expanded
-                    ? R.string.capture_setup_collapse : R.string.capture_setup_expand);
-        });
         findViewById(R.id.capture_quick_note_button).setOnClickListener(
                 view -> startActivity(
                         QuickNoteTileService.noteIntent(this)
                 )
         );
         syncAllButton.setOnClickListener(view -> syncAll());
-        findViewById(R.id.capture_source_settings_button).setOnClickListener(view ->
-                new AlertDialog.Builder(this).setTitle(R.string.capture_source_settings)
-                        .setMessage(CaptureAccessibilitySettings.diagnostic(this))
-                        .setPositiveButton(R.string.capture_open_accessibility_settings,
-                                (dialog, which) -> openAccessibilitySettings())
-                        .setNegativeButton(R.string.capture_cancel, null).show());
         refreshButton.setOnClickListener(view -> refreshRecords());
+        ((JournalRefreshScroll)findViewById(R.id.journal_library_scroll)).setRefreshAction(this::refreshRecords);
+        findViewById(R.id.journal_filter_summary).setOnClickListener(view -> {
+            tagFilter = null; searchInput.setText(""); filterGroup.check(R.id.capture_filter_all); renderFilteredRecords();
+        });
     }
 
     private void refreshRecords() {
+        refreshStatus.setVisibility(View.VISIBLE);
         // Local refresh must work even offline, without a token, or during a remote pull.
         renderRecords();
         if (refreshing) return;
         if (!CaptureAccountSession.hasAccount(this)) {
             refreshStatus.setText("本机记录已刷新；登录后自动同步云端记录。");
-            openSyncSettings(); return;
+            return;
         }
         final CaptureSyncPreferences.Config config;
         try { config = CaptureSyncPreferences.load(this); }
@@ -258,32 +241,9 @@ public final class CaptureInboxActivity extends Activity {
     }
 
     private void renderAccessStatus() {
-        boolean supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R;
-        boolean configured = supported
-                && CaptureAccessibilityService.isConfigured(this);
-        boolean ready = configured && CaptureAccessibilityService.isReady();
-        if (!supported) {
-            accessStatus.setText(R.string.capture_access_unsupported);
-            accessStatus.setTextColor(getColor(R.color.danger));
-            captureButton.setText(R.string.capture_setup_button);
-            captureButton.setEnabled(false);
-            return;
-        }
-        captureButton.setEnabled(true);
-        if (ready) {
-            accessStatus.setText(R.string.capture_access_ready_detail);
-            accessStatus.setTextColor(getColor(R.color.success));
-            captureButton.setText(CaptureAccessibilityService.hasOverlay()
-                    ? R.string.capture_tile_resume : R.string.capture_test_capture_button);
-        } else if (configured) {
-            accessStatus.setText(R.string.capture_access_connecting_detail);
-            accessStatus.setTextColor(getColor(R.color.ink_muted));
-            captureButton.setText(R.string.capture_retry_connection_button);
-        } else {
-            accessStatus.setText(R.string.capture_access_disabled_detail);
-            accessStatus.setTextColor(getColor(R.color.ink_muted));
-            captureButton.setText(R.string.capture_setup_button);
-        }
+        captureButton.setEnabled(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R);
+        captureButton.setText(CaptureAccessibilityService.hasOverlay() ? "继续记录" : "截图");
+        captureButton.setContentDescription(CaptureAccessibilityService.isReady() ? "截图并圈选" : "截图，需要开启无障碍权限");
     }
 
     private void startCaptureOrSetup() {
@@ -327,82 +287,113 @@ public final class CaptureInboxActivity extends Activity {
         }
     }
 
-    private void requestTile(boolean note) {
-        if (Build.VERSION.SDK_INT < 33) {
-            Toast.makeText(
-                    this,
-                    R.string.capture_add_tile_manual,
-                    Toast.LENGTH_LONG
-            ).show();
-            return;
-        }
-        StatusBarManager manager = getSystemService(StatusBarManager.class);
-        if (manager == null) {
-            Toast.makeText(
-                    this,
-                    R.string.capture_add_tile_manual,
-                    Toast.LENGTH_LONG
-            ).show();
-            return;
-        }
-        addTileButton.setEnabled(false);
-        addNoteTileButton.setEnabled(false);
-        try {
-            manager.requestAddTileService(
-                    new ComponentName(this, note
-                            ? QuickNoteTileService.class : CaptureQuickSettingsTileService.class),
-                    getString(note ? R.string.quick_note_tile_label : R.string.capture_tile_label),
-                    Icon.createWithResource(this, note
-                            ? R.drawable.ic_quick_note : R.drawable.ic_capture_tile),
-                    getMainExecutor(),
-                    result -> {
-                        addTileButton.setEnabled(true);
-                        addNoteTileButton.setEnabled(true);
-                        int message;
-                        if (result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED) {
-                            message = note ? R.string.quick_note_tile_added : R.string.capture_tile_added;
-                        } else if (result
-                                == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED) {
-                            message = note ? R.string.quick_note_tile_already_added
-                                    : R.string.capture_tile_already_added;
-                        } else {
-                            message = R.string.capture_tile_not_added;
-                        }
-                        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-                    }
-            );
-        } catch (RuntimeException error) {
-            // OEMs may not implement the tile prompt. Manual editing still works.
-            addTileButton.setEnabled(true);
-            addNoteTileButton.setEnabled(true);
-            Toast.makeText(this, R.string.capture_add_tile_manual, Toast.LENGTH_LONG).show();
-        }
-    }
-
     private void chooseTag() {
-        final String scope=CaptureAccountSession.scope(this);
-        java.util.Map<String,String> names=new java.util.TreeMap<>();
-        java.util.Map<String,Integer> counts=new java.util.HashMap<>();
-        int untagged=0;
-        for(CaptureStore.CaptureRecord record:libraryRecords) {
-            if(record.tags.length()==0) untagged++;
-            for(int i=0;i<record.tags.length();i++) {
-                String name=record.tags.optString(i), key=name.toLowerCase(java.util.Locale.ROOT);
-                names.putIfAbsent(key,name); counts.put(key,counts.getOrDefault(key,0)+1);
-            }
+        final String scope = CaptureAccountSession.scope(this);
+        final String[] pendingTag = {tagFilter};
+        final int[] pendingType = {filterGroup.getCheckedRadioButtonId()};
+        LinearLayout body = JournalUi.column(this);
+        body.setPadding(dp(22), dp(16), dp(22), dp(20));
+        LinearLayout heading = new LinearLayout(this);
+        heading.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView title = JournalUi.text(this, "筛选记录", 24, R.color.ink);
+        heading.addView(title, new LinearLayout.LayoutParams(0,-2,1));
+        Button close = new Button(this); close.setText("取消"); JournalUi.quiet(close);
+        heading.addView(close); body.addView(heading);
+        JournalUi.section(body, "记录类型");
+        RadioGroup types = new RadioGroup(this);
+        types.setId(R.id.journal_filter_types);
+        types.setOrientation(RadioGroup.HORIZONTAL);
+        int[] ids = {R.id.capture_filter_all, R.id.capture_filter_excerpt, R.id.capture_filter_thought, R.id.capture_filter_todo};
+        String[] names = {"全部", "摘录", "想法", "待办"};
+        for (int i=0;i<ids.length;i++) {
+            android.widget.RadioButton button = new android.widget.RadioButton(this, null, 0, R.style.CaptureSegment);
+            button.setId(ids[i]); button.setText(names[i]);
+            types.addView(button, new RadioGroup.LayoutParams(0,-2,1));
         }
-        List<String> values=new ArrayList<>(); values.add(null); values.add(""); values.addAll(names.values());
-        List<String> labels=new ArrayList<>(); labels.add("全部标签 · "+libraryRecords.size()); labels.add("未分类 · "+untagged);
-        for(String key:names.keySet()) labels.add("#"+names.get(key)+" · "+counts.get(key));
-        int selected=0;
-        for(int i=0;i<values.size();i++) if(java.util.Objects.equals(values.get(i),tagFilter)) selected=i;
-        new AlertDialog.Builder(this).setTitle("按标签查看")
-                .setSingleChoiceItems(labels.toArray(new String[0]),selected,(dialog,which)->{
-                    dialog.dismiss(); if(!scope.equals(CaptureAccountSession.scope(this))) return;
-                    tagFilter=values.get(which);visibleLimit=RECORD_LIMIT;renderFilteredRecords();
-                }).setNegativeButton("取消",null).show();
+        types.check(pendingType[0]); body.addView(types);
+        JournalUi.section(body, "标签");
+        EditText tagSearch = new EditText(this);
+        tagSearch.setId(R.id.journal_filter_search);
+        tagSearch.setHint("搜索已有标签"); tagSearch.setSingleLine(true);
+        tagSearch.setTextSize(16); tagSearch.setMinHeight(dp(48));
+        tagSearch.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
+        body.addView(tagSearch, new LinearLayout.LayoutParams(-1,-2));
+        RadioGroup tags = new RadioGroup(this);
+        tags.setId(R.id.journal_filter_tags);
+        java.util.Map<String,String> values = new java.util.TreeMap<>();
+        for (CaptureStore.CaptureRecord r : libraryRecords)
+            for(int i=0;i<r.tags.length();i++) {
+                String name=r.tags.optString(i);
+                values.putIfAbsent(name.toLowerCase(java.util.Locale.ROOT),name);
+            }
+        List<String> tagValues = new ArrayList<>(); tagValues.add(null); tagValues.add(""); tagValues.addAll(values.values());
+        int selectedTagId = View.NO_ID;
+        for (String value : tagValues) {
+            android.widget.RadioButton radio = new android.widget.RadioButton(this);
+            radio.setId(View.generateViewId()); radio.setTag(value);
+            radio.setText(value==null ? "全部标签" : value.isEmpty() ? "未分类" : "#"+value);
+            radio.setTextSize(16); radio.setMinHeight(dp(48));
+            tags.addView(radio, new RadioGroup.LayoutParams(-1,-2));
+            if (java.util.Objects.equals(value, pendingTag[0])) selectedTagId = radio.getId();
+        }
+        tags.check(selectedTagId);
+        tagSearch.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s,int start,int count,int after) { }
+            @Override public void onTextChanged(CharSequence s,int start,int before,int count) {
+                String query=s.toString().trim().toLowerCase(java.util.Locale.ROOT);
+                for(int i=0;i<tags.getChildCount();i++) {
+                    View tag=tags.getChildAt(i); String value=(String)tag.getTag();
+                    tag.setVisibility(value==null || value.isEmpty() || value.toLowerCase(java.util.Locale.ROOT).contains(query)
+                            ? View.VISIBLE : View.GONE);
+                }
+            }
+            @Override public void afterTextChanged(android.text.Editable e) { }
+        });
+        ScrollView tagScroll=new ScrollView(this); tagScroll.addView(tags);
+        body.addView(tagScroll,new LinearLayout.LayoutParams(-1,0,1));
+        LinearLayout actions=new LinearLayout(this); actions.setPadding(0,dp(16),0,0);
+        Button reset=new Button(this); reset.setText("重置"); reset.setId(R.id.journal_filter_reset); JournalUi.quiet(reset);
+        actions.addView(reset,new LinearLayout.LayoutParams(-2,-2));
+        Button apply=new Button(this); apply.setId(R.id.journal_filter_apply); JournalUi.primary(apply);
+        actions.addView(apply,new LinearLayout.LayoutParams(0,-2,1)); body.addView(actions);
+        Runnable count=()->apply.setText("查看 "+matchingRecords(pendingType[0],pendingTag[0]).size()+" 条记录");
+        types.setOnCheckedChangeListener((group,id)->{pendingType[0]=id;count.run();});
+        tags.setOnCheckedChangeListener((group,id)->{View chosen=tags.findViewById(id);pendingTag[0]=chosen==null?null:(String)chosen.getTag();count.run();});
+        final int allTagId=tags.getChildAt(0).getId();
+        reset.setOnClickListener(v->{tagSearch.setText("");types.check(R.id.capture_filter_all);tags.check(allTagId);count.run();});
+        AlertDialog dialog=new AlertDialog.Builder(this).create();
+        dialog.setView(body,0,0,0,0); dialog.show();
+        close.setOnClickListener(v->dialog.dismiss());
+        android.view.Window window=dialog.getWindow();
+        if(window!=null) {
+            window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                    | android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
+            window.setGravity(android.view.Gravity.BOTTOM);
+            window.setBackgroundDrawableResource(R.drawable.bg_dialog);
+            int available=getResources().getDisplayMetrics().heightPixels;
+            window.setLayout(-1,Math.min(dp(580),Math.max(dp(240),available-dp(48))));
+        }
+        count.run();
+        apply.setOnClickListener(v->{
+            dialog.dismiss(); if(!scope.equals(CaptureAccountSession.scope(this)))return;
+            tagFilter=pendingTag[0]; visibleLimit=RECORD_LIMIT;
+            filterGroup.check(pendingType[0]);renderFilteredRecords();
+        });
     }
 
+    private List<CaptureStore.CaptureRecord> matchingRecords(int filter,String tag) {
+        List<CaptureStore.CaptureRecord> result=new ArrayList<>();
+        String query=searchInput.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
+        for(CaptureStore.CaptureRecord r:libraryRecords) {
+            boolean match=filter==R.id.capture_filter_excerpt
+                ? r.hasImage || !r.sourceText.isEmpty() || !CaptureRecordEdits.original(r).isEmpty()
+                : filter==R.id.capture_filter_thought ? "thought".equals(r.kind)
+                : filter==R.id.capture_filter_todo ? "todo".equals(r.kind) : true;
+            String searchable=r.comment+"\n"+r.sourceText+"\n"+CaptureRecordEdits.original(r)+"\n"+r.sourceUrl+"\n"+CaptureTags.input(r.tags);
+            if(match && CaptureTags.matches(r.tags,tag) && searchable.toLowerCase(java.util.Locale.ROOT).contains(query))result.add(r);
+        }
+        return result;
+    }
     @Override protected void onSaveInstanceState(Bundle state) {
         state.putString("tag_filter",tagFilter);state.putString("tag_scope",filterScope);
         state.putBoolean("selecting", selecting);
@@ -423,29 +414,26 @@ public final class CaptureInboxActivity extends Activity {
     }
 
     private void renderFilteredRecords() {
-        ((Button)findViewById(R.id.capture_tag_filter)).setText("标签 · "
-                +(tagFilter==null ? "全部" : tagFilter.isEmpty() ? "未分类" : "#"+tagFilter)+"  ▾");
+        ((Button)findViewById(R.id.capture_tag_filter)).setText("筛选");
+        Button summary=findViewById(R.id.journal_filter_summary);
+        int activeType=filterGroup.getCheckedRadioButtonId();
+        boolean hasFilter=tagFilter!=null || activeType!=R.id.capture_filter_all;
+        summary.setVisibility(hasFilter?View.VISIBLE:View.GONE);
+        String type=activeType==R.id.capture_filter_excerpt?"摘录":activeType==R.id.capture_filter_thought?"想法":activeType==R.id.capture_filter_todo?"待办":"全部类型";
+        summary.setText(type+(tagFilter==null?"":tagFilter.isEmpty()?" · 未分类":" · #"+tagFilter)+" · 清除筛选");
         int generation = ++renderGeneration;
         clearThumbnails();
         recordsContainer.removeAllViews();
-        List<CaptureStore.CaptureRecord> allRecords = new ArrayList<>();
-        String query = searchInput.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
+        String query = searchInput.getText().toString().trim();
         int filter = filterGroup.getCheckedRadioButtonId();
-        for (CaptureStore.CaptureRecord record : libraryRecords) {
-            boolean match = filter == R.id.capture_filter_excerpt
-                    ? record.hasImage || !record.sourceText.isEmpty() || !CaptureRecordEdits.original(record).isEmpty()
-                    : filter == R.id.capture_filter_thought ? "thought".equals(record.kind)
-                    : filter == R.id.capture_filter_todo ? "todo".equals(record.kind) : true;
-            String searchable = record.comment + "\n" + record.sourceText + "\n" + CaptureRecordEdits.original(record) + "\n" + record.sourceUrl
-                    + "\n" + CaptureTags.input(record.tags);
-            if (match && CaptureTags.matches(record.tags,tagFilter)
-                    && searchable.toLowerCase(java.util.Locale.ROOT).contains(query)) allRecords.add(record);
-        }
+        List<CaptureStore.CaptureRecord> allRecords=matchingRecords(filter,tagFilter);
         List<CaptureStore.CaptureRecord> records = allRecords.size() <= visibleLimit
                 ? allRecords
                 : new ArrayList<>(allRecords.subList(0, visibleLimit));
         visibleRecords = records;
+        int selectedBefore=selectedRecords.size();
         selectedRecords.removeIf(id -> allRecords.stream().noneMatch(r -> r.id.equals(id)));
+        if(selecting && selectedBefore>selectedRecords.size()) Toast.makeText(this,"已移除 "+(selectedBefore-selectedRecords.size())+" 条不符合筛选的选择",Toast.LENGTH_SHORT).show();
         findViewById(R.id.capture_load_more).setVisibility(allRecords.size()>visibleLimit ? View.VISIBLE : View.GONE);
         recordCount.setText(getString(R.string.capture_filtered_count, allRecords.size(), libraryRecords.size()));
         TextView emptyTitle = (TextView) ((LinearLayout) emptyState).getChildAt(1);
@@ -456,6 +444,7 @@ public final class CaptureInboxActivity extends Activity {
         emptyState.setVisibility(records.isEmpty() ? View.VISIBLE : View.GONE);
         recordsContainer.setVisibility(records.isEmpty() ? View.GONE : View.VISIBLE);
         LayoutInflater inflater = LayoutInflater.from(this);
+        String lastDay="";
         for (CaptureStore.CaptureRecord record : records) {
             View card = inflater.inflate(
                     R.layout.item_capture_record,
@@ -463,6 +452,16 @@ public final class CaptureInboxActivity extends Activity {
                     false
             );
             bindRecord(card, record, generation);
+            String day=DateFormat.format("yyyy-MM-dd",record.createdAt).toString();
+            if(!day.equals(lastDay)) {
+                TextView heading=card.findViewById(R.id.journal_item_day);
+                heading.setVisibility(View.VISIBLE);
+                java.time.LocalDate date=java.time.Instant.ofEpochMilli(record.createdAt).atZone(java.time.ZoneId.systemDefault()).toLocalDate();
+                java.time.LocalDate today=java.time.LocalDate.now();
+                String prefix=date.equals(today)?"今天  ":date.equals(today.minusDays(1))?"昨天  ":"";
+                heading.setText(prefix+DateFormat.format("M月d日  EEEE",record.createdAt));
+                lastDay=day;
+            }
             recordsContainer.addView(card);
         }
         updateSelection();
@@ -484,14 +483,12 @@ public final class CaptureInboxActivity extends Activity {
         image.setClipToOutline(true);
 
         kind.setText(kindLabel(record.kind));
-        setOptionalText(card.findViewById(R.id.capture_item_tags),CaptureTags.display(record.tags));
+        ((TextView)card.findViewById(R.id.capture_item_tags)).setText(CaptureTags.display(record.tags));
         time.setText(DateFormat.format(
-                "yyyy-MM-dd HH:mm",
+                "HH:mm",
                 new Date(record.createdAt)
         ));
-        setOptionalText(comment, record.comment.isEmpty() ? "" :
-                (record.hasImage || !record.sourceText.isEmpty()
-                        ? getString(R.string.capture_thought_label) + " · " : "") + record.comment);
+        setOptionalText(comment, record.comment);
         source.setText(sourceTypeLabel(record.sourceType));
         if (!record.sourceUrl.isEmpty()) {
             source.append(" · " + getString(R.string.capture_url_saved_badge));
@@ -505,13 +502,15 @@ public final class CaptureInboxActivity extends Activity {
         } else {
             sync.setTextColor(getColor(R.color.ink_muted));
         }
+        sync.setVisibility(CaptureStore.SYNC_FAILED.equals(record.syncState) ? View.VISIBLE : View.GONE);
         String original = CaptureRecordEdits.original(record);
         if (record.sourceText.isEmpty() && original.isEmpty()) {
             exactText.setVisibility(View.GONE);
         } else {
-            exactText.setVisibility(View.VISIBLE);
+            exactText.setVisibility(record.comment.isEmpty()?View.VISIBLE:View.GONE);
             exactText.setText(record.sourceText.isEmpty() ? "页面原文 · " + ellipsize(original, 420) : ellipsize(record.sourceText, 420));
         }
+        if(record.comment.isEmpty() && record.sourceText.isEmpty() && original.isEmpty()) setOptionalText(comment,record.hasImage?"截图记录":"未填写文字");
         image.setVisibility(record.hasImage ? View.VISIBLE : View.GONE);
         if (record.hasImage) {
             thumbnailExecutor.execute(() -> {
@@ -535,7 +534,7 @@ public final class CaptureInboxActivity extends Activity {
             });
         }
         card.setContentDescription(
-                kind.getText() + "，" + time.getText() + "，" + source.getText()
+                (record.comment.isEmpty()?exactText.getText():record.comment) + "，" + kind.getText() + "，" + DateFormat.format("yyyy-MM-dd HH:mm",record.createdAt) + "，" + source.getText()
                         + "，" + sync.getText() + "，"
                         + getString(R.string.capture_detail_open_hint)
         );
@@ -544,10 +543,12 @@ public final class CaptureInboxActivity extends Activity {
         card.setTag(record.id);
         android.widget.CheckBox selected = new android.widget.CheckBox(this);
         selected.setId(R.id.capture_item_selected);
-        selected.setText("选择这条记录");
+        selected.setContentDescription("选择这条记录");
         selected.setClickable(false); selected.setFocusable(false);
         selected.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        ((LinearLayout) card).addView(selected, 0);
+        selected.setMinWidth(0); selected.setMinimumWidth(0);
+        ((LinearLayout) card.findViewById(R.id.journal_item_body)).addView(selected, 0,
+                new LinearLayout.LayoutParams(dp(44),dp(48)));
         card.setOnClickListener(view -> {
             if (deletingSelection || !ownerScope.equals(CaptureAccountSession.scope(this))) return;
             if (selecting) toggleSelection(record.id); else showRecordDetail(record, ownerScope);
@@ -563,11 +564,13 @@ public final class CaptureInboxActivity extends Activity {
     private void createSelectionDock() {
         LinearLayout root = (LinearLayout) findViewById(R.id.capture_action_dock).getParent();
         LinearLayout dock = new LinearLayout(this); dock.setId(R.id.capture_selection_dock);
-        dock.setOrientation(LinearLayout.VERTICAL); dock.setBackgroundColor(getColor(R.color.card));
+        dock.setOrientation(LinearLayout.VERTICAL); dock.setBackgroundColor(getColor(R.color.cream));
         int padding=Math.round(16*getResources().getDisplayMetrics().density);
         dock.setPadding(padding, padding/2, padding, padding/2);
         root.addView(dock, new LinearLayout.LayoutParams(-1,-2));
-        LinearLayout top = new LinearLayout(this); top.setGravity(android.view.Gravity.CENTER_VERTICAL); dock.addView(top);
+        LinearLayout top = new LinearLayout(this); top.setId(R.id.journal_selection_header);
+        top.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        top.setPadding(dp(22),dp(8),dp(22),dp(8));root.addView(top,0,new LinearLayout.LayoutParams(-1,-2));
         TextView count = new TextView(this); count.setId(R.id.capture_selection_count); count.setTextColor(getColor(R.color.ink)); count.setTextSize(15);
         count.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         top.addView(count,new LinearLayout.LayoutParams(0,-2,1));
@@ -606,6 +609,12 @@ public final class CaptureInboxActivity extends Activity {
     private void updateSelection() {
         View dock=findViewById(R.id.capture_selection_dock);if(dock==null)return;
         dock.setVisibility(selecting?View.VISIBLE:View.GONE);
+        findViewById(R.id.journal_selection_header).setVisibility(selecting?View.VISIBLE:View.GONE);
+        findViewById(R.id.journal_library_header).setVisibility(selecting?View.GONE:View.VISIBLE);
+        if(selecting && searchInput.hasFocus()) {
+            getSystemService(android.view.inputmethod.InputMethodManager.class).hideSoftInputFromWindow(searchInput.getWindowToken(),0);
+            searchInput.clearFocus();
+        }
         findViewById(R.id.capture_action_dock).setVisibility(selecting?View.GONE:View.VISIBLE);
         ((TextView)findViewById(R.id.capture_selection_count)).setText("已选 "+selectedRecords.size()+" 条");
         for(int id:new int[]{R.id.capture_selection_export,R.id.capture_selection_delete})
@@ -615,11 +624,9 @@ public final class CaptureInboxActivity extends Activity {
             if(check==null)continue;
             boolean chosen=selectedRecords.contains(card.getTag());
             check.setVisibility(selecting?View.VISIBLE:View.GONE);check.setChecked(chosen);check.jumpDrawablesToCurrentState();
-            android.graphics.drawable.GradientDrawable bg=new android.graphics.drawable.GradientDrawable();
-            bg.setColor(chosen?0xffeef1fe:getColor(R.color.card));bg.setCornerRadius(18*getResources().getDisplayMetrics().density);
-            bg.setStroke(Math.max(1,Math.round(getResources().getDisplayMetrics().density)),getColor(chosen?R.color.coral:R.color.line));card.setBackground(bg);
+            card.findViewById(R.id.journal_item_body).setBackgroundColor(getColor(chosen?R.color.coral_soft:R.color.cream));
             card.setSelected(chosen);
-            int padding=Math.round(16*getResources().getDisplayMetrics().density);card.setPadding(padding,padding,padding,padding);
+            card.setPadding(0,0,0,0);
         }
     }
     private void deleteSelection() {
@@ -628,8 +635,8 @@ public final class CaptureInboxActivity extends Activity {
         for(CaptureStore.CaptureRecord record:libraryRecords) if(selectedRecords.contains(record.id))snapshot.add(record);
         if(snapshot.isEmpty()||!scope.equals(CaptureAccountSession.scope(this)))return;
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("删除选中的 "+snapshot.size()+" 条记录？")
-            .setMessage(CaptureAccountSession.hasAccount(this)?"只删除已勾选的记录；联网后同步到账号回收站，其他设备也会移除。":"只从本机列表移除已勾选的记录，不删除服务器副本。")
-            .setNegativeButton("取消",null).setPositiveButton("删除",(d,w)->{
+            .setMessage(CaptureAccountSession.hasAccount(this)?"只删除已勾选的记录；联网后同步到账号回收站，其他设备也会移除。已公开的分享不会自动撤销。":"只从本机列表移除已勾选的记录，不删除服务器副本。")
+            .setNegativeButton("取消",null).setPositiveButton("删除 "+snapshot.size()+" 条",(d,w)->{
                 deletingSelection=true;updateSelection();
                 refreshExecutor.execute(()->{
                     boolean success=false;

@@ -44,13 +44,9 @@ public final class ShareHistoryActivity extends Activity {
         page.addView(root, new LinearLayout.LayoutParams(-1, -1));
         root.setPadding(dp(22), dp(8), dp(22), dp(16));
         setContentView(page);
-        LinearLayout nav = new LinearLayout(this);
-        root.addView(nav);
-        button(nav, "返回", this::finish);
-        nav.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
+        LinearLayout nav = JournalUi.header(this, root, "分享图片", this::finish);
         revoke = button(nav, "撤销分享", this::confirmRevoke);
         revoke.setTextColor(getColor(R.color.danger));
-        text(root, "分享图片", 28);
         summary = text(root, "当次导出的截图快照，不随原记录修改而改变。", 13);
         selector = new Spinner(this);
         root.addView(selector, new LinearLayout.LayoutParams(-1, dp(56)));
@@ -268,7 +264,7 @@ public final class ShareHistoryActivity extends Activity {
     private Button button(LinearLayout root, String value, Runnable action) {
         Button view = new Button(this);
         view.setText(value);
-        view.setBackgroundResource(android.R.color.transparent);
+        JournalUi.quiet(view);
         view.setOnClickListener(v -> action.run());
         root.addView(view);
         return view;

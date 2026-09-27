@@ -30,7 +30,7 @@ public class CaptureTagInboxTest {
             a.<EditText>findViewById(R.id.capture_search).setText("");
             a.<RadioGroup>findViewById(R.id.capture_filter_group).check(R.id.capture_filter_all);
             controller.recreate();a=controller.get();assertEquals(2,count(a));
-            assertTrue(a.<Button>findViewById(R.id.capture_tag_filter).getText().toString().contains("学习"));
+            assertTrue(a.<Button>findViewById(R.id.journal_filter_summary).getText().toString().contains("学习"));
             choose(a,"未分类");assertEquals(1,count(a));
             choose(a,"全部标签");assertEquals(3,count(a));
             a.<EditText>findViewById(R.id.capture_search).setText("灵感");assertEquals(1,count(a));
@@ -56,7 +56,7 @@ public class CaptureTagInboxTest {
             CaptureAccountSession.preferences(a).edit().putString("scope","b".repeat(64)).commit();
             // Reload locally without logging into or connecting to a server.
             org.robolectric.util.ReflectionHelpers.callInstanceMethod(a,"renderRecords");
-            assertTrue(a.<Button>findViewById(R.id.capture_tag_filter).getText().toString().contains("全部"));
+            assertEquals(View.GONE,a.findViewById(R.id.journal_filter_summary).getVisibility());
             assertEquals(0,count(a));
         }
     }
@@ -67,9 +67,10 @@ public class CaptureTagInboxTest {
     private int count(CaptureInboxActivity a) {return a.<LinearLayout>findViewById(R.id.capture_records).getChildCount();}
     private void choose(CaptureInboxActivity a,String prefix) {
         a.findViewById(R.id.capture_tag_filter).performClick();
-        AlertDialog dialog=ShadowAlertDialog.getLatestAlertDialog();ListView list=dialog.getListView();
-        for(int i=0;i<list.getAdapter().getCount();i++) if(list.getAdapter().getItem(i).toString().startsWith(prefix)) {
-            list.performItemClick(null,i,list.getAdapter().getItemId(i));shadowOf(Looper.getMainLooper()).idle();return;
+        AlertDialog dialog=ShadowAlertDialog.getLatestAlertDialog();RadioGroup list=dialog.findViewById(R.id.journal_filter_tags);
+        for(int i=0;i<list.getChildCount();i++) if(((RadioButton)list.getChildAt(i)).getText().toString().startsWith(prefix)) {
+            list.check(list.getChildAt(i).getId());dialog.findViewById(R.id.journal_filter_apply).performClick();
+            shadowOf(Looper.getMainLooper()).idle();return;
         }
         fail("Missing tag: "+prefix);
     }

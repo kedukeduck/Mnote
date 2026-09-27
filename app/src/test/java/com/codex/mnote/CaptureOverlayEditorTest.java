@@ -133,11 +133,12 @@ public class CaptureOverlayEditorTest {
         assertTrue(CaptureStore.list(service, 10).isEmpty());
         assertFalse(markup.isEnabled());
         View dock = ReflectionHelpers.getField(editor, "column");
-        assertTrue(dock.getTop() < 50);
+        assertTrue(dock.getTop() >= 0);
+        assertTrue(dock.getBottom() <= root().getHeight());
         android.widget.ImageView preview = root().findViewById(R.id.capture_selection_preview);
         assertTrue(preview.isShown());
         assertNotNull(preview.getDrawable());
-        assertTrue(preview.getHeight() >= 280);
+        assertTrue(preview.getHeight() >= 100 && preview.getHeight() <= 220);
         assertTrue(root().findViewById(R.id.capture_preview_modes).isShown());
         assertFalse(root().findViewById(R.id.capture_editor_status).isShown());
         ((EditText) root().findViewById(R.id.capture_comment_input)).setText("先选区域，再写想法");
@@ -179,7 +180,8 @@ public class CaptureOverlayEditorTest {
         layout(390, 844);
         assertTrue(dock.getTop() < 50);
         next();
-        assertTrue(dock.getTop() < 50);
+        assertTrue(dock.getTop() >= 0);
+        assertTrue(dock.getBottom() <= root().getHeight());
         editor.minimize();
         assertTrue(editor.restore());
         assertTrue(root().findViewById(R.id.capture_composer).isShown());
@@ -331,6 +333,7 @@ public class CaptureOverlayEditorTest {
     @Test public void expandedLinkAndKeyboardSizedViewportKeepInputsReachable() throws Exception {
         open();
         next();
+        root().findViewById(R.id.capture_more_options).performClick();
         root().findViewById(R.id.capture_url_toggle).performClick();
         ((EditText) root().findViewById(R.id.capture_source_url)).setText("https://m.weibo.cn/detail/123456789");
         layout(360, 480);

@@ -16,6 +16,8 @@ public final class CaptureRecordEditActivity extends Activity {
     private CaptureTags.Field tags;
     private TextView status;
     private Button save,cancel;
+    private ImageView screenshot;
+    private TextView screenshotLabel;
     private String id,scope,baseline="";
     private boolean loading=true,saving,destroyed;
 
@@ -35,8 +37,15 @@ public final class CaptureRecordEditActivity extends Activity {
                 CaptureStore.CaptureRecord record;
                 synchronized(CaptureAccountSession.LOCK) {record=CaptureRecordEdits.latest(this,scope,id);}
                 String fingerprint=CaptureRecordEdits.fingerprint(record);
+                android.graphics.Bitmap image = null;
+                try { if(record.hasImage) image=CaptureStore.decodeReviewBitmap(record.annotatedFile); }
+                catch(RuntimeException | OutOfMemoryError ignored) { }
+                final android.graphics.Bitmap preview=image;
                 runOnUiThread(()->{
-                    if(destroyed || isFinishing()) return;
+                    if(destroyed || isFinishing()) { if(preview!=null) preview.recycle(); return; }
+                    screenshot.setImageBitmap(preview);
+                    screenshot.setVisibility(preview==null ? View.GONE : View.VISIBLE);
+                    screenshotLabel.setVisibility(preview==null ? View.GONE : View.VISIBLE);
                     baseline=state==null ? fingerprint : state.getString("baseline",fingerprint);
                     comment.setText(state==null ? record.comment : state.getString("comment",record.comment));
                     quote.setText(state==null ? record.sourceText : state.getString("quote",record.sourceText));
@@ -68,11 +77,12 @@ public final class CaptureRecordEditActivity extends Activity {
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(dp(12),dp(8),dp(12),dp(8));
         cancel=new Button(this);cancel.setId(R.id.record_edit_cancel);cancel.setText("取消");
+        cancel.setBackgroundResource(android.R.color.transparent);cancel.setTextColor(getColor(R.color.ink));
         cancel.setOnClickListener(view->requestClose());header.addView(cancel);
         TextView title=label("编辑记录",17);title.setGravity(Gravity.CENTER);
         header.addView(title,new LinearLayout.LayoutParams(0,-2,1));
         save=new Button(this);save.setId(R.id.record_edit_save);save.setText("保存");
-        save.setBackgroundResource(R.drawable.bg_button_secondary);save.setOnClickListener(view->save());header.addView(save);
+        save.setBackgroundResource(R.drawable.bg_button_primary);save.setTextColor(android.graphics.Color.WHITE);save.setOnClickListener(view->save());header.addView(save);
         root.addView(header,new LinearLayout.LayoutParams(-1,-2));
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setVerticalScrollBarEnabled(false);
         LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);
@@ -81,25 +91,35 @@ public final class CaptureRecordEditActivity extends Activity {
         status=label("正在读取记录…",13);status.setId(R.id.record_edit_status);
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);body.addView(status);
         comment=field(body,"我的想法","写下你的想法（最多 2 万字）",R.id.record_edit_comment);
-        quote=field(body,"摘录文字","当时摘录的文字，可补充或修改（最多 10 万字）",R.id.record_edit_quote);
-        original=field(body,"保留的原文","可补充原文；留空则从当前记录移除原文（最多 4 万字）",R.id.record_edit_original);
+        quote=field(body,"摘录","当时摘录的文字，可补充或修改（最多 10 万字）",R.id.record_edit_quote);
+        original=field(body,"页面原文","可补充原文；留空则从当前记录移除原文（最多 4 万字）",R.id.record_edit_original);
+        screenshotLabel=label("截图 · 保留的圈选内容",14);screenshotLabel.setPadding(0,dp(24),0,dp(12));
+        screenshotLabel.setVisibility(View.GONE);body.addView(screenshotLabel);
+        screenshot=new ImageView(this);screenshot.setContentDescription("已有截图，只读预览；编辑文字不会改变图片");
+        screenshot.setScaleType(ImageView.ScaleType.FIT_CENTER);screenshot.setVisibility(View.GONE);
+        body.addView(screenshot,new LinearLayout.LayoutParams(-1,dp(180)));
         getLayoutInflater().inflate(R.layout.capture_tags,body,true); tags=new CaptureTags.Field(body);
         TextView help=label("原文与摘录修改后会标记为手动编辑；历史截图保持不变。",12);
         LinearLayout.LayoutParams helpParams=new LinearLayout.LayoutParams(-1,-2);helpParams.topMargin=dp(16);body.addView(help,helpParams);
-        setContentView(root);setBusy(true);cancel.setEnabled(true);
+        setContentView(root);getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);setBusy(true);cancel.setEnabled(true);
     }
     private EditText field(LinearLayout body,String title,String hint,int id) {
-        TextView label=label(title,13);
+        TextView label=label(title,14);
+        label.setTextColor(0xff955530);
+        if(id==R.id.record_edit_quote) {
+            label.setTextColor(android.graphics.Color.WHITE);label.setBackgroundResource(R.drawable.bg_material_tab);
+            label.setPadding(dp(12),dp(4),dp(12),dp(4));
+        }
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(24);body.addView(label,lp);
-        EditText input=new EditText(this);input.setId(id);input.setHint(hint);input.setTextSize(16);
+        if(id==R.id.record_edit_quote) label.getLayoutParams().width=-2;
+        EditText input=new EditText(this);input.setId(id);input.setHint(hint);input.setTextSize(id==R.id.record_edit_comment ? 18 : 16);
         input.setTextColor(getColor(R.color.ink));input.setHintTextColor(getColor(R.color.ink_muted));
         input.setBackgroundResource(R.drawable.bg_input);input.setPadding(dp(16),dp(16),dp(16),dp(16));
         input.setGravity(Gravity.TOP|Gravity.START);input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        input.setMinLines(4);input.setMaxLines(8);input.setLineSpacing(dp(4),1);
+        input.setMinLines(3);input.setMaxLines(Integer.MAX_VALUE);input.setLineSpacing(0,1.4f);
         input.setImeOptions(android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);
         input.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);input.setSaveEnabled(false);
         LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(-1,-2);ip.topMargin=dp(8);body.addView(input,ip);
-        CaptureLongText.attach(this,input,title);
         return input;
     }
     private TextView label(String text,int size) {
@@ -149,6 +169,6 @@ public final class CaptureRecordEditActivity extends Activity {
             state.putString("quote",quote.getText().toString());state.putString("original",original.getText().toString());}
         super.onSaveInstanceState(state);
     }
-    @Override protected void onDestroy() {destroyed=true;executor.shutdown();super.onDestroy();}
+    @Override protected void onDestroy() {destroyed=true;if(screenshot!=null)screenshot.setImageDrawable(null);executor.shutdown();super.onDestroy();}
     private int dp(int value) {return CaptureReadingLayout.dp(this,value);}
 }

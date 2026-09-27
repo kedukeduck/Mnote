@@ -73,15 +73,7 @@ public final class MarkdownExportActivity extends Activity {
         header.setOrientation(LinearLayout.VERTICAL);
         header.setPadding(dp(22), dp(8), dp(22), 0);
         root.addView(header);
-        LinearLayout nav = new LinearLayout(this);
-        header.addView(nav);
-        Button back = button(nav, "返回");
-        back.setOnClickListener(v -> finish());
-        back.setLayoutParams(new LinearLayout.LayoutParams(dp(72), dp(48)));
-        nav.addView(new View(this), 1, new LinearLayout.LayoutParams(0, 1, 1));
-        back.setBackgroundResource(android.R.color.transparent);
-        TextView title = text(header, "带走一些灵感", 30);
-        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        JournalUi.header(this, header, "导出 Markdown", this::finish);
         TextView intro = text(header, "把选中的想法与上下文，整理成一份 Markdown。", 14);
         intro.setTextColor(getColor(R.color.ink_muted));
         LinearLayout actions = new LinearLayout(this);
@@ -103,8 +95,8 @@ public final class MarkdownExportActivity extends Activity {
         LinearLayout dock = new LinearLayout(this);
         dock.setOrientation(LinearLayout.VERTICAL);
         dock.setPadding(dp(22), dp(10), dp(22), dp(14));
-        dock.setBackgroundColor(getColor(R.color.card));
-        dock.setElevation(dp(4));
+        dock.setBackgroundColor(getColor(R.color.cream));
+        JournalUi.rule(dock);
         root.addView(dock);
         status = text(dock, "正在加载记录…", 13);
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
@@ -112,7 +104,7 @@ public final class MarkdownExportActivity extends Activity {
         export.setBackgroundResource(R.drawable.bg_button_primary);
         export.setTextColor(getColor(R.color.white));
         export.setMinHeight(dp(52));
-        TextView privacy = text(dock, "仅导出已同步记录 · 截图链接经确认后分享，可撤销", 11);
+        TextView privacy = text(dock, "仅导出已同步记录 · 截图链接经确认后分享，可撤销", 13);
         privacy.setTextColor(getColor(R.color.ink_muted));
         all.setOnClickListener(v -> {
             if (busy || picker)
@@ -494,7 +486,7 @@ public final class MarkdownExportActivity extends Activity {
             preview = new Button(MarkdownExportActivity.this);
             preview.setText("查看将导出的图片");
             preview.setTextSize(13);
-            preview.setBackgroundResource(android.R.color.transparent);
+            JournalUi.quiet(preview);
             preview.setFocusable(false);
             addView(preview);
             setMinimumHeight(dp(112));
@@ -565,8 +557,8 @@ public final class MarkdownExportActivity extends Activity {
             check.setChecked(value);
             check.jumpDrawablesToCurrentState();
             GradientDrawable bg = new GradientDrawable();
-            bg.setCornerRadius(dp(18));
-            bg.setColor(value ? 0xffeef1fe : getColor(R.color.card));
+            bg.setCornerRadius(dp(10));
+            bg.setColor(value ? getColor(R.color.card) : getColor(R.color.cream));
             bg.setStroke(dp(1), value ? getColor(R.color.coral) : getColor(R.color.line));
             setBackground(bg);
         }
@@ -598,6 +590,7 @@ public final class MarkdownExportActivity extends Activity {
     private Button button(LinearLayout root, String value) {
         Button v = new Button(this);
         v.setText(value);
+        JournalUi.quiet(v);
         v.setAllCaps(false);
         root.addView(v,
             new LinearLayout.LayoutParams(root.getOrientation() == LinearLayout.HORIZONTAL ? 0 : -1,

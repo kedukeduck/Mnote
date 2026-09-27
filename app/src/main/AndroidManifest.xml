@@ -21,6 +21,7 @@
         <activity android:name=".ShareTextActivity" android:exported="false" />
         <activity android:name=".ShareCardActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" android:label="设置" />
+        <activity android:name=".CapturePermissionsActivity" android:exported="false" android:label="快捷方式与权限" />
         <activity android:name=".AppUpdateActivity" android:exported="false" android:label="版本与更新" />
         <provider android:name=".AppUpdateProvider" android:authorities="${applicationId}.updates"
             android:exported="false" android:grantUriPermissions="true">

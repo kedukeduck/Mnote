@@ -92,6 +92,8 @@ public final class CaptureEditorActivity extends Activity {
         setContentView(R.layout.activity_capture_editor);
         CaptureStore.cleanupStaleDrafts(this);
         bindViews();
+        CaptureReadingLayout.bindOptions(findViewById(android.R.id.content));
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         tags = new CaptureTags.Field(getWindow().getDecorView());
         if (savedInstanceState != null) tags.input.setText(savedInstanceState.getString("tags", ""));
         textExcerpt = new CaptureTextExcerpt(this, value -> sourceText=value);
@@ -113,15 +115,18 @@ public final class CaptureEditorActivity extends Activity {
             sourceLink.acceptDetected(getIntent().getStringExtra("capture_source_url"),
                     getIntent().getStringExtra("capture_source_origin"));
         }
+        CaptureReadingLayout.attach((LinearLayout) title.getParent().getParent());
+        if ("quick_note".equals(sourceType)) commentInput.requestFocus();
         if (!"quick_note".equals(sourceType)) {
             title.setText(R.string.capture_compose_title);
-            CaptureReadingLayout.attach((LinearLayout) title.getParent().getParent());
             attachTextPreviewModes();
         }
+        if (savedInstanceState != null) CaptureReadingLayout.showOptions(findViewById(android.R.id.content), savedInstanceState.getBoolean("options_expanded"));
     }
 
     @Override protected void onSaveInstanceState(Bundle state) {
         state.putString("capture_owner_scope", ownerScope);
+        state.putBoolean("options_expanded", findViewById(R.id.capture_auxiliary_options).getVisibility()==View.VISIBLE);
         state.putString("tags", tags.input.getText().toString());
         state.putString("excerpt_quote",sourceText); textExcerpt.save(state);
         state.putString("excerpt_package",sourcePackage);
@@ -281,36 +286,17 @@ public final class CaptureEditorActivity extends Activity {
         sourceType = "quick_note";
         title.setText(R.string.capture_editor_quick_title);
         kindGroup.check(R.id.capture_kind_thought);
-        findViewById(R.id.capture_thought_label).setVisibility(View.GONE);
         markupContainer.setVisibility(View.GONE);
         textContainer.setVisibility(View.GONE);
         toolRow.setVisibility(View.GONE);
-        status.setText(R.string.capture_quick_note_detail);
-        // The legacy note route keeps its large writing surface; optional labels live in the header.
-        ((View)tags.input.getParent()).setVisibility(View.GONE);
-        android.widget.Button tagAction=new android.widget.Button(this);
-        tagAction.setText("标签"); tagAction.setMinWidth(0); tagAction.setMinimumWidth(0);tagAction.setTextSize(13);
-        tagAction.setBackgroundResource(android.R.color.transparent);
-        tagAction.setOnClickListener(v->CaptureLongText.show(this,tags.input,"标签 · 用逗号分隔"));
-        ((LinearLayout)title.getParent()).addView(tagAction,2,new LinearLayout.LayoutParams(-2,-2));
+        status.setVisibility(View.GONE);
         setLoading(false);
         // No invisible screenshot frame above the input: the entire remaining
         // page becomes a writing surface, including when the keyboard opens.
         findViewById(R.id.capture_evidence_container).setVisibility(View.GONE);
-        LinearLayout composer = findViewById(R.id.capture_composer);
-        LinearLayout.LayoutParams composerParams =
-                (LinearLayout.LayoutParams) composer.getLayoutParams();
-        composerParams.height = 0;
-        composerParams.weight = 1;
-        composer.setLayoutParams(composerParams);
-        LinearLayout.LayoutParams inputParams =
-                (LinearLayout.LayoutParams) commentInput.getLayoutParams();
-        inputParams.height = 0;
-        inputParams.weight = 1;
-        commentInput.setLayoutParams(inputParams);
         commentInput.setMaxLines(Integer.MAX_VALUE);
-        commentInput.setMinHeight(0);
-        commentInput.setTextSize(19);
+        commentInput.setMinHeight(CaptureReadingLayout.dp(this,220));
+        commentInput.setTextSize(18);
         commentInput.setGravity(Gravity.TOP | Gravity.START);
         commentInput.setHint(R.string.quick_note_input_hint);
         requestNoteKeyboard = true;
@@ -449,9 +435,10 @@ public final class CaptureEditorActivity extends Activity {
             return;
         }
         String comment = commentInput.getText().toString().trim();
-        org.json.JSONArray savedTags = tags.validated(); if (savedTags == null) return;
+        org.json.JSONArray savedTags = tags.validated(); if (savedTags == null) { CaptureReadingLayout.showOptions(findViewById(android.R.id.content),true); return; }
         String url = sourceLink.validated();
         if (url == null) {
+            CaptureReadingLayout.showOptions(findViewById(android.R.id.content),true);
             Toast.makeText(this, R.string.capture_url_invalid, Toast.LENGTH_LONG).show();
             return;
         }

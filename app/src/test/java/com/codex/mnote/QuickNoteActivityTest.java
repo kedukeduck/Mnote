@@ -124,6 +124,19 @@ public class QuickNoteActivityTest {
             assertEquals("reader.app",edited.captureContext.getJSONObject("text").getString("source_package"));
         }
     }
+    @Test public void invalidMaterialReopensCollapsedOptionsWithoutLosingThought() {
+        try(var c=note()) {
+            QuickNoteActivity a=c.get();thought(a);optIn(a);
+            a.<EditText>findViewById(R.id.quick_note_quote).setText("");
+            CaptureReadingLayout.showOptions(a.findViewById(R.id.quick_note_root),false);
+            a.findViewById(R.id.capture_editor_save).performClick();
+            assertEquals(View.VISIBLE,a.findViewById(R.id.capture_auxiliary_options).getVisibility());
+            assertNotNull(a.<EditText>findViewById(R.id.quick_note_quote).getError());
+            assertEquals("我的独立想法",a.<EditText>findViewById(R.id.capture_comment_input).getText().toString());
+            assertFalse(a.isFinishing());
+        }
+    }
+
     @Test public void pageFailureRetainsThoughtAndExcerptAndNeverAutomaticallyCaptures() {
         try(var c=note()) {
             QuickNoteActivity a=c.get();thought(a);optIn(a);ServiceShadow.ready=true;
@@ -282,6 +295,8 @@ public class QuickNoteActivityTest {
     @Test public void contextButtonsAreVisibleWithoutClipboardAndOriginalAloneCanSave() throws Exception {
         try(var c=note()) {
             QuickNoteActivity a=c.get();ServiceShadow.ready=true;
+            assertFalse(a.findViewById(R.id.quick_note_context).isShown());
+            a.findViewById(R.id.capture_more_options).performClick();
             assertTrue(a.findViewById(R.id.quick_note_context).isShown());
             assertEquals(View.GONE,a.findViewById(R.id.quick_note_material).getVisibility());
             ServiceShadow.page=new QuickNotePageContext(new CaptureSourceContext("reader.app","",""),42,"独立页面原文","");
@@ -378,6 +393,7 @@ public class QuickNoteActivityTest {
     @Test public void independentContextSurvivesRotationWithoutEnablingOrReadingClipboard() {
         try(var c=note()) {
             QuickNoteActivity a=c.get();ServiceShadow.ready=true;
+            a.findViewById(R.id.capture_more_options).performClick();
             a.findViewById(R.id.quick_note_read_page).performClick();idle(500);
             c.recreate();a=c.get();
             assertFalse(a.<CompoundButton>findViewById(R.id.quick_note_clipboard).isChecked());

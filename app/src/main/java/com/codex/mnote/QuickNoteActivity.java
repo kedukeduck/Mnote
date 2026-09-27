@@ -54,6 +54,7 @@ public final class QuickNoteActivity extends Activity {
         if (android.os.Build.VERSION.SDK_INT >= 33) getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::onBackPressed);
         root = findViewById(R.id.quick_note_root);
+        CaptureReadingLayout.bindOptions(root);
         android.util.TypedValue headerBackground = new android.util.TypedValue();
         getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, headerBackground, true);
         findViewById(R.id.capture_editor_cancel).setBackgroundResource(headerBackground.resourceId);
@@ -62,8 +63,7 @@ public final class QuickNoteActivity extends Activity {
         original = findViewById(R.id.quick_note_original);
         tags = new CaptureTags.Field(root);
         // Bound on-screen layout without truncating the underlying text.
-        comment.setMaxLines(12); quote.setMaxLines(8); original.setMaxLines(8);
-        CaptureLongText.attach(this, comment, "我的想法");
+        comment.setMaxLines(Integer.MAX_VALUE); quote.setMaxLines(8); original.setMaxLines(8);
         CaptureLongText.attach(this, quote, "剪贴板摘录");
         expandOriginal = CaptureLongText.attach(this, original, "页面原文");
         for (EditText field : new EditText[]{comment, quote, original}) {
@@ -71,11 +71,23 @@ public final class QuickNoteActivity extends Activity {
         }
         clipboard = findViewById(R.id.quick_note_clipboard);
         status = findViewById(R.id.quick_note_status);
+        status.setText(""); status.setVisibility(View.GONE);
         contextLabel = findViewById(R.id.quick_note_context_label);
         image = findViewById(R.id.quick_note_image);
         material = findViewById(R.id.quick_note_material);
         link = new SourceLinkField(root);
         link.input.setSaveEnabled(false);
+        android.text.TextWatcher previewWatcher = new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            public void onTextChanged(CharSequence s, int start, int before, int count) { refreshMaterialPreview(); }
+            public void afterTextChanged(android.text.Editable value) {}
+        };
+        quote.addTextChangedListener(previewWatcher); original.addTextChangedListener(previewWatcher);
+        findViewById(R.id.quick_note_preview).setOnClickListener(v -> {
+            CaptureReadingLayout.showOptions(root, true);
+            View target = clipboard.isChecked() ? quote : contextMode.equals("text") ? original : image;
+            target.post(() -> target.requestRectangleOnScreen(new android.graphics.Rect(0,0,target.getWidth(),target.getHeight()),true));
+        });
         findViewById(R.id.capture_editor_save).setOnClickListener(v -> save());
         findViewById(R.id.capture_editor_cancel).setOnClickListener(v -> onBackPressed());
         findViewById(R.id.quick_note_read_page).setOnClickListener(v -> requestContext(true));
@@ -95,6 +107,7 @@ public final class QuickNoteActivity extends Activity {
             try { if (draft != null) preview = CaptureStore.decodeReviewBitmap(draft); }
             catch (RuntimeException | OutOfMemoryError ignored) { }
             if (contextMode.equals("image") && (draft == null || preview == null)) clearContext();
+            CaptureReadingLayout.showOptions(root, state.getBoolean("options_expanded", false));
         }
         clipboard.setOnCheckedChangeListener((button, checked) -> {
             if (restoring) return;
@@ -275,6 +288,19 @@ public final class QuickNoteActivity extends Activity {
         findViewById(R.id.quick_note_clear_context).setVisibility(text || screenshot ? View.VISIBLE : View.GONE);
         contextLabel.setText(text ? "页面文字 · " + source.appLabel(this) + "\n仅可访问内容，可能包含界面文字，不保证文章全文。"
                 : screenshot ? "完整页面截图 · " + source.appLabel(this) + "\n作为本条记录的页面背景独立保存。" : "未附加上下文");
+        refreshMaterialPreview();
+    }
+    private void refreshMaterialPreview() {
+        if (clipboard == null || original == null || quote == null) return;
+        boolean screenshot = contextMode.equals("image"), text = contextMode.equals("text");
+        View materialPreview = findViewById(R.id.quick_note_preview);
+        materialPreview.setVisibility(clipboard.isChecked() || screenshot || text ? View.VISIBLE : View.GONE);
+        ((TextView)findViewById(R.id.quick_note_preview_label)).setText(clipboard.isChecked() ? "摘录" : screenshot ? "截图" : "页面原文");
+        ImageView thumbnail = findViewById(R.id.quick_note_preview_image);
+        thumbnail.setVisibility(screenshot ? View.VISIBLE : View.GONE);
+        thumbnail.setImageBitmap(preview);
+        TextView excerpt = findViewById(R.id.quick_note_preview_text);
+        excerpt.setText(clipboard.isChecked() ? quote.getText() : text ? original.getText() : "完整页面截图 · 点击查看与调整");
     }
     private void busy(boolean value) { setEnabled(root, !value); }
     private static void setEnabled(View view, boolean enabled) {
@@ -287,26 +313,33 @@ public final class QuickNoteActivity extends Activity {
     private void message(String value) {
         String text = value == null ? "操作失败，请重试。" : value;
         status.setText(text);
+        status.setVisibility(View.VISIBLE);
         if (feedback != null) feedback.cancel();
         feedback = Toast.makeText(this, text, Toast.LENGTH_LONG); feedback.show();
+    }
+
+    private void materialError(EditText field, String message) {
+        CaptureReadingLayout.showOptions(root,true);
+        field.setError(message); field.requestFocus();
+        field.post(() -> CaptureReadingLayout.revealCursor(field));
     }
 
     private void save() {
         if (saveTask != null || acquiring) return;
         String thought = comment.getText().toString().trim();
-        org.json.JSONArray savedTags = tags.validated(); if (savedTags == null) return;
+        org.json.JSONArray savedTags = tags.validated(); if (savedTags == null) { CaptureReadingLayout.showOptions(root,true); return; }
         String excerpt = clipboard.isChecked() ? quote.getText().toString() : "";
-        String url = link.validated(); if (url == null) return;
-        if (clipboard.isChecked() && excerpt.trim().isEmpty()) { quote.setError("请输入摘录，或关闭剪贴板摘录。"); return; }
-        if (excerpt.length() > 100_000) { quote.setError("摘录不能超过 10 万字。"); return; }
+        String url = link.validated(); if (url == null) { CaptureReadingLayout.showOptions(root,true); return; }
+        if (clipboard.isChecked() && excerpt.trim().isEmpty()) { materialError(quote,"请输入摘录，或关闭剪贴板摘录。"); return; }
+        if (excerpt.length() > 100_000) { materialError(quote,"摘录不能超过 10 万字。"); return; }
         if (thought.isEmpty() && excerpt.isEmpty() && url.isEmpty() && contextMode.equals("none")) { comment.setError(getString(R.string.capture_comment_required)); return; }
         if (thought.length() > 20_000) { comment.setError("想法不能超过 2 万字。"); return; }
         JSONObject textContext = null;
         try {
             if (contextMode.equals("text")) {
                 String page = original.getText().toString();
-                if (page.trim().isEmpty()) { original.setError("请输入页面原文，或移除上下文。"); return; }
-                if (page.length() > CaptureContext.MAX_TEXT) { original.setError("页面原文不能超过 4 万字。"); return; }
+                if (page.trim().isEmpty()) { materialError(original,"请输入页面原文，或移除上下文。"); return; }
+                if (page.length() > CaptureContext.MAX_TEXT) { materialError(original,"页面原文不能超过 4 万字。"); return; }
                 textContext = CaptureContext.text(page, "accessibility_page", excerpt)
                         .put("extent", "visible_accessibility_text").put("relation_to_quote", "unverified")
                         .put("source_package", source.appPackage).put("source_url", source.url);
@@ -374,6 +407,7 @@ public final class QuickNoteActivity extends Activity {
     @Override protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
         out.putString("owner", ownerScope); out.putString("comment", comment.getText().toString());
+        out.putBoolean("options_expanded", findViewById(R.id.capture_auxiliary_options).getVisibility()==View.VISIBLE);
         out.putString("tags", tags.input.getText().toString());
         out.putString("quote", quote.getText().toString()); out.putString("original", original.getText().toString());
         out.putBoolean("clipboard", clipboard.isChecked()); out.putString("url", link.input.getText().toString());
@@ -395,7 +429,7 @@ public final class QuickNoteActivity extends Activity {
         cancelPageWork(); pageExecutor.shutdownNow();
         if (saveTask != null) saveTask.receiver = null;
         if (!isChangingConfigurations() && saveTask == null) CaptureStore.discardDraft(this, draft);
-        image.setImageDrawable(null); preview = null;
+        image.setImageDrawable(null); ((ImageView)findViewById(R.id.quick_note_preview_image)).setImageDrawable(null); preview = null;
         executor.shutdown(); super.onDestroy();
     }
 }

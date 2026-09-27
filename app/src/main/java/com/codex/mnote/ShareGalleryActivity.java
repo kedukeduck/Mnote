@@ -52,12 +52,8 @@ public final class ShareGalleryActivity extends Activity {
         heading.setOrientation(LinearLayout.VERTICAL);
         heading.setPadding(dp(22), dp(8), dp(22), dp(12));
         root.addView(heading);
-        LinearLayout nav = new LinearLayout(this);
-        heading.addView(nav);
-        button(nav, "返回", this::finish);
-        nav.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
+        LinearLayout nav = JournalUi.header(this, heading, "分享管理", this::finish);
         refresh = button(nav, "刷新", this::reload);
-        text(heading, "分享管理", 28, R.color.ink);
         text(heading, "回看分享时的想法与画面", 14, R.color.ink_muted);
         status = text(heading, "正在读取历史分享…", 12, R.color.ink_muted);
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
@@ -110,12 +106,7 @@ public final class ShareGalleryActivity extends Activity {
         int ticket = ++generation;
         loading.clear();
         errors.clear();
-        captions.clear();
-        positions.clear();
-        cache.evictAll();
-        rows.clear();
-        adapter.notifyDataSetChanged();
-        status.setText("正在读取历史分享…");
+        status.setText(rows.isEmpty() ? "正在读取历史分享…" : "正在刷新，已保留当前分享…");
         worker.execute(() -> {
             try {
                 var c = config();
@@ -135,11 +126,12 @@ public final class ShareGalleryActivity extends Activity {
                 ui(() -> {
                     if (ticket != generation)
                         return;
+                    rows.clear();
                     rows.addAll(values);
                     refreshing = false;
                     refresh.setEnabled(true);
                     status.setText(rows.isEmpty()
-                            ? "还没有有效的分享。导出 Markdown 后会显示在这里。"
+                            ? "还没有有效的分享。制作分享卡片或导出 Markdown 后会显示在这里。"
                             : "共 " + rows.size() + " 次分享 · 点击图片看大图");
                     adapter.notifyDataSetChanged();
                 });
@@ -262,19 +254,18 @@ public final class ShareGalleryActivity extends Activity {
         Card() {
             super(ShareGalleryActivity.this);
             setOrientation(VERTICAL);
-            setPadding(dp(16), dp(12), dp(16), dp(10));
+            setPadding(dp(16), dp(16), dp(16), dp(10));
             GradientDrawable bg = new GradientDrawable();
             bg.setColor(getColor(R.color.card));
-            bg.setCornerRadius(dp(20));
-            bg.setStroke(dp(1), getColor(R.color.line));
+            bg.setCornerRadius(dp(10));
             setBackground(bg);
-            date = text(this, "", 17, R.color.ink);
+            date = text(this, "", 13, R.color.copper);
             meta = text(this, "", 12, R.color.ink_muted);
-            excerpt = text(this, "", 14, R.color.ink);
+            excerpt = text(this, "", 16, R.color.ink);
             excerpt.setMaxLines(7);
             excerpt.setLineSpacing(dp(3), 1);
             excerpt.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            read = button(this, "展开全部文字  ›", () -> {});
+            read = button(this, "展开全部文字", () -> {});
             read.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
             photo = new ImageView(ShareGalleryActivity.this);
             photo.setScaleType(ImageView.ScaleType.FIT_CENTER);
@@ -320,7 +311,7 @@ public final class ShareGalleryActivity extends Activity {
             caption.setText(count == 0       ? "这次分享只有文字，没有图片。"
                     : errors.containsKey(id) ? errors.get(id)
                                              : captions.getOrDefault(id, "正在读取当时的图片…"));
-            all.setText(count == 0 ? "分享详情" : "查看全部 " + count + " 张图片  ›");
+            all.setText(count == 0 ? "分享详情" : "查看全部 " + count + " 张图片");
             all.setOnClickListener(v -> open(id));
             remove.setOnClickListener(v -> revoke(item));
             photo.setOnClickListener(v -> open(id));
@@ -366,7 +357,7 @@ public final class ShareGalleryActivity extends Activity {
     private Button button(LinearLayout root, String value, Runnable action) {
         Button view = new Button(this);
         view.setText(value);
-        view.setBackgroundResource(android.R.color.transparent);
+        JournalUi.quiet(view);
         view.setOnClickListener(v -> action.run());
         root.addView(view, new LinearLayout.LayoutParams(-2, dp(48)));
         return view;

@@ -7,8 +7,37 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-/** Shared, scrollable evidence -> context -> thought layout for Activity composers. */
+/** Shared, scrollable material -> thought layout with opt-in auxiliary controls. */
 final class CaptureReadingLayout {
+    static void bindOptions(View root) {
+        View action = root.findViewById(R.id.capture_more_options);
+        if (action == null) return;
+        action.setOnClickListener(v -> showOptions(root,
+                root.findViewById(R.id.capture_auxiliary_options).getVisibility() != View.VISIBLE));
+        showOptions(root, false);
+    }
+
+    static void showOptions(View root, boolean expanded) {
+        View options = root.findViewById(R.id.capture_auxiliary_options);
+        if (options == null) return;
+        options.setVisibility(expanded ? View.VISIBLE : View.GONE);
+        TextView action = root.findViewById(R.id.capture_more_options);
+        action.setText(expanded ? "收起更多选项" : "更多选项");
+        action.setContentDescription(expanded ? "更多选项，已展开，点击收起" : "更多选项，已收起，点击展开");
+        View summary = root.findViewById(R.id.capture_options_summary);
+        if (summary != null) summary.setVisibility(expanded ? View.GONE : View.VISIBLE);
+    }
+
+    static void revealCursor(android.widget.EditText input) {
+        android.text.Layout layout = input.getLayout();
+        if (layout == null) return;
+        int offset = Math.max(0, Math.min(input.length(), input.getSelectionEnd()));
+        int line = layout.getLineForOffset(offset);
+        int top = input.getTotalPaddingTop() + layout.getLineTop(line);
+        int bottom = input.getTotalPaddingTop() + layout.getLineBottom(line);
+        input.requestRectangleOnScreen(new android.graphics.Rect(0, top, input.getWidth(), bottom), true);
+    }
+
     static void attach(LinearLayout root) {
         Context context = root.getContext();
         View evidence = root.findViewById(R.id.capture_evidence_container);
@@ -19,7 +48,10 @@ final class CaptureReadingLayout {
         body.setOrientation(LinearLayout.VERTICAL);
         ScrollView scroll = new ScrollView(context) {
             @Override protected void onMeasure(int width, int height) {
-                evidence.getLayoutParams().height = dp(context, 320);
+                int available = View.MeasureSpec.getSize(height);
+                evidence.getLayoutParams().height = Math.min(dp(context, 220), Math.max(dp(context, 100), available / 3));
+                android.widget.EditText thought = root.findViewById(R.id.capture_comment_input);
+                if (thought != null) thought.setMinHeight(Math.min(dp(context, 220), Math.max(dp(context, 100), available / 3)));
                 super.onMeasure(width, height);
             }
         };
@@ -31,7 +63,7 @@ final class CaptureReadingLayout {
             ((ViewGroup)child.getParent()).removeView(child);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1,-2);
             if (child == evidence) {
-                params.height=dp(context,320); params.setMargins(dp(context,20),dp(context,8),dp(context,20),dp(context,12));
+                params.height=dp(context,220); params.setMargins(dp(context,20),dp(context,8),dp(context,20),dp(context,12));
             }
             body.addView(child,params);
         }

@@ -9,11 +9,11 @@ import android.view.Gravity;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-/** Small translucent controls, not a screenshot-obscuring toolbar surface. */
+/** Transparent crop controls; solid surfaces belong only to the composing step. */
 final class CaptureToolStyle {
     static void tool(TextView view, int symbol) {
         int accent = view.getContext().getColor(R.color.coral);
-        int color = view.isSelected() ? 0xFFFFFFFF : 0xFFF2F4F8;
+        int color = view.isSelected() ? accent : view.getContext().getColor(R.color.ink);
         view.setTextSize(10);
         view.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         view.setGravity(Gravity.CENTER);
@@ -26,8 +26,8 @@ final class CaptureToolStyle {
         view.setCompoundDrawablesWithIntrinsicBounds(null, new Symbol(view, symbol, color), null, null);
         view.setCompoundDrawablePadding(dp(view, 3));
         view.setTextColor(color);
-        view.setShadowLayer(0, 0, 0, 0);
-        surface(view, view.isSelected() ? (0xE6000000 | (accent & 0xFFFFFF)) : 0x99202430, 17);
+        view.setShadowLayer(dp(view,2),0,0,Color.WHITE);
+        transparentSurface(view,view.isSelected());
     }
 
     static void action(TextView view, int symbol, boolean primary, boolean composing) {
@@ -44,15 +44,28 @@ final class CaptureToolStyle {
                 primary ? LinearLayout.LayoutParams.WRAP_CONTENT : dp(view, 48), dp(view, 48));
         params.setMarginStart(dp(view, 4));
         view.setLayoutParams(params);
-        int color = composing && !primary ? accent : Color.WHITE;
+        int color = composing && primary ? Color.WHITE : composing ? accent : view.getContext().getColor(R.color.ink);
         view.setTextColor(color);
         if (!primary) {
             view.setText("");
             view.setCompoundDrawablesWithIntrinsicBounds(null, new Symbol(view, symbol, color), null, null);
             view.setPadding(dp(view, 12), dp(view, 12), dp(view, 12), dp(view, 12));
         }
-        surface(view, primary ? (composing ? accent : (0xEB000000 | (accent & 0xFFFFFF)))
-                : composing ? view.getContext().getColor(R.color.coral_soft) : 0x99202430, 24);
+        if (composing) surface(view, primary ? accent : Color.TRANSPARENT,12);
+        else {
+            view.setShadowLayer(dp(view,2),0,0,Color.WHITE);
+            transparentSurface(view,primary);
+        }
+    }
+
+    private static void transparentSurface(TextView view, boolean outlined) {
+        GradientDrawable shape = new GradientDrawable();
+        shape.setColor(Color.TRANSPARENT);
+        shape.setCornerRadius(dp(view,12));
+        if (outlined) shape.setStroke(dp(view,1),view.getContext().getColor(R.color.coral));
+        view.setBackgroundTintList(null);
+        view.setBackground(new RippleDrawable(ColorStateList.valueOf(0x3024494E),shape,null));
+        view.setAlpha(view.isEnabled() ? 1f : .4f);
     }
 
     private static void surface(TextView view, int color, int radius) {
@@ -71,14 +84,26 @@ final class CaptureToolStyle {
         final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         final int size;
         final int symbol;
+        final boolean halo;
         Symbol(TextView view, int symbol, int color) {
             this.symbol = symbol; size = dp(view, 22);
+            halo = color != Color.WHITE;
             paint.setColor(color); paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(1.7f); paint.setStrokeCap(Paint.Cap.ROUND); paint.setStrokeJoin(Paint.Join.ROUND);
         }
         @Override public void draw(Canvas canvas) {
             canvas.save();
             Rect b = getBounds(); canvas.translate(b.left, b.top); canvas.scale(b.width() / 24f, b.height() / 24f);
+            if (halo) {
+                int color = paint.getColor();
+                paint.setColor(0xDDFFFFFF);paint.setStrokeWidth(4);
+                drawSymbol(canvas);
+                paint.setColor(color);paint.setStrokeWidth(1.7f);
+            }
+            drawSymbol(canvas);
+            canvas.restore();
+        }
+        private void drawSymbol(Canvas canvas) {
             switch (symbol) {
                 case 0: // selection corners
                     path(canvas, 4,9, 4,4, 9,4); path(canvas, 15,4, 20,4, 20,9);
@@ -103,7 +128,6 @@ final class CaptureToolStyle {
                 case 8: path(canvas,15,5,8,12,15,19); break;
                 default: break;
             }
-            canvas.restore();
         }
         private void line(Canvas c, float x, float y, float x2, float y2) { c.drawLine(x,y,x2,y2,paint); }
         private void path(Canvas c, float... points) {

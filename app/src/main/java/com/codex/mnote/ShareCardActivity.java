@@ -108,16 +108,7 @@ public final class ShareCardActivity extends Activity {
         root.setFitsSystemWindows(true);
         root.setBackgroundColor(getColor(R.color.cream));
         setContentView(root);
-        LinearLayout head = new LinearLayout(this);
-        head.setGravity(Gravity.CENTER_VERTICAL);
-        Button back = new Button(this);
-        back.setText("返回");
-        back.setBackgroundResource(android.R.color.transparent);
-        head.addView(back);
-        back.setOnClickListener(v -> close());
-        TextView title = label(getString(R.string.share_card_title), 20);
-        head.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        root.addView(head);
+        JournalUi.header(this, root, getString(R.string.share_card_title), this::close);
         TextView hint = label(getString(R.string.share_card_hint), 12);
         layoutStatus = hint;
         hint.setId(R.id.share_card_layout_status);
@@ -128,6 +119,7 @@ public final class ShareCardActivity extends Activity {
         preview.setScaleType(ImageView.ScaleType.FIT_CENTER);
         preview.setPadding(dp(18), dp(4), dp(18), dp(8));
         preview.setContentDescription("最终分享图片预览，点击放大");
+        preview.setBackgroundColor(getColor(R.color.card));
         root.addView(preview, new LinearLayout.LayoutParams(-1, 0, 1));
         preview.setOnClickListener(v -> {
             if (previewDocument == null)
@@ -152,7 +144,7 @@ public final class ShareCardActivity extends Activity {
         options.addView(modules);
         root.addView(options,
             new LinearLayout.LayoutParams(
-                -1, dp(getResources().getConfiguration().screenHeightDp < 650 ? 156 : 202)));
+                -1, dp(getResources().getConfiguration().screenHeightDp < 650 ? 172 : 252)));
         status = label("正在读取记录…", 12);
         status.setId(R.id.share_card_status);
         status.setPadding(dp(20), dp(6), dp(20), dp(6));
@@ -160,8 +152,9 @@ public final class ShareCardActivity extends Activity {
         save = new Button(this);
         save.setId(R.id.share_card_save);
         save.setText(R.string.share_card_save);
+        JournalUi.primary(save);
         save.setEnabled(false);
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(52));
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
         p.setMargins(dp(20), dp(4), dp(20), dp(12));
         root.addView(save, p);
         save.setOnClickListener(v -> requestSave());
@@ -171,21 +164,27 @@ public final class ShareCardActivity extends Activity {
         t.setText(text);
         t.setTextSize(size);
         t.setTextColor(getColor(R.color.ink));
+        t.setLineSpacing(dp(3), 1);
         return t;
     }
     private void buildChoices() {
         boolean synced = readyToPublish();
-        addChoice("摘录", 1, !record.sourceText.isEmpty());
+        JournalUi.section(modules, "展示在图片中");
         addChoice("我的想法", 2, !record.comment.isEmpty());
+        addChoice("摘录", 1, !record.sourceText.isEmpty());
         addChoice("圈选截图", 4, originalImage != null || annotatedImage != null);
         addChoice("页面截图", 8, contextImage != null);
-        addChoice("原文 · 二维码", 16, !CaptureRecordEdits.original(record).isEmpty());
-        addChoice("来源 · 二维码", 32, validSource(record.sourceUrl));
+        JournalUi.rule(modules);
+        JournalUi.section(modules, "仅扫码查看");
+        addChoice("页面原文", 16, !CaptureRecordEdits.original(record).isEmpty());
+        addChoice("来源链接", 32, validSource(record.sourceUrl));
+        JournalUi.section(modules, "图片选项");
         addChoice("截图保留批注", 64, annotatedImage != null && originalImage != null);
         contextAdjust = new Button(this);
         contextAdjust.setId(R.id.share_card_adjust_context);
         contextAdjust.setText("调整页面位置");
         contextAdjust.setTextSize(13);
+        JournalUi.quiet(contextAdjust);
         ((LinearLayout) modules.getChildAt(modules.getChildCount() - 1))
             .addView(contextAdjust, new LinearLayout.LayoutParams(0, dp(48), 1));
         contextAdjust.setVisibility(
@@ -250,12 +249,17 @@ public final class ShareCardActivity extends Activity {
         } else
             row = (LinearLayout) modules.getChildAt(modules.getChildCount() - 1);
         CheckBox c = new CheckBox(this);
-        c.setText(title);
+        c.setText(available ? title : title + "（无内容）");
         c.setTextSize(14);
+        c.setTextColor(getColor(R.color.ink));
+        c.setButtonTintList(new android.content.res.ColorStateList(
+            new int[][] {new int[] {-android.R.attr.state_enabled}, new int[] {android.R.attr.state_checked}, new int[] {}},
+            new int[] {getColor(R.color.ink_muted), getColor(R.color.coral), getColor(R.color.ink_muted)}));
+        c.setMinHeight(dp(48));
         c.setTag(flag);
         c.setEnabled(available);
         c.setChecked((mask & flag) != 0);
-        row.addView(c, new LinearLayout.LayoutParams(0, dp(48), 1));
+        row.addView(c, new LinearLayout.LayoutParams(0, -2, 1));
         choices.add(c);
         c.setOnCheckedChangeListener((button, on) -> {
             if (on)

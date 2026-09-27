@@ -1,0 +1,19 @@
+<resources>
+    <item name="journal_filter_search" type="id" />
+    <item name="capture_access_status" type="id" />
+    <item name="capture_setup_panel" type="id" />
+    <item name="capture_setup_toggle" type="id" />
+    <item name="capture_add_tile_button" type="id" />
+    <item name="capture_add_note_tile_button" type="id" />
+    <item name="capture_source_settings_button" type="id" />
+    <item name="capture_crash_diagnostic" type="id" />
+    <item name="journal_filter_types" type="id" />
+    <item name="journal_selection_header" type="id" />
+    <item name="journal_filter_tags" type="id" />
+    <item name="journal_filter_apply" type="id" />
+    <item name="journal_filter_reset" type="id" />
+    <item name="journal_review_thought" type="id" />
+    <item name="journal_review_excerpt" type="id" />
+    <item name="journal_review_original" type="id" />
+    <item name="journal_review_context" type="id" />
+</resources>

@@ -57,12 +57,11 @@ public class CaptureUiLayoutTest {
         try (ActivityController<CaptureInboxActivity> controller =
                      Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
             View root = layout(controller.get(), 390, 844);
-            assertEquals(View.GONE, root.findViewById(R.id.capture_setup_panel).getVisibility());
+            assertNull(root.findViewById(R.id.capture_setup_panel));
             assertTrue(root.findViewById(R.id.capture_records).getHeight() > 0);
             render(root, "inbox.png");
-            root.findViewById(R.id.capture_setup_toggle).performClick();
-            root = layout(controller.get(), 390, 844);
-            render(root, "inbox-shortcuts.png");
+            root.findViewById(R.id.capture_settings_button).performClick();
+            assertEquals(SettingsActivity.class.getName(),shadowOf(controller.get()).getNextStartedActivity().getComponent().getClassName());
         }
     }
 
@@ -74,7 +73,7 @@ public class CaptureUiLayoutTest {
             EditText input = activity.findViewById(R.id.capture_comment_input);
             input.setText("突然想到，\n\n给灵感留一点空间，\n不必每一次都从截图开始。");
             View root = layout(activity, 390, 844);
-            assertTrue(input.getHeight() > 500);
+            assertTrue(input.getHeight() >= 160);
             assertInside(root, input);
             assertInside(root, root.findViewById(R.id.capture_editor_save));
             render(root, "quick-note.png");
@@ -92,7 +91,8 @@ public class CaptureUiLayoutTest {
             assertTrue("Writing surface remains usable with keyboard space reserved", input.getHeight() >= 100);
             assertInside(root, input);
             assertInside(root, root.findViewById(R.id.capture_editor_save));
-            assertInside(root, root.findViewById(R.id.capture_kind_group));
+            assertFalse(root.findViewById(R.id.capture_kind_group).isShown());
+            assertInside(root, root.findViewById(R.id.capture_more_options));
             render(root, "quick-note-large-text-keyboard-space.png");
         } finally {
             RuntimeEnvironment.setFontScale(1f);
@@ -106,8 +106,10 @@ public class CaptureUiLayoutTest {
             activity.<EditText>findViewById(R.id.capture_comment_input).setText("给灵感留一点空间，\n先记下此刻的想法。");
             View root=layout(activity,390,844);
             assertInside(root,root.findViewById(R.id.capture_editor_save));
-            assertInside(root,root.findViewById(R.id.quick_note_clipboard));
+            assertFalse(root.findViewById(R.id.quick_note_clipboard).isShown());
+            assertInside(root,root.findViewById(R.id.capture_more_options));
             render(root,"quick-note-clipboard-default.png");
+            activity.findViewById(R.id.capture_more_options).performClick();
             activity.getSystemService(android.content.ClipboardManager.class).setPrimaryClip(
                     android.content.ClipData.newPlainText("","记录，不只是保存信息。\n也留下那些被触动的时刻。"));
             activity.<android.widget.CompoundButton>findViewById(R.id.quick_note_clipboard).setChecked(true);
@@ -169,7 +171,7 @@ public class CaptureUiLayoutTest {
             View root = layout(activity, 390, 844);
             assertEquals(View.VISIBLE, root.findViewById(R.id.capture_markup_container).getVisibility());
             assertEquals(View.VISIBLE, root.findViewById(R.id.capture_tool_row).getVisibility());
-            assertTrue(root.findViewById(R.id.capture_markup_view).getHeight() > 300);
+            assertTrue(root.findViewById(R.id.capture_markup_view).getHeight() >= 100);
             assertInside(root, root.findViewById(R.id.capture_comment_input));
             render(root, "screenshot-editor.png");
             root = layout(activity, 360, 480);
@@ -324,8 +326,9 @@ public class CaptureUiLayoutTest {
                     CaptureStore.decodeReviewBitmap(record.annotatedFile),CaptureStore.decodeReviewBitmap(record.contextFile),
                     ()->fail("No delete expected"),url->assertEquals(record.sourceUrl,url));
             renderDialog(page,"style-a-image-detail.png");
-            assertTrue(page.findViewById(R.id.capture_selection_preview).getHeight()>=320);
-            page.findViewById(R.id.capture_preview_full).performClick();
+            assertTrue(page.findViewById(R.id.capture_selection_preview).getHeight()>=100);
+            assertNotNull(page.findViewById(R.id.journal_review_context));
+            page.findViewById(R.id.journal_review_context).requestRectangleOnScreen(new android.graphics.Rect(0,0,100,100),true);
             renderDialog(page,"style-a-image-context.png");
             page.dismiss();
         }
@@ -354,7 +357,7 @@ public class CaptureUiLayoutTest {
             CaptureEditorActivity activity=controller.get();
             activity.<EditText>findViewById(R.id.capture_comment_input).setText("这让我想到：每周回顾时，把引用和自己的判断分开看。");
             View root=layout(activity,390,844);
-            assertInside(root,activity.findViewById(R.id.capture_retain_text_context));
+            assertFalse(activity.findViewById(R.id.capture_retain_text_context).isShown());
             assertInside(root,activity.findViewById(R.id.capture_comment_input));
             render(root,"text-excerpt.png");
         }

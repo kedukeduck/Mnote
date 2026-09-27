@@ -22,18 +22,15 @@ public final class SettingsActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(22), dp(8), dp(22), dp(28));
         scroll.addView(root);
-        Button back = new Button(this);
-        back.setText("返回");
-        back.setBackgroundResource(android.R.color.transparent);
-        root.addView(back, new LinearLayout.LayoutParams(-2, dp(48)));
-        back.setOnClickListener(v -> finish());
-        TextView title = text(root, "设置", 32, R.color.ink);
-        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        text(root, "让记录安心保存，让 Mnote 保持最新。", 14, R.color.ink_muted);
-        section(root, "我的空间");
+        JournalUi.header(this, root, "设置", this::finish);
+        TextView title = text(root, "Mnote", 34, R.color.ink);
+        title.setTypeface(Typeface.create("serif", Typeface.NORMAL));
+        View folio = new View(this);
+        folio.setBackgroundColor(getColor(R.color.coral));
+        root.addView(folio, new LinearLayout.LayoutParams(dp(44), dp(5)));
+        section(root, "我的记录");
         accountSummary = row(root, "账号与同步", "", R.id.settings_account,
             () -> startActivity(new Intent(this, CaptureAccountActivity.class)));
-        section(root, "分享");
         row(root, "分享管理", "回看已导出的文字与图片，管理分享链接", R.id.settings_shares, () -> {
             if (!CaptureAccountSession.hasAccount(this)) {
                 Toast.makeText(this, "请先登录后查看分享", Toast.LENGTH_LONG).show();
@@ -51,8 +48,11 @@ public final class SettingsActivity extends Activity {
         }
         row(root, "版本与更新", "当前 " + version + " · 从 Mnote 服务器获取", R.id.settings_updates,
             () -> startActivity(new Intent(this, AppUpdateActivity.class)));
-        text(root, "更新无需笔记账号或 Token。安装前保存草稿，覆盖安装即可保留现有记录。", 12,
-            R.color.ink_muted);
+        row(root, "快捷方式与权限", "设置单次摘录、随手记与截图权限", View.NO_ID,
+            () -> startActivity(new Intent(this, CapturePermissionsActivity.class)));
+        row(root, "帮助与诊断", "使用说明与本机异常诊断", View.NO_ID, this::showHelp);
+        text(root, "本机保存成功后，登录状态下自动同步。", 13, R.color.ink_muted)
+            .setPadding(0, dp(24), 0, 0);
     }
     @Override
     protected void onResume() {
@@ -62,22 +62,30 @@ public final class SettingsActivity extends Activity {
                 : "登录后，在不同设备之间同步记录");
     }
     private void section(LinearLayout root, String value) {
-        TextView label = text(root, value, 12, R.color.ink_muted);
+        TextView label = text(root, value, 13, R.color.copper);
         label.setPadding(0, dp(30), 0, dp(10));
     }
     private TextView row(LinearLayout root, String title, String detail, int id, Runnable action) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setId(id);
-        card.setBackgroundResource(R.drawable.bg_card);
-        card.setPadding(dp(18), dp(18), dp(18), dp(18));
-        card.setMinimumHeight(dp(100));
+        card.setBackgroundResource(android.R.color.transparent);
+        card.setPadding(0, dp(12), 0, dp(12));
+        card.setMinimumHeight(dp(80));
         card.setClickable(true);
         card.setFocusable(true);
         card.setOnClickListener(v -> action.run());
         root.addView(card, new LinearLayout.LayoutParams(-1, -2));
-        text(card, title, 18, R.color.ink);
-        return text(card, detail, 13, R.color.ink_muted);
+        text(card, title, 17, R.color.ink);
+        TextView summary = text(card, detail, 13, R.color.ink_muted);
+        JournalUi.rule(root);
+        return summary;
+    }
+    private void showHelp() {
+        new android.app.AlertDialog.Builder(this).setTitle("帮助与诊断")
+            .setMessage("单次摘录：切换到需要记录的页面，从快捷设置启动，圈选截图后写下想法。\n\n随手记：随时记录；剪贴板摘录和页面上下文都由你决定是否保留。\n\n分享与导出：长按列表记录即可多选；公开链接可在分享管理撤销。\n\n诊断仅包含运行信息，不包含笔记正文或账号凭证。")
+            .setPositiveButton("查看异常诊断", (d, which) -> MnoteApplication.showDiagnostic(this))
+            .setNegativeButton("关闭", null).show();
     }
     private TextView text(LinearLayout root, String value, int size, int color) {
         TextView v = new TextView(this);

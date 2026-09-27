@@ -9,7 +9,7 @@
     <item type="id" name="share_card_adjust_context" />
     <item type="id" name="share_card_reader" />
     <string name="share_card_title">分享卡片</string>
-    <string name="share_card_save">保存到相册</string>
+    <string name="share_card_save">生成链接并保存到相册</string>
     <string name="share_card_hint">随内容适配 · 想法完整保留 · 点击图片放大</string>
     <string name="share_card_publish_hint">每张图片均含二维码。确认保存后，扫码可查看全部所选模块；未选内容不会公开。</string>
     <string name="share_card_confirm">创建可扫码的分享？</string>

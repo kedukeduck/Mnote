@@ -35,16 +35,7 @@ public final class ShareTextActivity extends Activity {
         outer.setBackgroundColor(getColor(R.color.cream));
         outer.addView(root, new LinearLayout.LayoutParams(-1, -1));
         setContentView(outer);
-        Button back = new Button(this);
-        back.setText("返回分享管理");
-        back.setBackgroundResource(android.R.color.transparent);
-        root.addView(back);
-        back.setOnClickListener(v -> finish());
-        TextView title = new TextView(this);
-        title.setText("分享时的文字");
-        title.setTextSize(28);
-        title.setTextColor(getColor(R.color.ink));
-        root.addView(title);
+        JournalUi.header(this, root, "分享时的文字", this::finish);
         status = new TextView(this);
         status.setTextSize(13);
         status.setTextColor(getColor(R.color.ink_muted));
@@ -57,8 +48,7 @@ public final class ShareTextActivity extends Activity {
         body.setTextColor(getColor(R.color.ink));
         body.setTextIsSelectable(true);
         body.setLineSpacing(dp(6), 1);
-        body.setPadding(dp(18), dp(18), dp(18), dp(18));
-        body.setBackgroundResource(R.drawable.bg_card);
+        body.setPadding(0, dp(16), 0, dp(24));
         scroll.addView(body);
         LinearLayout actions = new LinearLayout(this);
         root.addView(actions);
@@ -72,7 +62,7 @@ public final class ShareTextActivity extends Activity {
         retry.setText("重新读取");
         actions.addView(retry);
         for (Button button : new Button[] {previous, next, retry}) {
-            button.setBackgroundResource(android.R.color.transparent);
+            JournalUi.quiet(button);
             button.setLayoutParams(new LinearLayout.LayoutParams(0, dp(48), 1));
             button.setTextSize(14);
         }

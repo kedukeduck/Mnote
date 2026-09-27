@@ -2,21 +2,27 @@
     android:layout_width="match_parent" android:layout_height="match_parent" android:fitsSystemWindows="true">
 <LinearLayout
     android:id="@+id/quick_note_root" android:layout_width="match_parent" android:layout_height="match_parent"
-    android:orientation="vertical" android:background="@color/cream" android:padding="16dp">
+    android:orientation="vertical" android:background="@color/cream" android:paddingHorizontal="20dp">
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
-        <Button android:id="@+id/capture_editor_cancel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="取消" />
+        <Button android:id="@+id/capture_editor_cancel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="取消" android:background="?android:attr/selectableItemBackgroundBorderless" />
         <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="随手记" android:textSize="20sp" android:textColor="@color/ink" android:fontFamily="sans-serif-medium" android:gravity="center" />
         <Button android:id="@+id/capture_editor_save" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="保存" android:background="@drawable/bg_button_primary" android:textColor="@android:color/white" />
     </LinearLayout>
-    <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:fillViewport="true">
+    <View android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginVertical="8dp" android:background="@color/line" />
+    <ScrollView android:id="@+id/quick_note_scroll" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:fillViewport="true" android:scrollbars="none">
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
             <TextView android:id="@+id/quick_note_status" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="12dp" android:paddingBottom="12dp" android:text="先记下想法，素材可以稍后添加。" android:textColor="@color/ink_muted" android:textSize="13sp" android:accessibilityLiveRegion="polite" />
-            <RadioGroup android:id="@+id/capture_kind_group" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:checkedButton="@id/capture_kind_thought">
-                <RadioButton android:id="@+id/capture_kind_thought" style="@style/CaptureSegment" android:text="想法" />
-                <RadioButton android:id="@+id/capture_kind_todo" style="@style/CaptureSegment" android:text="TODO" />
-            </RadioGroup>
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp" android:layout_marginBottom="8dp" android:text="我的想法" android:textSize="14sp" android:fontFamily="sans-serif-medium" />
-            <EditText android:id="@+id/capture_comment_input" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="180dp" android:gravity="top|start" android:inputType="textCapSentences|textMultiLine" android:hint="是什么触动了你？" android:importantForAutofill="no" android:saveEnabled="false" />
+            <LinearLayout android:id="@+id/quick_note_preview" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone" android:padding="12dp" android:background="@drawable/bg_capture_text_preview">
+                <TextView android:id="@+id/quick_note_preview_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="摘录" android:textSize="13sp" android:paddingHorizontal="12dp" android:paddingVertical="4dp" android:background="@drawable/bg_material_tab" android:textColor="@android:color/white" />
+                <ImageView android:id="@+id/quick_note_preview_image" android:layout_width="match_parent" android:layout_height="140dp" android:layout_marginTop="8dp" android:scaleType="fitCenter" android:contentDescription="本次页面截图预览" android:visibility="gone" />
+                <TextView android:id="@+id/quick_note_preview_text" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="12dp" android:textSize="16sp" android:textColor="@color/ink" android:lineSpacingMultiplier="1.25" android:maxLines="3" android:ellipsize="end" />
+            </LinearLayout>
+            <TextView android:id="@+id/capture_thought_label" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:layout_marginBottom="8dp" android:text="我的想法" android:textColor="@color/copper" android:textSize="14sp" android:fontFamily="sans-serif-medium" />
+            <EditText android:id="@+id/capture_comment_input" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="220dp" android:gravity="top|start" android:background="@android:color/transparent" android:paddingVertical="8dp" android:paddingStart="0dp" android:paddingEnd="0dp" android:layout_weight="1" android:textSize="18sp" android:textColor="@color/ink" android:lineSpacingMultiplier="1.4" android:inputType="textCapSentences|textMultiLine" android:hint="是什么触动了你？" android:importantForAutofill="no" android:saveEnabled="false" />
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginTop="20dp" android:background="@color/line" />
+            <Button android:id="@+id/capture_more_options" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="56dp" android:gravity="start|center_vertical" android:paddingHorizontal="0dp" android:text="更多选项" android:textColor="@color/ink" android:background="?android:attr/selectableItemBackground" />
+            <TextView android:id="@+id/capture_options_summary" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="标签、剪贴板与页面上下文" android:textSize="13sp" android:textColor="@color/ink_muted" android:paddingBottom="16dp" />
+            <LinearLayout android:id="@+id/capture_auxiliary_options" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
             <Switch android:id="@+id/quick_note_clipboard" style="@style/MnoteContextSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp" android:text="摘录剪贴板第一条" android:saveEnabled="false" />
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="8dp" android:text="仅开启时读取一次，不访问剪贴板历史。" android:textSize="12sp" android:textColor="@color/ink_muted" />
             <LinearLayout android:id="@+id/quick_note_material" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
@@ -36,6 +42,11 @@
             </LinearLayout>
             <include layout="@layout/capture_tags" />
             <include layout="@layout/capture_source_link" />
+            <RadioGroup android:id="@+id/capture_kind_group" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp" android:orientation="horizontal" android:checkedButton="@id/capture_kind_thought" android:background="@drawable/bg_segments">
+                <RadioButton android:id="@+id/capture_kind_thought" style="@style/CaptureSegment" android:text="想法" />
+                <RadioButton android:id="@+id/capture_kind_todo" style="@style/CaptureSegment" android:text="待办" />
+            </RadioGroup>
+            </LinearLayout>
         </LinearLayout>
     </ScrollView>
 </LinearLayout>
