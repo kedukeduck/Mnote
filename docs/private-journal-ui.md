@@ -31,3 +31,5 @@ Android 共用资源色名暂保留 `coral` 等兼容名字，值已改为墨绿
 真实 Android View 的 Robolectric/Skia 截图在 `app/build/ui-previews/`，它们不是 Android 真机截图。Windows GUI 验证由 Wine / Xvfb 驱动真实 Win32 程序，不能替代 Windows 真机/DPI 验证。
 
 本轮不自动改生产更新清单，不部署服务端，不声称未发布的 URL 可下载。测试包沿用现有 Android 测试签名 / Windows 测试安装流程；覆盖安装保留数据，不建议卸载。最终验证记录见项目根目录 `design-qa.md` 及本轮验证文档。
+
+发布补充：上述为开发阶段边界。2026-09-28 用户明确选择发布后，已部署服务端 0.7.0 并发布双端 1.16.0-test，详见 `private-journal-1.16.0-publication.md`；未继续改动扫码网页的视觉风格。

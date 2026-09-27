@@ -22,7 +22,7 @@ Mnote 是一个独立的本地优先个人知识捕获项目，用于在 Android
 
 ## Windows 下载
 
-当前 Windows 测试版 **1.12.0-test**：[安装包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.12.0-test/Mnote-Windows-1.12.0-test-Setup.exe) · [便携包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.12.0-test/Mnote-Windows-1.12.0-test-Portable.zip)。使用 Android 上同一账号登录，自动同步；旧本机记录需要明确导入。
+当前 Windows 测试版 **1.16.0-test**：[安装包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.16.0-test/Mnote-Windows-1.16.0-test-Setup.exe) · [便携包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.16.0-test/Mnote-Windows-1.16.0-test-Portable.zip)。使用 Android 上同一账号登录，自动同步；旧本机记录需要明确导入。
 
 双端 1.8.0 新增批量选择记录导出 Markdown：包含文档说明、AI 阅读提示、索引、想法、摘录、原文、来源和完整截图/圈选图/批注图在线链接。首页先筛选再选择，最多 100 条已同步记录；需明确确认分享图片，分享快照可在导出页独立撤销。详情见[批量导出说明](docs/markdown-batch-export.md)。
 
@@ -32,17 +32,17 @@ Windows 已补齐应用内查看 / 编辑 / 删除、标签 / 未分类筛选、
 
 ## Android 构建
 
-上一轮 Android 发布记录为 [1.14.1-test APK](https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.14.1-test/Mnote-Android-1.14.1-test.apk)。当前分支已完成 **1.16.0-test「私人刊物」双端 UI** 的自动验证和本地测试打包，并接续尚未部署的全模块二维码快照工作，详见 [本轮验收记录](docs/private-journal-1.16.0-verification.md)。测试包尚未发布到自动更新源；不得使用未发布的安装包 URL。安装前保存草稿，覆盖安装，不要卸载旧版。Android 使用原调试/测试签名，非正式商店版。
+当前 Android 测试版：[1.16.0-test APK](https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.16.0-test/Mnote-Android-1.16.0-test.apk)。**1.16.0-test「私人刊物」双端 UI** 已于 2026-09-28 发布到自建更新源，配套服务端 0.7.0 已部署。1.9 及之后的测试版可从应用内检查更新；更早版本可手动下载覆盖安装。详见 [开发验收记录](docs/private-journal-1.16.0-verification.md) 和 [线上发布验证](docs/private-journal-1.16.0-publication.md)。安装前保存草稿，覆盖安装，不要卸载旧版。Android 沿用测试签名，非正式商店版。
 
 1.10.1 修复“分享管理”无法查看历史图片：点击历史分享即可查看当次导出的图片快照，兼容旧分享，不依赖原记录是否仍在本机。详见 [历史分享图片说明](docs/share-history-1.10.1-release-notes.md)。
 
 1.6.0 新增所有安卓记录入口的多标签、已有记录补改标签、首页标签 / 未分类筛选及标签账号同步。长文支持内部滚动、全屏展开编辑及到文末，页面读取改善嵌套段落顺序并支持可见叶节点描述。修正 UI 位图提前回收风险，新增仅本机的异常诊断；尚未真机复现用户报告的偶发闪退。详见 [1.6.0 标签、长文与稳定性说明](docs/android-1.6.0-tags-readable-context.md)。
 
-Android 全部页面及应用弹窗采用 A「轻盈极简」主题；首页提供搜索、摘录/想法/待办筛选及固定底部操作区。账号登录后自动同步，支持刷新拉取和删除记录。来源与无障碍说明位于首页“快捷方式与权限设置”。
+Android 页面及应用弹窗采用「私人刊物」主题；首页默认全部记录，支持搜索、类型/标签筛选和原地多选。账号登录后自动同步，支持刷新拉取和删除记录。来源与无障碍说明位于设置中的“快捷方式与权限”。
 
 单次摘录只走截图，不读取选区或剪贴板，继续使用“圈选 → 下一步 → 想法”的原地悬浮流程，可选择保留完整截图上下文。随手记默认只写想法 / TODO；剪贴板摘录与页面上下文各自独立、主动选择，不开启剪贴板也能保留页面文字或截图。关闭剪贴板摘录不会移除上下文。页面上下文不一定是剪贴板文字的原始出处；不保证任意应用的全文或链接均可读取，失败不自动转截图，也不提供 OCR 选字。详见 [1.5.1 独立上下文与稳定性修复](docs/android-1.5.1-independent-context.md)。系统权限页和键盘保留系统样式。
 
-记录页提供大预览、圈选区域 / 完整截图切换与独立想法区；详情为完整阅读页，点击“编辑”可修改想法、摘录文字和保留的原文，并按账号同步。详见[1.4.0 编辑已保存记录](docs/android-1.4.0-edit-records.md)、[记录与阅读页说明](docs/android-1.3.1-compose-review.md)及 [A 视觉规范](docs/android-1.3.0-style-a.md)。覆盖安装前先保存草稿，不要卸载；此包沿用测试签名。
+记录时素材与想法优先，其他选项按需展开；详情连续展示想法、摘录、圈选截图、完整页面和原文，不再靠预览切换隐藏内容。点击“编辑”可修改想法、摘录文字和原文，并按账号同步。详见[私人刊物交互说明](docs/private-journal-ui.md)。覆盖安装前先保存草稿，不要卸载；此包沿用测试签名。
 ```bash
 ./gradlew --no-daemon testDebugUnitTest assembleDebug lintDebug
 ```

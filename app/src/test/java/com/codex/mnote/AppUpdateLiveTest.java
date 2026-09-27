@@ -18,6 +18,8 @@ public class AppUpdateLiveTest {
         AppRelease release = AppUpdateClient.check("1.8.0-test");
         assertNotNull(release);
         release.validate();
+        String expected = System.getenv("MNOTE_EXPECTED_UPDATE_VERSION");
+        if (expected != null && !expected.isEmpty()) assertEquals(expected, release.version);
         assertTrue(
             release.url.startsWith("https://chenyu.online/heartnote-capture/updates/files/"));
         assertTrue(AppRelease.allowedDownload(release.url));
