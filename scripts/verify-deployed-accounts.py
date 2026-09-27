@@ -5,6 +5,7 @@ is quarantined after the test instead of recursively deleted.
 """
 import argparse
 import base64
+import hashlib
 import json
 import secrets
 import sqlite3
@@ -13,7 +14,8 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from heartnote_capture.accounts import Accounts
-from heartnote_capture.store import CaptureStore, minimal_png
+from heartnote_capture.store import CaptureStore, CaptureNotFound, minimal_png
+from heartnote_capture.markdown_export import MarkdownExports
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--backup', required=True)
@@ -78,10 +80,12 @@ try:
             payload = {'id': capture_id, 'revision': 1, 'token': public_token,
                        'publish': True, 'fields': fields}
             if 'crop' in fields: payload['crop_role'] = 'annotated'
+            public_path = '/c/' + public_token
+            export_id = hashlib.sha256(public_token.encode()).hexdigest()[:32]
+            shares.append((export_id, public_path, public_token))
             status, shared = request('POST', '/v1/exports/card', payload, token)
             assert status == 200 and shared['format'] == 2, ('card', status)
-            public_path = '/c/' + public_token
-            shares.append((shared['id'], public_path, public_token))
+            assert shared['id'] == export_id
             status, page = request('GET', public_path)
             assert status == 200
             for field, value in [('thought', body['comment']), ('excerpt', body['source']['text']),
@@ -116,16 +120,19 @@ try:
     assert snapshot(data / 'captures.sqlite3') == before, 'Legacy records changed'
     print('HTTPS activation/login/upload/PNG download/changefeed/delete/logout passed; legacy record and asset rows unchanged.')
 finally:
-    if session and session.get('access_token'):
-        # Revoke any temporary public links even when an assertion fails.
-        for export_id, _, _ in shares:
-            status, _ = request('DELETE', '/v1/exports/' + export_id, token=session['access_token'])
-            assert status in (200, 401, 404), ('cleanup temporary share', status)
+    cleanup_errors = []
     # Resolve the exact synthetic username even if the HTTP response was interrupted.
     with accounts.db() as db:
         row = db.execute('SELECT id,vault FROM accounts WHERE username=?', (username,)).fetchone()
         if row:
             assert row['vault'] != 'legacy' and len(row['vault']) == 32
+            # Local owner-scoped fallback works even after logout or a network error.
+            if shares:
+                exports = MarkdownExports(data)
+                for export_id, _, _ in shares:
+                    try: exports.revoke(row['id'], export_id)
+                    except CaptureNotFound: pass
+                    except Exception as error: cleanup_errors.append(type(error).__name__)
             db.execute('BEGIN IMMEDIATE')
             db.execute('DELETE FROM sessions WHERE account_id=?', (row['id'],))
             db.execute('DELETE FROM accounts WHERE id=? AND username=?', (row['id'], username))
@@ -133,3 +140,4 @@ finally:
             vault = data / 'account-vaults' / row['vault']
             if vault.is_dir(): vault.rename(backup / ('synthetic-vault-' + row['vault']))
     print('Synthetic credentials revoked; test vault quarantined in the private deployment backup.')
+    if cleanup_errors: raise RuntimeError('Temporary share cleanup requires review: ' + ', '.join(cleanup_errors))
