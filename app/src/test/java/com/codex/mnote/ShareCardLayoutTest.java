@@ -17,9 +17,8 @@ public class ShareCardLayoutTest {
     private ShareCardRenderer.Result render(
         String q, String t, Bitmap crop, Bitmap page, int mask, float position) throws Exception {
         return ShareCardRenderer.render(q, t, crop, page, mask,
-            (mask & 48) != 0 ? ShareCardRenderer.qr("https://example.test/c/"
-                                   + "a".repeat(64))
-                             : null,
+            ShareCardRenderer.qr("https://example.test/c/"
+                + "a".repeat(64)),
             RuntimeEnvironment.getApplication().getResources().getFont(R.font.noto_serif_cjk),
             position);
     }
@@ -101,6 +100,33 @@ public class ShareCardLayoutTest {
         assertTrue(result.bitmap.sameAs(decoded));
         decoded.recycle();
         result.bitmap.recycle();
+    }
+    @Test
+    public void fullCardQrSurvivesHalfSizeWithDifferentTokens() throws Exception {
+        Bitmap image = Bitmap.createBitmap(800, 400, Bitmap.Config.ARGB_8888);
+        image.eraseColor(Color.LTGRAY);
+        for (String token : List.of("0123456789abcdef".repeat(4),
+                 "de5fc8b64b7a912fc3e8660243cd64733f2a8b9d501a576f0cb4c4ec9d0e752a")) {
+            String url = "https://chenyu.online/heartnote-capture/c/" + token;
+            Bitmap qr = ShareCardRenderer.qr(url);
+            var card = ShareCardRenderer.render(
+                ShareCardTest.QUOTE, ShareCardTest.THOUGHT, image, image, 63, qr);
+            Bitmap half = Bitmap.createScaledBitmap(
+                card.bitmap, 540, Math.round(card.bitmap.getHeight() / 2f), true);
+            int[] pixels = new int[540 * half.getHeight()];
+            half.getPixels(pixels, 0, 540, 0, 0, 540, half.getHeight());
+            String decoded = new com.google.zxing.MultiFormatReader()
+                                 .decode(new com.google.zxing.BinaryBitmap(
+                                     new com.google.zxing.common.HybridBinarizer(
+                                         new com.google.zxing.RGBLuminanceSource(
+                                             540, half.getHeight(), pixels))))
+                                 .getText();
+            assertEquals(url, decoded);
+            half.recycle();
+            card.bitmap.recycle();
+            qr.recycle();
+        }
+        image.recycle();
     }
     @Test
     public void longPngHasFullHeightAndReadableFinalThoughtAndQr() throws Exception {

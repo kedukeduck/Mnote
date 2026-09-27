@@ -31,6 +31,7 @@ public class ShareCardTest {
     @Implements(value = CaptureAccountHttp.class, isInAndroidSdk = false)
     public static class Http {
         static int creates, revokes;
+        static int format;
         static JSONObject body;
         static boolean fail, logout;
         @Implementation
@@ -52,7 +53,10 @@ public class ShareCardTest {
                             .hex(java.security.MessageDigest.getInstance("SHA-256").digest(
                                 shared.getBytes()))
                             .substring(0, 32);
-            return new JSONObject().put("id", id).put("url", base + "/c/" + shared);
+            return new JSONObject()
+                .put("id", id)
+                .put("url", base + "/c/" + shared)
+                .put("format", format);
         }
     }
     @Implements(value = ShareCardAlbum.class, isInAndroidSdk = false)
@@ -103,6 +107,7 @@ public class ShareCardTest {
                 .putExtra(CaptureRecordEditActivity.ID, record.id)
                 .putExtra(CaptureRecordEditActivity.SCOPE, CaptureAccountSession.scope(context));
         Http.creates = Http.revokes = 0;
+        Http.format = 2;
         Http.fail = Http.logout = false;
         Http.body = null;
         Album.saved = null;
@@ -124,7 +129,7 @@ public class ShareCardTest {
     public void allModuleCombinationsFitAndRealQrDecodes() throws Exception {
         Bitmap image = Bitmap.createBitmap(800, 400, Bitmap.Config.ARGB_8888);
         image.eraseColor(Color.LTGRAY);
-        String url = "https://example.test/c/"
+        String url = "https://chenyu.online/heartnote-capture/c/"
             + "a".repeat(64);
         Bitmap qr = ShareCardRenderer.qr(url);
         for (int mask = 1; mask < 64; mask++) {
@@ -133,15 +138,36 @@ public class ShareCardTest {
             assertContentOrder(r.document, mask);
             assertEquals(1080, r.bitmap.getWidth());
             assertTrue(r.bitmap.getHeight() <= 1920);
-            if (mask == 63) {
+            {
                 int height = r.bitmap.getHeight();
                 int[] pixels = new int[1080 * height];
                 r.bitmap.getPixels(pixels, 0, 1080, 0, 0, 1080, height);
-                String decoded = new MultiFormatReader()
-                                     .decode(new BinaryBitmap(new HybridBinarizer(
-                                         new RGBLuminanceSource(1080, height, pixels))))
-                                     .getText();
+                String decoded;
+                try {
+                    decoded = new MultiFormatReader()
+                                  .decode(new BinaryBitmap(new HybridBinarizer(
+                                      new RGBLuminanceSource(1080, height, pixels))))
+                                  .getText();
+                } catch (NotFoundException error) {
+                    throw new AssertionError("full-size QR mask " + mask, error);
+                }
                 assertEquals(url, decoded);
+            }
+            if (mask == 2 || mask == 63) {
+                Bitmap reduced = Bitmap.createScaledBitmap(
+                    r.bitmap, 540, Math.round(r.bitmap.getHeight() / 2f), true);
+                int[] pixels = new int[reduced.getWidth() * reduced.getHeight()];
+                reduced.getPixels(pixels, 0, 540, 0, 0, 540, reduced.getHeight());
+                Result scan;
+                try {
+                    scan = new MultiFormatReader().decode(new BinaryBitmap(new HybridBinarizer(
+                        new RGBLuminanceSource(540, reduced.getHeight(), pixels))));
+                } catch (NotFoundException error) {
+                    throw new AssertionError("half-size QR mask " + mask, error);
+                }
+                assertEquals(url, scan.getText());
+                for (ResultPoint point : scan.getResultPoints()) assertTrue(point.getX() > 270);
+                reduced.recycle();
             }
             r.bitmap.recycle();
         }
@@ -153,19 +179,21 @@ public class ShareCardTest {
                 expected.add(kind);
         java.util.List<?> blocks = ReflectionHelpers.getField(document, "blocks");
         java.util.List<Integer> actual = new java.util.ArrayList<>();
-        for (Object block : blocks)
-            actual.add(ReflectionHelpers.<Integer>getField(block, "kind"));
+        for (Object block : blocks) actual.add(ReflectionHelpers.<Integer>getField(block, "kind"));
         assertEquals("thought, excerpt, then images for mask " + mask, expected, actual);
     }
     @Test
-    public void longTextMissingImagesAndEmptySelectionFailExplicitly() {
+    public void longTextMissingImagesAndEmptySelectionFailExplicitly() throws Exception {
         assertNull(ShareCardRenderer.render("x", "y", null, null, 0, null).bitmap);
-        var longQuote = ShareCardRenderer.render("长文".repeat(5000), "", null, null, 1, null);
+        var longQuote = ShareCardRenderer.render("长文".repeat(5000), "", null, null, 1,
+            ShareCardRenderer.qr("https://example.test/c/"
+                + "a".repeat(64)));
         assertEquals("", longQuote.error);
         assertTrue(longQuote.document.quoteTruncated);
         assertTrue(longQuote.document.displayedQuote.length() < 10000);
         longQuote.bitmap.recycle();
         assertTrue(ShareCardRenderer.render("", "", null, null, 4, null).error.contains("截图"));
+        assertNull(ShareCardRenderer.render("", "一个想法", null, null, 2, null).bitmap);
     }
     @Test
     public void togglesAreLivePrivateAndSavedBitmapEqualsPreview() throws Exception {
@@ -182,9 +210,12 @@ public class ShareCardTest {
             assertNotSame(before, after);
             assertEquals(0, Http.creates);
             a.findViewById(R.id.share_card_save).performClick();
+            assertEquals(0, Http.creates);
+            ShadowAlertDialog.getLatestAlertDialog().getButton(-1).performClick();
             drain(a);
             assertSame(after, Album.saved);
-            assertEquals(0, Http.creates);
+            assertEquals(1, Http.creates);
+            assertEquals("[\"excerpt\"]", Http.body.getJSONArray("fields").toString());
             SettingsActivityTest.render(
                 SettingsActivityTest.layout(a, 390, 844), "share-card-preview.png");
         }
@@ -207,7 +238,8 @@ public class ShareCardTest {
             drain(a);
             assertEquals(1, Http.creates);
             assertSame(image, Album.saved);
-            assertEquals("[\"original\"]", Http.body.getJSONArray("fields").toString());
+            assertEquals("[\"thought\",\"excerpt\",\"original\"]",
+                Http.body.getJSONArray("fields").toString());
             a.findViewById(R.id.share_card_save).performClick();
             drain(a);
             assertEquals(1, Http.creates);
@@ -317,9 +349,19 @@ public class ShareCardTest {
             root.layout(0, 0, root.getMeasuredWidth(), root.getMeasuredHeight());
             SettingsActivityTest.render(root, "share-card-context-adjust.png");
             dialog.dismiss();
+            a.findViewById(R.id.share_card_save).performClick();
+            ShadowAlertDialog.getLatestAlertDialog().getButton(-1).performClick();
+            drain(a);
+            assertEquals("annotated", Http.body.getString("crop_role"));
+            assertEquals("[\"thought\",\"excerpt\",\"crop\",\"context\",\"original\",\"source\"]",
+                Http.body.getJSONArray("fields").toString());
             choice(a, 64).setChecked(false);
             drain(a);
             assertNotNull(ReflectionHelpers.getField(a, "previewBitmap"));
+            a.findViewById(R.id.share_card_save).performClick();
+            ShadowAlertDialog.getLatestAlertDialog().getButton(-1).performClick();
+            drain(a);
+            assertEquals("original", Http.body.getString("crop_role"));
         }
     }
     @Test
@@ -375,17 +417,74 @@ public class ShareCardTest {
         }
     }
     @Test
-    public void unsyncedRecordAllowsPrivateCardButDisablesPublicQr() throws Exception {
+    public void unsyncedRecordCannotSaveAnInactiveQr() throws Exception {
         CaptureStore.updateSyncState(context, record.id, CaptureStore.SYNC_PENDING, "", 0);
         try (var c = Robolectric.buildActivity(ShareCardActivity.class, intent).setup()) {
             var a = c.get();
             drain(a);
-            assertFalse(choice(a, 16).isEnabled());
-            assertFalse(choice(a, 32).isEnabled());
+            assertNotNull(ReflectionHelpers.getField(a, "previewBitmap"));
+            assertFalse(a.findViewById(R.id.share_card_save).isEnabled());
             a.findViewById(R.id.share_card_save).performClick();
             drain(a);
-            assertNotNull(Album.saved);
+            assertNull(Album.saved);
             assertEquals(0, Http.creates);
+        }
+    }
+    @Test
+    public void thoughtOnlyStillRequiresConsentAndPublishesOnlyThought() throws Exception {
+        try (var c = Robolectric.buildActivity(ShareCardActivity.class, intent).setup()) {
+            var a = c.get();
+            drain(a);
+            choice(a, 1).setChecked(false);
+            drain(a);
+            assertNotNull(ReflectionHelpers.getField(a, "previewBitmap"));
+            a.findViewById(R.id.share_card_save).performClick();
+            assertEquals(0, Http.creates);
+            ShadowAlertDialog.getLatestAlertDialog().getButton(-2).performClick();
+            assertNull(Album.saved);
+            a.findViewById(R.id.share_card_save).performClick();
+            ShadowAlertDialog.getLatestAlertDialog().getButton(-1).performClick();
+            drain(a);
+            assertEquals(1, Http.creates);
+            assertNotNull(Album.saved);
+            assertEquals("[\"thought\"]", Http.body.getJSONArray("fields").toString());
+            assertFalse(Http.body.has("crop_role"));
+        }
+    }
+    @Test
+    public void oldBackendCannotSaveACardWhosePageOmitsSelectedContent() throws Exception {
+        Http.format = 1;
+        try (var c = Robolectric.buildActivity(ShareCardActivity.class, intent).setup()) {
+            var a = c.get();
+            drain(a);
+            a.findViewById(R.id.share_card_save).performClick();
+            ShadowAlertDialog.getLatestAlertDialog().getButton(-1).performClick();
+            drain(a);
+            assertNull(Album.saved);
+            assertEquals(1, Http.creates);
+            assertEquals(1, Http.revokes);
+        }
+    }
+    @Test
+    public void restoringOldPublishedQrCreatesNewTokenWithoutExpandingOldShare() throws Exception {
+        Bundle state = new Bundle();
+        String oldToken;
+        try (var c = Robolectric.buildActivity(ShareCardActivity.class, intent).setup()) {
+            drain(c.get());
+            oldToken = ReflectionHelpers.getField(c.get(), "token");
+            c.saveInstanceState(state);
+        }
+        state.remove("share_format");
+        state.putBoolean("published", true);
+        try (var c = Robolectric.buildActivity(ShareCardActivity.class, intent)
+                 .create(state)
+                 .start()
+                 .resume()) {
+            drain(c.get());
+            assertNotEquals(oldToken, ReflectionHelpers.getField(c.get(), "token"));
+            assertFalse(ReflectionHelpers.<Boolean>getField(c.get(), "published"));
+            assertEquals(0, Http.creates);
+            assertEquals(0, Http.revokes);
         }
     }
     @Test
@@ -394,6 +493,7 @@ public class ShareCardTest {
         record
         = CaptureStore.save(context, null, null, null, null, "thought", thought, "clipboard", QUOTE,
             "", "", "", false, new JSONObject());
+        CaptureStore.updateSyncState(context, record.id, CaptureStore.SYNC_SYNCED, "", 1);
         intent.putExtra(CaptureRecordEditActivity.ID, record.id);
         try (var c = Robolectric.buildActivity(ShareCardActivity.class, intent).setup().visible()) {
             var a = c.get();
@@ -418,10 +518,11 @@ public class ShareCardTest {
             SettingsActivityTest.render(window, "share-card-long-reader.png");
             dialog.dismiss();
             a.findViewById(R.id.share_card_save).performClick();
+            ShadowAlertDialog.getLatestAlertDialog().getButton(-1).performClick();
             drain(a);
             assertSame(doc, Album.savedDocument);
             assertNull(Album.saved);
-            assertEquals(0, Http.creates);
+            assertEquals(1, Http.creates);
             assertEquals(thought, CaptureStore.find(context, record.id).comment);
         }
     }

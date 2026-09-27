@@ -103,7 +103,9 @@ public class ShareCardAlbumTest {
     }
     @Test
     public void streamedCardUsesSameMediaStoreTransaction() throws Exception {
-        var card = ShareCardRenderer.render("", "完整的想法。", null, null, 2, null);
+        var card = ShareCardRenderer.render("", "完整的想法。", null, null, 2,
+            ShareCardRenderer.qr("https://example.test/c/"
+                + "a".repeat(64)));
         ShareCardAlbum.save(app, card.document);
         assertTrue(provider.file.length() > 0);
         assertEquals(0, provider.deleted);
@@ -114,8 +116,10 @@ public class ShareCardAlbumTest {
         card.bitmap.recycle();
     }
     @Test
-    public void streamedWriteFailureCleansOnlyItsPendingImage() {
-        var card = ShareCardRenderer.render("", "完整的想法。", null, null, 2, null);
+    public void streamedWriteFailureCleansOnlyItsPendingImage() throws Exception {
+        var card = ShareCardRenderer.render("", "完整的想法。", null, null, 2,
+            ShareCardRenderer.qr("https://example.test/c/"
+                + "a".repeat(64)));
         provider.failOpen = true;
         try {
             ShareCardAlbum.save(app, card.document);

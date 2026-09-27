@@ -10,6 +10,7 @@ import java.util.*;
 /** Measure once: preview, full-size reader and PNG export share the same immutable layout. */
 final class ShareCardRenderer {
     static final int WIDTH = 1080, HEIGHT = 1920, PREVIEW_HEIGHT = 4096, MAX_HEIGHT = 120000;
+    static final int QR_SIZE = 248, QR_GAP = 28, QR_FOOTER = QR_SIZE + QR_GAP;
     static final int QUOTE = 1, THOUGHT = 2, CROP = 4, CONTEXT = 8, ORIGINAL = 16, SOURCE = 32,
                      ANNOTATED = 64;
     static final int PAPER = Color.rgb(247, 242, 232), INK = Color.rgb(48, 46, 40),
@@ -136,17 +137,14 @@ final class ShareCardRenderer {
                 paint.setColor(0xffbd9e86);
                 canvas.drawLine(MARGIN, qrTop - 24, WIDTH - MARGIN, qrTop - 24, paint);
                 paint.setFilterBitmap(false);
-                canvas.drawBitmap(qr, MARGIN, qrTop, paint);
+                canvas.drawBitmap(qr, WIDTH - MARGIN - qr.getWidth(), qrTop, paint);
                 paint.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
                 paint.setColor(INK);
                 paint.setTextSize(38);
-                String label = (mask & 48) == 48 ? "查看原文与来源"
-                    : (mask & ORIGINAL) != 0     ? "查看保存的原文"
-                                                 : "打开来源";
-                canvas.drawText(label, MARGIN + 286, qrTop + 100, paint);
+                canvas.drawText("扫码查看本次分享", MARGIN, qrTop + 106, paint);
                 paint.setColor(0xff746a60);
                 paint.setTextSize(30);
-                canvas.drawText("长按识别或扫码", MARGIN + 286, qrTop + 154, paint);
+                canvas.drawText("长按识别 · 查看所选内容", MARGIN, qrTop + 154, paint);
             }
         }
         void drawContextPreview(Canvas canvas, int width, int height) {
@@ -176,7 +174,7 @@ final class ShareCardRenderer {
         }
     }
     static Bitmap qr(String url) throws Exception {
-        var matrix = new QRCodeWriter().encode(url, BarcodeFormat.QR_CODE, 252, 252,
+        var matrix = new QRCodeWriter().encode(url, BarcodeFormat.QR_CODE, QR_SIZE, QR_SIZE,
             Map.of(
                 EncodeHintType.ERROR_CORRECTION, ErrorCorrectionLevel.M, EncodeHintType.MARGIN, 4));
         Bitmap bitmap =
@@ -203,13 +201,12 @@ final class ShareCardRenderer {
             return new Result(null, "请选择至少一个分享模块。");
         if (((mask & CROP) != 0 && crop == null) || ((mask & CONTEXT) != 0 && context == null))
             return new Result(null, "所选截图无法读取，请重新打开记录或取消该图片模块。");
-        if ((mask & 48) != 0 && qr == null)
-            return new Result(null, "二维码不可用，请登录并同步记录，或取消原文和来源。");
+        if (qr == null)
+            return new Result(null, "二维码不可用，请先登录并同步此记录。");
         if ((mask & THOUGHT) != 0 && thought.length() > 100000)
             return new Result(
                 null, "想法超过单张长图的安全生成上限，未截断或保存；原记录保持完整。");
-        Document doc = layout(quote, thought, crop, context, mask, (mask & 48) != 0 ? qr : null,
-            serif, position, false);
+        Document doc = layout(quote, thought, crop, context, mask, qr, serif, position, false);
         if (doc.height > MAX_HEIGHT)
             return new Result(
                 null, "想法超过单张长图的安全生成上限，未截断或保存；原记录保持完整。");
@@ -225,7 +222,7 @@ final class ShareCardRenderer {
         int mask, Bitmap qr, Typeface serif, float position, boolean compact) {
         int heading = compact ? 56 : 64, gap = compact ? 22 : 30, top = compact ? 150 : 170;
         int moduleCount = Integer.bitCount(mask & 15);
-        int singleImageBudget = HEIGHT - top - MARGIN - (qr == null ? 0 : 292);
+        int singleImageBudget = HEIGHT - top - MARGIN - QR_FOOTER;
         List<Block> blocks = new ArrayList<>(), optional = new ArrayList<>();
         // Keep personal thoughts first and all image modules after the text.
         if ((mask & THOUGHT) != 0) {
@@ -262,7 +259,7 @@ final class ShareCardRenderer {
             optional.add(b);
         }
         Block own = find(blocks, THOUGHT);
-        float fixed = top + MARGIN + (qr == null ? 0 : 292) + gap * Math.max(0, blocks.size() - 1)
+        float fixed = top + MARGIN + QR_FOOTER + gap * Math.max(0, blocks.size() - 1)
             + (own == null ? 0 : own.height);
         float natural = fixed;
         for (Block b : optional) natural += b.desired;
@@ -304,8 +301,8 @@ final class ShareCardRenderer {
         float end = top;
         for (Block b : blocks) end += b.height;
         end += gap * Math.max(0, blocks.size() - 1);
-        int height = (int) Math.ceil(end + MARGIN + (qr == null ? 0 : 292) - 0.01f);
-        return new Document(blocks, qr, mask, top, gap, heading, height, end + 40, compact,
+        int height = (int) Math.ceil(end + MARGIN + QR_FOOTER - 0.01f);
+        return new Document(blocks, qr, mask, top, gap, heading, height, end + QR_GAP, compact,
             Float.isFinite(position) ? Math.max(0, Math.min(1, position)) : 0, thought);
     }
     private static Block image(int kind, Bitmap bitmap, int cap, float weight) {

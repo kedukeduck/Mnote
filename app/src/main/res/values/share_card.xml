@@ -11,10 +11,7 @@
     <string name="share_card_title">分享卡片</string>
     <string name="share_card_save">保存到相册</string>
     <string name="share_card_hint">随内容适配 · 想法完整保留 · 点击图片放大</string>
-    <string name="share_card_publish_hint">保存并确认后，二维码才会生效。仅发布所选原文／来源；截图内已有的信息不会自动隐藏。</string>
-    <string name="share_card_local_hint">图片仅保存到本机，不发布到网络。截图内已有的信息不会自动隐藏。</string>
+    <string name="share_card_publish_hint">每张图片均含二维码。确认保存后，扫码可查看全部所选模块；未选内容不会公开。</string>
     <string name="share_card_confirm">创建可扫码的分享？</string>
-    <string name="share_card_confirm_message">持码者无需登录即可查看：%1$s。不会公开未选择的原文、来源或其他记录。可在设置 → 分享管理中撤销，但无法收回已保存的图片或文字副本。</string>
-    <string name="share_card_original">保存的原文</string>
-    <string name="share_card_source">来源链接</string>
+    <string name="share_card_confirm_message">持码者无需登录即可查看：%1$s。扫码页保留所选模块的完整内容，包括卡片上被截断的摘录及局部展示的页面截图。未勾选内容、标签、记录时间和其他记录不会公开；截图内部已有的信息不会自动隐藏。可在设置 → 分享管理撤销，但无法收回已下载的副本。</string>
 </resources>

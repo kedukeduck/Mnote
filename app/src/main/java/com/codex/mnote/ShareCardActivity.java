@@ -78,7 +78,7 @@ public final class ShareCardActivity extends Activity {
                     token = state == null ? freshToken() : state.getString("token", freshToken());
                     if (token == null || !token.matches("[a-f0-9]{64}"))
                         token = freshToken();
-                    boolean sameSnapshot = state != null
+                    boolean sameSnapshot = state != null && state.getInt("share_format", 0) == 2
                         && fingerprint.equals(state.getString("fingerprint"))
                         && record.serverRevision == state.getInt("revision", -1);
                     published = sameSnapshot && state.getBoolean("published");
@@ -174,14 +174,13 @@ public final class ShareCardActivity extends Activity {
         return t;
     }
     private void buildChoices() {
-        boolean synced = CaptureAccountSession.hasAccount(this) && record.serverRevision > 0
-            && CaptureStore.SYNC_SYNCED.equals(record.syncState);
+        boolean synced = readyToPublish();
         addChoice("摘录", 1, !record.sourceText.isEmpty());
         addChoice("我的想法", 2, !record.comment.isEmpty());
         addChoice("圈选截图", 4, originalImage != null || annotatedImage != null);
         addChoice("页面截图", 8, contextImage != null);
-        addChoice("原文 · 二维码", 16, synced && !CaptureRecordEdits.original(record).isEmpty());
-        addChoice("来源 · 二维码", 32, synced && validSource(record.sourceUrl));
+        addChoice("原文 · 二维码", 16, !CaptureRecordEdits.original(record).isEmpty());
+        addChoice("来源 · 二维码", 32, validSource(record.sourceUrl));
         addChoice("截图保留批注", 64, annotatedImage != null && originalImage != null);
         contextAdjust = new Button(this);
         contextAdjust.setId(R.id.share_card_adjust_context);
@@ -193,7 +192,8 @@ public final class ShareCardActivity extends Activity {
             previewDocument != null && previewDocument.contextCropped ? View.VISIBLE : View.GONE);
         contextAdjust.setOnClickListener(v -> showContextPosition());
         if (!synced) {
-            TextView t = label("本机卡片无需登录；二维码需要登录并先同步此记录。", 12);
+            TextView t =
+                label("每张卡片均含二维码。请返回记录列表登录并完成同步，再打开分享。", 12);
             modules.addView(t);
         }
     }
@@ -275,6 +275,24 @@ public final class ShareCardActivity extends Activity {
             return false;
         }
     }
+    private boolean readyToPublish() {
+        return CaptureAccountSession.hasAccount(this) && record != null && record.serverRevision > 0
+            && CaptureStore.SYNC_SYNCED.equals(record.syncState) && validSource(base);
+    }
+    private String cropRole(int selected) {
+        return (selected & 64) != 0 && annotatedImage != null ? "annotated"
+            : originalImage != null                           ? "original"
+                                                              : "annotated";
+    }
+    static JSONArray selectedFields(int selected) {
+        JSONArray fields = new JSONArray();
+        int[] flags = {2, 1, 4, 8, 16, 32};
+        String[] names = {"thought", "excerpt", "crop", "context", "original", "source"};
+        for (int i = 0; i < flags.length; i++)
+            if ((selected & flags[i]) != 0)
+                fields.put(names[i]);
+        return fields;
+    }
     private void schedule(boolean changed) {
         if (loading || saving)
             return;
@@ -293,7 +311,7 @@ public final class ShareCardActivity extends Activity {
                 return;
             ShareCardRenderer.Result result;
             try {
-                Bitmap qr = (selected & 48) == 0 ? null : ShareCardRenderer.qr(url);
+                Bitmap qr = validSource(base) ? ShareCardRenderer.qr(url) : null;
                 Bitmap chosen = (selected & 64) != 0 && annotatedImage != null ? annotatedImage
                     : originalImage != null                                    ? originalImage
                                                                                : annotatedImage;
@@ -323,16 +341,16 @@ public final class ShareCardActivity extends Activity {
                     contextCropPreview.invalidate();
                 status.setText(rendered.error.isEmpty() ? published
                             ? "二维码已生效，可在设置 → 分享管理撤销。"
-                            : getString((selected & 48) != 0 ? R.string.share_card_publish_hint
-                                                             : R.string.share_card_local_hint)
+                            : !readyToPublish() ? "请先登录并同步此记录，再保存含二维码的分享卡片。"
+                                                : getString(R.string.share_card_publish_hint)
                                                         : rendered.error);
-                save.setEnabled(previewBitmap != null);
+                save.setEnabled(previewBitmap != null && readyToPublish());
             });
         }),
             80);
     }
     private void requestSave() {
-        if (saving || previewBitmap == null || !active())
+        if (saving || previewBitmap == null || !active() || !readyToPublish())
             return;
         if (Build.VERSION.SDK_INT <= 28
             && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
@@ -340,16 +358,17 @@ public final class ShareCardActivity extends Activity {
             requestPermissions(new String[] {Manifest.permission.WRITE_EXTERNAL_STORAGE}, 401);
             return;
         }
-        if ((mask & 48) == 0 || published) {
+        if (published) {
             save();
             return;
         }
-        String fields = ((mask & 16) != 0 ? getString(R.string.share_card_original) : "")
-            + ((mask & 48) == 48 ? "、" : "")
-            + ((mask & 32) != 0 ? getString(R.string.share_card_source) : "");
+        List<String> fields = new ArrayList<>();
+        for (CheckBox c : choices)
+            if (c.isChecked() && (int) c.getTag() != 64)
+                fields.add(c.getText().toString().replace(" · 二维码", ""));
         new AlertDialog.Builder(this)
             .setTitle(R.string.share_card_confirm)
-            .setMessage(getString(R.string.share_card_confirm_message, fields))
+            .setMessage(getString(R.string.share_card_confirm_message, String.join("、", fields)))
             .setNegativeButton("取消", null)
             .setPositiveButton("确认并保存", (d, w) -> save())
             .show();
@@ -383,34 +402,29 @@ public final class ShareCardActivity extends Activity {
                     if (!fingerprint.equals(CaptureRecordEdits.fingerprint(current))
                         || current.serverRevision != record.serverRevision)
                         throw new java.io.IOException("record_changed");
-                    if ((selected & 48) != 0) {
-                        if (!CaptureAccountSession.hasAccount(app)
-                            || !CaptureStore.SYNC_SYNCED.equals(current.syncState))
-                            throw new java.io.IOException("sync_required");
-                        config = CaptureAccountSession.config(app);
-                        if (!base.equals(config.baseUrl))
-                            throw new java.io.IOException("account_changed");
-                    }
+                    if (!CaptureAccountSession.hasAccount(app) || current.serverRevision <= 0
+                        || !CaptureStore.SYNC_SYNCED.equals(current.syncState))
+                        throw new java.io.IOException("sync_required");
+                    config = CaptureAccountSession.config(app);
+                    if (!base.equals(config.baseUrl))
+                        throw new java.io.IOException("account_changed");
                 }
                 if (config != null && !existing) {
                     exportId = hex(MessageDigest.getInstance("SHA-256").digest(shareToken.getBytes(
                                        java.nio.charset.StandardCharsets.UTF_8)))
                                    .substring(0, 32);
-                    JSONArray fields = new JSONArray();
-                    if ((selected & 16) != 0)
-                        fields.put("original");
-                    if ((selected & 32) != 0)
-                        fields.put("source");
                     JSONObject body = new JSONObject()
                                           .put("id", id)
                                           .put("revision", current.serverRevision)
                                           .put("token", shareToken)
                                           .put("publish", true)
-                                          .put("fields", fields);
+                                          .put("fields", selectedFields(selected));
+                    if ((selected & 4) != 0)
+                        body.put("crop_role", cropRole(selected));
                     attempted = true;
                     JSONObject result = CaptureAccountHttp.request(
                         config.baseUrl, "POST", "/v1/exports/card", config.writeToken, body, null);
-                    if (!exportId.equals(result.getString("id"))
+                    if (result.optInt("format") != 2 || !exportId.equals(result.getString("id"))
                         || !(base + "/c/" + shareToken).equals(result.getString("url")))
                         throw new java.io.IOException("unexpected_share_url");
                 }
@@ -421,7 +435,7 @@ public final class ShareCardActivity extends Activity {
                     else
                         ShareCardAlbum.save(app, bitmap);
                 }
-                message = "已保存到相册" + ((selected & 48) != 0 ? "，二维码已生效。" : "。");
+                message = "已保存到相册，扫码可查看本次分享的全部所选内容。";
                 success = true;
             } catch (Exception | OutOfMemoryError error) {
                 message = "保存失败，请检查存储空间、相册权限或网络；记录变更时请重新打开预览。";
@@ -442,7 +456,7 @@ public final class ShareCardActivity extends Activity {
                     return;
                 saving = false;
                 if (saved)
-                    published = (selected & 48) != 0;
+                    published = true;
                 else if (!existing) {
                     token = freshToken();
                     published = false;
@@ -491,6 +505,7 @@ public final class ShareCardActivity extends Activity {
         state.putString("token", token);
         state.putBoolean("saving", saving);
         state.putBoolean("published", published);
+        state.putInt("share_format", 2);
         state.putBoolean("loading", loading);
         state.putString("fingerprint", fingerprint);
         state.putInt("revision", record == null ? -1 : record.serverRevision);
