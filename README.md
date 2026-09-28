@@ -22,7 +22,7 @@ Mnote 是一个独立的本地优先个人知识捕获项目，用于在 Android
 
 ## Windows 下载
 
-当前 Windows 测试版 **1.17.0-test**：[安装包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.17.0-test/Mnote-Windows-1.17.0-test-Setup.exe) · [便携包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.17.0-test/Mnote-Windows-1.17.0-test-Portable.zip)。使用 Android 上同一账号登录，自动同步；旧本机记录需要明确导入。
+当前 Windows 测试版 **1.18.0-test**：[安装包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.18.0-test/Mnote-Windows-1.18.0-test-Setup.exe) · [便携包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.18.0-test/Mnote-Windows-1.18.0-test-Portable.zip)。使用 Android 上同一账号登录，自动同步；旧本机记录需要明确导入。
 
 双端 1.8.0 新增批量选择记录导出 Markdown：包含文档说明、AI 阅读提示、索引、想法、摘录、原文、来源和完整截图/圈选图/批注图在线链接。首页先筛选再选择，最多 100 条已同步记录；需明确确认分享图片，分享快照可在导出页独立撤销。详情见[批量导出说明](docs/markdown-batch-export.md)。
 
@@ -32,7 +32,7 @@ Windows 已补齐应用内查看 / 编辑 / 删除、标签 / 未分类筛选、
 
 ## Android 构建
 
-当前 Android 测试版：[1.17.0-test APK](https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.17.0-test/Mnote-Android-1.17.0-test.apk)。**1.17.0-test 首页记录卡片**已发布到自建更新源：独立纸页卡片、更小的系统分类和自定义标签，Android 首页底部截图/随手记模块移除，系统快捷方式保留。Windows 同步卡片和标签样式。本次不升级服务端、不迁移记录。1.9 及之后的测试版可从应用内检查更新；更早版本可手动下载覆盖安装。详见 [版本说明](docs/home-record-cards-1.17.0-release-notes.md)、[原生视觉验收](design-qa.md) 和 [发布验证](docs/home-record-cards-1.17.0-verification.md)。安装前保存草稿，覆盖安装，不要卸载旧版。Android 沿用测试签名，非正式商店版。
+当前 Android 测试版：[1.18.0-test APK](https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.18.0-test/Mnote-Android-1.18.0-test.apk)。**1.18.0-test 混合记录预览**已发布到自建更新源：同一记录可同时显示“想法”“摘录”，上方预览自己的内容，下方以浅底引用块预览素材；两类筛选都能找到混合记录。保留独立纸页卡片和更小的自定义标签。Android 首页底部截图/随手记模块不再显示，系统快捷方式保留，Windows 同步改进。本次不升级服务端、不迁移记录。1.9 及之后的测试版可从应用内检查更新；更早版本可手动下载覆盖安装。详见 [版本说明](docs/mixed-record-previews-1.18.0-release-notes.md)、[视觉及发布验证](docs/mixed-record-previews-1.18.0-verification.md)。安装前保存草稿，覆盖安装，不要卸载旧版。Android 沿用测试签名，非正式商店版。
 
 1.10.1 修复“分享管理”无法查看历史图片：点击历史分享即可查看当次导出的图片快照，兼容旧分享，不依赖原记录是否仍在本机。详见 [历史分享图片说明](docs/share-history-1.10.1-release-notes.md)。
 

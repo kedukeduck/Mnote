@@ -1,5 +1,7 @@
 # Mnote 1.17.0-test · 首页记录卡片 Native Design QA
 
+后续 1.18.0 的多系统标签及双预览验收见 [混合记录验证](docs/mixed-record-previews-1.18.0-verification.md)。以下保留 1.17.0 发布时的原始验收。
+
 日期：2026-09-28。范围：Android / Windows 原生记录列表。用户批准首页稿并要求标签更小，授权直接实施和发布更新。上一轮完整界面验收保留在 `docs/design-qa-private-journal-1.16.md`。
 
 ## Source visual truth / comparison evidence
