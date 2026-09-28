@@ -6,24 +6,27 @@
     <LinearLayout android:id="@+id/journal_item_body" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:background="@drawable/bg_record_paper" android:foreground="?android:attr/selectableItemBackground" android:padding="14dp" android:gravity="top">
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
-                <TextView android:id="@+id/capture_item_kind" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:background="@drawable/bg_record_category" android:paddingStart="8dp" android:paddingEnd="8dp"
-                    android:paddingTop="3dp" android:paddingBottom="3dp" android:includeFontPadding="false"
-                    android:textColor="@color/white" android:textSize="12sp" android:fontFamily="sans-serif-medium" />
-                <TextView android:id="@+id/capture_item_time" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-                    android:layout_marginStart="8dp" android:gravity="end" android:textColor="@color/ink_muted" android:textSize="12sp" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="top">
+                <com.codex.mnote.RecordTagsView android:id="@+id/capture_item_kind" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" />
+                <TextView android:id="@+id/capture_item_time" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp" android:paddingTop="2dp" android:gravity="end" android:textColor="@color/ink_muted" android:textSize="12sp" />
             </LinearLayout>
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:gravity="top">
-            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+            <TextView android:id="@+id/capture_item_comment_label" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="12dp" android:layout_marginBottom="4dp" android:text="@string/capture_preview_thought"
+                android:textColor="@color/ink_muted" android:textSize="11sp" android:visibility="gone" />
             <TextView android:id="@+id/capture_item_comment" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:lineSpacingExtra="4dp" android:textColor="@color/ink" android:textSize="17sp" android:maxLines="4" android:ellipsize="end" />
-            <TextView android:id="@+id/capture_item_exact_text" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:lineSpacingExtra="4dp" android:maxLines="4" android:ellipsize="end" android:textColor="@color/ink" android:textSize="17sp" android:visibility="gone" />
-            </LinearLayout>
-            <ImageView android:id="@+id/capture_item_image" android:layout_width="84dp" android:layout_height="96dp" android:layout_marginStart="12dp"
-                android:background="@drawable/bg_capture_text_preview" android:contentDescription="@string/capture_item_image_description"
-                android:scaleType="centerCrop" android:visibility="gone" />
+                android:lineSpacingExtra="3dp" android:textColor="@color/ink" android:textSize="17sp" android:maxLines="4" android:ellipsize="end" />
+            <LinearLayout android:id="@+id/capture_item_excerpt_block" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="12dp" android:orientation="vertical" android:padding="10dp"
+                android:background="@drawable/bg_record_excerpt" android:visibility="gone">
+                <TextView android:id="@+id/capture_item_excerpt_label" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="@string/capture_preview_excerpt" android:textSize="11sp" android:textColor="@color/copper" />
+                <TextView android:id="@+id/capture_item_exact_text" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="5dp" android:lineSpacingExtra="3dp" android:maxLines="3" android:ellipsize="end"
+                    android:textColor="@color/ink_muted" android:textSize="14sp" android:visibility="gone" />
+                <ImageView android:id="@+id/capture_item_image" android:layout_width="112dp" android:layout_height="76dp" android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_capture_text_preview" android:contentDescription="@string/capture_item_image_description"
+                    android:scaleType="centerCrop" android:visibility="gone" />
             </LinearLayout>
             <com.codex.mnote.RecordTagsView android:id="@+id/capture_item_tags" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="12dp" android:visibility="gone" />

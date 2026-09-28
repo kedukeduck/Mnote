@@ -234,7 +234,7 @@ public class CaptureUiLayoutTest {
             android.widget.RadioGroup filters = root.findViewById(R.id.capture_filter_group);
             filters.check(R.id.capture_filter_excerpt); assertEquals(1,records.getChildCount());
             filters.check(R.id.capture_filter_todo); assertEquals(1,records.getChildCount());
-            filters.check(R.id.capture_filter_thought); assertEquals(1,records.getChildCount());
+            filters.check(R.id.capture_filter_thought); assertEquals(2,records.getChildCount());
             EditText query = root.findViewById(R.id.capture_search);
             query.setText("周日"); assertEquals(0,records.getChildCount());
             assertEquals(View.VISIBLE,root.findViewById(R.id.capture_empty).getVisibility());

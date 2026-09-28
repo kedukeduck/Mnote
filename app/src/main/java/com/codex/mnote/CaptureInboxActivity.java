@@ -325,7 +325,7 @@ public final class CaptureInboxActivity extends Activity {
         for(CaptureStore.CaptureRecord r:libraryRecords) {
             boolean match=filter==R.id.capture_filter_excerpt
                 ? hasMaterial(r)
-                : filter==R.id.capture_filter_thought ? "thought".equals(r.kind)
+                : filter==R.id.capture_filter_thought ? hasThought(r)
                 : filter==R.id.capture_filter_todo ? "todo".equals(r.kind) : true;
             String searchable=r.comment+"\n"+r.sourceText+"\n"+CaptureRecordEdits.original(r)+"\n"+r.sourceUrl+"\n"+CaptureTags.input(r.tags);
             if(match && CaptureTags.matches(r.tags,tag) && searchable.toLowerCase(java.util.Locale.ROOT).contains(query))result.add(r);
@@ -411,7 +411,7 @@ public final class CaptureInboxActivity extends Activity {
             int generation
     ) {
         String ownerScope = CaptureAccountSession.scope(this);
-        TextView kind = card.findViewById(R.id.capture_item_kind);
+        RecordTagsView kind = card.findViewById(R.id.capture_item_kind);
         TextView time = card.findViewById(R.id.capture_item_time);
         TextView comment = card.findViewById(R.id.capture_item_comment);
         TextView source = card.findViewById(R.id.capture_item_source);
@@ -420,13 +420,19 @@ public final class CaptureInboxActivity extends Activity {
         ImageView image = card.findViewById(R.id.capture_item_image);
         image.setClipToOutline(true);
 
-        kind.setText(recordCategory(record));
+        kind.setCategories(recordCategories(record));
         ((RecordTagsView)card.findViewById(R.id.capture_item_tags)).setTags(record.tags);
         time.setText(DateFormat.format(
                 "HH:mm",
                 new Date(record.createdAt)
         ));
-        setOptionalText(comment, record.comment);
+        boolean hasComment = !record.comment.trim().isEmpty();
+        boolean hasMaterial = hasMaterial(record);
+        TextView commentLabel = card.findViewById(R.id.capture_item_comment_label);
+        commentLabel.setText("todo".equals(record.kind) ? R.string.capture_preview_todo : R.string.capture_preview_thought);
+        commentLabel.setVisibility(hasComment ? View.VISIBLE : View.GONE);
+        setOptionalText(comment, hasComment ? record.comment : "");
+        comment.setMaxLines(hasMaterial ? 3 : 4);
         source.setText(sourceTypeLabel(record.sourceType));
         if (!record.sourceUrl.isEmpty()) {
             source.append(" · " + getString(R.string.capture_url_saved_badge));
@@ -441,16 +447,17 @@ public final class CaptureInboxActivity extends Activity {
             sync.setTextColor(getColor(R.color.ink_muted));
         }
         sync.setVisibility(CaptureStore.SYNC_FAILED.equals(record.syncState) ? View.VISIBLE : View.GONE);
-        String original = CaptureRecordEdits.original(record);
-        if (record.sourceText.isEmpty() && original.isEmpty()) {
-            exactText.setVisibility(View.GONE);
-        } else {
-            exactText.setVisibility(record.comment.isEmpty()?View.VISIBLE:View.GONE);
-            exactText.setText(record.sourceText.isEmpty() ? "页面原文 · " + ellipsize(original, 420) : ellipsize(record.sourceText, 420));
-        }
+        String original = CaptureRecordEdits.original(record).trim();
+        String quote = record.sourceText.trim();
+        String excerpt = quote.isEmpty() ? original : quote;
+        TextView excerptLabel = card.findViewById(R.id.capture_item_excerpt_label);
+        excerptLabel.setText(!quote.isEmpty() ? R.string.capture_preview_excerpt
+                : !original.isEmpty() ? R.string.capture_preview_original : R.string.capture_preview_image);
+        card.findViewById(R.id.capture_item_excerpt_block).setVisibility(hasMaterial ? View.VISIBLE : View.GONE);
+        setOptionalText(exactText, ellipsize(excerpt, 420));
         java.io.File thumbnailFile = record.hasImage ? record.annotatedFile : record.contextFile;
         boolean hasPreview = thumbnailFile != null;
-        if(record.comment.isEmpty() && record.sourceText.isEmpty() && original.isEmpty()) setOptionalText(comment,hasPreview?"截图记录":"未填写文字");
+        if (!hasComment && !hasMaterial) setOptionalText(comment, "未填写文字");
         image.setVisibility(hasPreview ? View.VISIBLE : View.GONE);
         if (hasPreview) {
             thumbnailExecutor.execute(() -> {
@@ -474,7 +481,9 @@ public final class CaptureInboxActivity extends Activity {
             });
         }
         card.setContentDescription(
-                (record.comment.isEmpty()?exactText.getText():record.comment) + "，" + kind.getText() + "，" + DateFormat.format("yyyy-MM-dd HH:mm",record.createdAt) + "，" + source.getText()
+                (hasComment ? commentLabel.getText() + "：" + ellipsize(record.comment, 420) + "，" : "")
+                        + (hasMaterial ? excerptLabel.getText() + "：" + exactText.getText() + (hasPreview ? "，含截图" : "") + "，" : "")
+                        + kind.getContentDescription() + "，" + DateFormat.format("yyyy-MM-dd HH:mm",record.createdAt) + "，" + source.getText()
                         + "，自定义标签：" + CaptureTags.display(record.tags) + "，" + sync.getText() + "，"
                         + getString(R.string.capture_detail_open_hint)
         );
@@ -719,26 +728,23 @@ public final class CaptureInboxActivity extends Activity {
         }
     }
 
-    private int kindLabel(String kind) {
-        if ("thought".equals(kind)) {
-            return R.string.capture_kind_thought;
-        }
-        if ("todo".equals(kind)) {
-            return R.string.capture_kind_todo;
-        }
-        return R.string.capture_kind_comment;
+    private List<String> recordCategories(CaptureStore.CaptureRecord record) {
+        List<String> categories = new ArrayList<>();
+        if ("todo".equals(record.kind)) categories.add("待办");
+        else if (hasThought(record)) categories.add("想法");
+        if (hasMaterial(record)) categories.add("摘录");
+        if (categories.isEmpty()) categories.add("记录");
+        return categories;
     }
 
-    private String recordCategory(CaptureStore.CaptureRecord record) {
-        if (!"todo".equals(record.kind) && record.comment.trim().isEmpty() && hasMaterial(record)) {
-            return "摘录";
-        }
-        return "comment".equals(record.kind) ? "批注" : getString(kindLabel(record.kind));
+    private boolean hasThought(CaptureStore.CaptureRecord record) {
+        return !"todo".equals(record.kind) && (!record.comment.trim().isEmpty()
+                || ("thought".equals(record.kind) && !hasMaterial(record)));
     }
 
     private boolean hasMaterial(CaptureStore.CaptureRecord record) {
-        return record.hasImage || record.contextFile != null || !record.sourceText.isEmpty()
-                || !CaptureRecordEdits.original(record).isEmpty();
+        return record.hasImage || record.contextFile != null || !record.sourceText.trim().isEmpty()
+                || !CaptureRecordEdits.original(record).trim().isEmpty();
     }
 
     private String filteredCount(int count, int total) {

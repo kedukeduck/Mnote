@@ -5,6 +5,7 @@ import android.util.AttributeSet;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
+import java.util.List;
 import org.json.JSONArray;
 
 /** Compact, non-interactive metadata chips that wrap with the user's font size. */
@@ -15,17 +16,29 @@ public final class RecordTagsView extends ViewGroup {
         removeAllViews();
         setContentDescription("自定义标签：" + CaptureTags.display(tags));
         for (int i = 0; i < tags.length(); i++) {
-            TextView chip = new TextView(getContext());
-            chip.setText("# " + tags.optString(i));
-            chip.setTextColor(getContext().getColor(R.color.ink_muted));
-            chip.setTextSize(11);
-            chip.setIncludeFontPadding(false);
-            chip.setPadding(dp(7), dp(4), dp(7), dp(4));
-            chip.setBackgroundResource(R.drawable.bg_record_tag);
-            chip.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            addView(chip, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
+            addChip("# " + tags.optString(i), false);
         }
         setVisibility(tags.length() == 0 ? GONE : VISIBLE);
+    }
+
+    void setCategories(List<String> categories) {
+        removeAllViews();
+        setContentDescription("系统分类：" + android.text.TextUtils.join("、", categories));
+        for (String category : categories) addChip(category, true);
+        setVisibility(categories.isEmpty() ? GONE : VISIBLE);
+    }
+
+    private void addChip(String text, boolean system) {
+        TextView chip = new TextView(getContext());
+        chip.setText(text);
+        chip.setTextColor(getContext().getColor(system ? R.color.white : R.color.ink_muted));
+        chip.setTextSize(system ? 12 : 11);
+        chip.setIncludeFontPadding(false);
+        chip.setPadding(dp(system ? 8 : 7), dp(system ? 3 : 4), dp(system ? 8 : 7), dp(system ? 3 : 4));
+        chip.setBackgroundResource(!system ? R.drawable.bg_record_tag
+                : "摘录".equals(text) ? R.drawable.bg_record_category_excerpt : R.drawable.bg_record_category);
+        chip.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        addView(chip, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
     }
 
     @Override protected void onMeasure(int widthSpec, int heightSpec) {

@@ -1,0 +1,7 @@
+<resources>
+    <string name="capture_preview_thought">我的想法</string>
+    <string name="capture_preview_todo">待办内容</string>
+    <string name="capture_preview_excerpt">摘录</string>
+    <string name="capture_preview_original">页面原文</string>
+    <string name="capture_preview_image">截图</string>
+</resources>
