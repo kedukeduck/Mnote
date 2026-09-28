@@ -3,6 +3,15 @@ set -euo pipefail
 
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Non-login runners (for example systemd) do not inherit nvm's shell setup.
+# Check this before the long native suites, rather than failing at stage 5.
+for required_tool in node npm; do
+  command -v "${required_tool}" >/dev/null 2>&1 || {
+    echo "${required_tool} is missing from PATH; include the installed Node bin directory." >&2
+    exit 127
+  }
+done
+
 find_android_tool() {
   local tool="$1"
   local candidate=""
