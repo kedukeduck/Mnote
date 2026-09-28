@@ -92,8 +92,7 @@ int wmain(int argc, wchar_t **argv) {
         if (!home || !list || SendMessageW(list, LB_GETCOUNT, 0, 0) != 3) return 62;
         const int dpi = static_cast<int>(GetDpiForWindow(home));
         auto scale = [dpi](int n) { return MulDiv(n, dpi, 96); };
-        if (SendMessageW(list, LB_GETITEMHEIGHT, 0, 0) != scale(176)) return 63;
-        bool thought = false, excerpt = false;
+        bool thought = false, excerpt = false, mixed = false;
         for (int i = 0; i < 3; ++i) {
             const auto length = SendMessageW(list, LB_GETTEXTLEN, i, 0);
             if (length < 1 || length > 200000) return 64;
@@ -101,8 +100,13 @@ int wmain(int argc, wchar_t **argv) {
             SendMessageW(list, LB_GETTEXT, i, reinterpret_cast<LPARAM>(label.data()));
             thought = thought || label.rfind(L"想法 · ", 0) == 0;
             excerpt = excerpt || label.rfind(L"摘录 · ", 0) == 0;
+            const bool rowMixed = label.rfind(L"想法 · 摘录 · ", 0) == 0;
+            mixed = mixed || rowMixed;
+            if (SendMessageW(list, LB_GETITEMHEIGHT, i, 0) != scale(rowMixed ? 276 : 212)) return 63;
+            if (rowMixed && (label.find(L"我的想法：edited-thought") == std::wstring::npos ||
+                             label.find(L"摘录：clipboard excerpt") == std::wstring::npos)) return 69;
         }
-        if (!thought || !excerpt) return 65;
+        if (!thought || !excerpt || !mixed) return 65;
         RECT row{}, bounds{}, capture{}, note{}, client{};
         SendMessageW(list, LB_GETITEMRECT, 1, reinterpret_cast<LPARAM>(&row));
         HDC dc = GetDC(list);
@@ -115,6 +119,32 @@ int wmain(int argc, wchar_t **argv) {
         if (client.right < scale(1080) && (capture.right > bounds.left || note.right > bounds.left))
             return 67;
         return 0;
+    }
+    if (action == L"mixed-preview-ready") {
+        auto list = GetDlgItem(home, 2005);
+        if (!list || SendMessageW(list, LB_GETCOUNT, 0, 0) != 1) return 70;
+        const int dpi = static_cast<int>(GetDpiForWindow(home));
+        auto scale = [dpi](int n) { return MulDiv(n, dpi, 96); };
+        RECT row{};
+        SendMessageW(list, LB_GETITEMRECT, 0, reinterpret_cast<LPARAM>(&row));
+        HDC dc = GetDC(list);
+        // Source surface begins after the complete thought block, not on top of it.
+        const auto quoteLine = GetPixel(dc, scale(14), row.top + scale(126));
+        const auto sourceSurface = GetPixel(dc, scale(20), row.top + scale(126));
+        ReleaseDC(list, dc);
+        return quoteLine == RGB(149,85,48) && sourceSurface == RGB(239,235,227) ? 0 : 71;
+    }
+    if (action == L"mixed-dpi-ready") {
+        auto list = GetDlgItem(home, 2005);
+        if (!list || SendMessageW(list, LB_GETCOUNT, 0, 0) != 1) return 72;
+        const int originalDpi = static_cast<int>(GetDpiForWindow(home));
+        // Do not pass a RECT pointer from the driver's address space to the app.
+        // A null suggested rect keeps the current bounds for this synthetic DPI check.
+        SendMessageW(home, WM_DPICHANGED, MAKEWPARAM(144, 144), 0);
+        const bool enlarged = SendMessageW(list, LB_GETITEMHEIGHT, 0, 0) == MulDiv(276, 144, 96);
+        SendMessageW(home, WM_DPICHANGED, MAKEWPARAM(originalDpi, originalDpi), 0);
+        const bool restored = SendMessageW(list, LB_GETITEMHEIGHT, 0, 0) == MulDiv(276, originalDpi, 96);
+        return enlarged && restored ? 0 : 73;
     }
     if (action == L"read-record" && argc == 3) {
         auto list = GetDlgItem(home, 2005);
@@ -440,14 +470,15 @@ int wmain(int argc, wchar_t **argv) {
         Click(home, 2010);
         return 0;
     }
-    if (action == L"tag" && argc == 3) {
-        auto c = GetDlgItem(home, 2003);
+    if ((action == L"tag" || action == L"kind") && argc == 3) {
+        const int id = action == L"kind" ? 2004 : 2003;
+        auto c = GetDlgItem(home, id);
         auto index = SendMessageW(c, CB_FINDSTRINGEXACT, static_cast<WPARAM>(-1),
                                   reinterpret_cast<LPARAM>(argv[2]));
         if (index < 0)
             return 17;
         SendMessageW(c, CB_SETCURSEL, static_cast<WPARAM>(index), 0);
-        PostMessageW(home, WM_COMMAND, MAKEWPARAM(2003, CBN_SELCHANGE),
+        PostMessageW(home, WM_COMMAND, MAKEWPARAM(id, CBN_SELCHANGE),
                      reinterpret_cast<LPARAM>(c));
         return 0;
     }

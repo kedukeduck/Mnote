@@ -148,10 +148,27 @@ drive show
 until_drive library-uncovered
 sleep 0.3
 until_drive cards-ready
+drive kind 想法
+until_drive count 1
+until_drive mixed-preview-ready
+drive mixed-dpi-ready
+drive home-size 1240 900
+until_drive mixed-preview-ready
+drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/mixed-record-library.png" "Mnote · 我的知识库"
+drive kind 摘录
+until_drive count 3
+drive kind 全部类型
+until_drive count 3
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/library-preview.png"
 drive home-size 780 650
 sleep 0.3
 until_drive cards-ready
+drive kind 想法
+until_drive count 1
+until_drive mixed-preview-ready
+drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/mixed-record-library-compact.png" "Mnote · 我的知识库"
+drive kind 全部类型
+until_drive count 3
 drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/journal-library-compact.png" "Mnote · 我的知识库"
 drive home-size 1240 900
 sleep 0.3

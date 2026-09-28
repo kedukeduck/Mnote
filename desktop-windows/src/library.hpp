@@ -39,7 +39,13 @@ struct Record {
     fs::path file;
     std::map<std::string, fs::path> assets;
 };
-// Presentation only: never rewrite the persisted kind when a capture is an excerpt.
+// Presentation only: content-derived labels never rewrite the persisted kind.
+struct RecordPresentation {
+    std::vector<std::wstring> categories;
+    std::wstring comment, commentLabel, material, materialLabel;
+    bool hasThought = false, hasMaterial = false;
+};
+RecordPresentation PresentRecord(const Record &record);
 std::wstring RecordCategory(const Record &record);
 using Transport = std::function<PersonalCaptureSync::Response(
     const PersonalCaptureSync::Settings &, const std::wstring &, const std::wstring &,

@@ -321,27 +321,45 @@ std::wstring TagText(const Json &record) {
     }
     return text;
 }
-std::wstring RecordCategory(const Record &record) {
+RecordPresentation PresentRecord(const Record &record) {
     auto text = [](const Json &data, const char *key) {
         auto found = data.find(key);
         return found != data.end() && found->is_string()
                    ? Trim(Wide(found->get<std::string>())) : std::wstring();
     };
+    RecordPresentation result;
     const auto kind = text(record.data, "kind");
-    if (kind == L"todo")
-        return L"待办";
-    if (kind == L"later")
-        return L"稍后回顾";
-    bool material = !record.assets.empty();
+    result.comment = text(record.data, "comment");
+    result.commentLabel = kind == L"todo" ? L"待办内容" : kind == L"later" ? L"稍后回顾" : L"我的想法";
+    result.hasMaterial = !record.assets.empty();
     auto source = record.data.find("source");
     if (source != record.data.end() && source->is_object())
-        material = material || !text(*source, "text").empty();
+        result.material = text(*source, "text");
+    result.materialLabel = L"摘录";
     const Json::json_pointer original("/evidence/context/text/full_text");
-    if (record.data.contains(original) && record.data[original].is_string())
-        material = material || !Trim(Wide(record.data[original].get<std::string>())).empty();
-    if (text(record.data, "comment").empty() && material)
-        return L"摘录";
-    return kind == L"thought" ? L"想法" : L"批注";
+    if (result.material.empty() && record.data.contains(original) && record.data[original].is_string()) {
+        result.material = Trim(Wide(record.data[original].get<std::string>()));
+        result.materialLabel = L"页面原文";
+    }
+    result.hasMaterial = result.hasMaterial || !result.material.empty();
+    if (result.material.empty())
+        result.materialLabel = L"截图";
+    result.hasThought = kind != L"todo" && kind != L"later" &&
+                        (!result.comment.empty() || (kind == L"thought" && !result.hasMaterial));
+    if (kind == L"todo") result.categories.push_back(L"待办");
+    else if (kind == L"later") result.categories.push_back(L"稍后回顾");
+    else if (result.hasThought) result.categories.push_back(L"想法");
+    if (result.hasMaterial) result.categories.push_back(L"摘录");
+    if (result.categories.empty()) result.categories.push_back(L"记录");
+    return result;
+}
+std::wstring RecordCategory(const Record &record) {
+    std::wstring result;
+    for (const auto &category : PresentRecord(record).categories) {
+        if (!result.empty()) result += L" · ";
+        result += category;
+    }
+    return result;
 }
 Json TextContext(const std::wstring &text, const std::string &origin, const std::wstring &quote) {
     if (text.size() > 40000)
