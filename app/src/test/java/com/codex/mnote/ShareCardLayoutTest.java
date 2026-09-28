@@ -9,6 +9,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.*;
 import org.robolectric.annotation.*;
+import org.robolectric.util.ReflectionHelpers;
 
 @RunWith(RobolectricTestRunner.class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -21,6 +22,39 @@ public class ShareCardLayoutTest {
                 + "a".repeat(64)),
             RuntimeEnvironment.getApplication().getResources().getFont(R.font.noto_serif_cjk),
             position);
+    }
+    @Test
+    public void editorialHierarchyUsesInsetExcerptAndQuietBottomRightQr() throws Exception {
+        Typeface serif =
+            RuntimeEnvironment.getApplication().getResources().getFont(R.font.noto_serif_cjk);
+        Bitmap qr = ShareCardRenderer.qr(
+            "https://chenyu.online/heartnote-capture/c/" + "a".repeat(64));
+        var result = ShareCardRenderer.render(ShareCardTest.QUOTE, ShareCardTest.THOUGHT,
+            null, null, 3, qr, serif);
+        List<?> blocks = ReflectionHelpers.getField(result.document, "blocks");
+        android.text.StaticLayout thought = ReflectionHelpers.getField(blocks.get(0), "text");
+        android.text.StaticLayout excerpt = ReflectionHelpers.getField(blocks.get(1), "text");
+        assertEquals(serif, thought.getPaint().getTypeface());
+        assertEquals(54f, thought.getPaint().getTextSize(), 0);
+        assertEquals(44f, excerpt.getPaint().getTextSize(), 0);
+        assertTrue(excerpt.getWidth() < thought.getWidth());
+        assertNotEquals(thought.getPaint().getColor(), excerpt.getPaint().getColor());
+        assertEquals(34, (int) ReflectionHelpers.getField(blocks.get(1), "textInset"));
+        assertEquals(208, qr.getWidth());
+        int top = ReflectionHelpers.getField(result.document, "top");
+        int gap = ReflectionHelpers.getField(result.document, "gap");
+        float thoughtHeight = ReflectionHelpers.getField(blocks.get(0), "height");
+        float excerptTop = top + thoughtHeight + gap;
+        assertEquals(ShareCardRenderer.PAPER, result.bitmap.getPixel(74, top));
+        assertNotEquals(ShareCardRenderer.PAPER, result.bitmap.getPixel(74, (int) excerptTop + 8));
+        float excerptHeight = ReflectionHelpers.getField(blocks.get(1), "height");
+        float qrTop = ReflectionHelpers.getField(result.document, "qrTop");
+        assertTrue(qrTop >= excerptTop + excerptHeight + 40);
+        assertEquals(0, Math.round(qrTop) % 2);
+        assertEquals(0, result.document.height % 2);
+        assertEquals(result.document.height - 68, Math.round(qrTop + qr.getHeight()));
+        result.bitmap.recycle();
+        qr.recycle();
     }
     @Test
     public void shortCardsShrinkAndThoughtIsNeverTruncated() throws Exception {
@@ -115,7 +149,7 @@ public class ShareCardLayoutTest {
                 card.bitmap, 540, Math.round(card.bitmap.getHeight() / 2f), true);
             int[] pixels = new int[540 * half.getHeight()];
             half.getPixels(pixels, 0, 540, 0, 0, 540, half.getHeight());
-            String decoded = new com.google.zxing.MultiFormatReader()
+            String decoded = new com.google.zxing.qrcode.QRCodeReader()
                                  .decode(new com.google.zxing.BinaryBitmap(
                                      new com.google.zxing.common.HybridBinarizer(
                                          new com.google.zxing.RGBLuminanceSource(
@@ -146,7 +180,7 @@ public class ShareCardLayoutTest {
         int h = 400;
         int[] pixels = new int[1080 * h];
         decoded.getPixels(pixels, 0, 1080, 0, decoded.getHeight() - h, 1080, h);
-        String url = new com.google.zxing.MultiFormatReader()
+        String url = new com.google.zxing.qrcode.QRCodeReader()
                          .decode(new com.google.zxing.BinaryBitmap(
                              new com.google.zxing.common.HybridBinarizer(
                                  new com.google.zxing.RGBLuminanceSource(1080, h, pixels))))

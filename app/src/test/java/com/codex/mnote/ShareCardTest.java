@@ -144,14 +144,15 @@ public class ShareCardTest {
                 r.bitmap.getPixels(pixels, 0, 1080, 0, 0, 1080, height);
                 String decoded;
                 try {
-                    decoded = new MultiFormatReader()
+                    // We generate QR codes: ignore false 1D barcodes in the surrounding typography.
+                    decoded = new com.google.zxing.qrcode.QRCodeReader()
                                   .decode(new BinaryBitmap(new HybridBinarizer(
                                       new RGBLuminanceSource(1080, height, pixels))))
                                   .getText();
                 } catch (NotFoundException error) {
                     throw new AssertionError("full-size QR mask " + mask, error);
                 }
-                assertEquals(url, decoded);
+                assertEquals("full-size QR mask " + mask, url, decoded);
             }
             if (mask == 2 || mask == 63) {
                 Bitmap reduced = Bitmap.createScaledBitmap(
@@ -160,7 +161,7 @@ public class ShareCardTest {
                 reduced.getPixels(pixels, 0, 540, 0, 0, 540, reduced.getHeight());
                 Result scan;
                 try {
-                    scan = new MultiFormatReader().decode(new BinaryBitmap(new HybridBinarizer(
+                    scan = new com.google.zxing.qrcode.QRCodeReader().decode(new BinaryBitmap(new HybridBinarizer(
                         new RGBLuminanceSource(540, reduced.getHeight(), pixels))));
                 } catch (NotFoundException error) {
                     throw new AssertionError("half-size QR mask " + mask, error);
@@ -169,6 +170,17 @@ public class ShareCardTest {
                 for (ResultPoint point : scan.getResultPoints()) assertTrue(point.getX() > 270);
                 reduced.recycle();
             }
+            // All 63 combinations additionally exercise a focused QR scan at 540px resolution.
+            // A default whole-image search skips rows on taller cards; focusing on the footer
+            // models pointing a camera/long-press at the code, without upscaling or TRY_HARDER.
+            Bitmap half = Bitmap.createScaledBitmap(r.bitmap, 540, r.bitmap.getHeight() / 2, true);
+            int focusedHeight = Math.min(180, half.getHeight());
+            int[] footer = new int[270 * focusedHeight];
+            half.getPixels(footer, 0, 270, 270, half.getHeight() - focusedHeight, 270, focusedHeight);
+            Result focused = new com.google.zxing.qrcode.QRCodeReader().decode(
+                new BinaryBitmap(new HybridBinarizer(new RGBLuminanceSource(270, focusedHeight, footer))));
+            assertEquals("focused half-size QR mask " + mask, url, focused.getText());
+            half.recycle();
             r.bitmap.recycle();
         }
     }

@@ -10,12 +10,13 @@ import java.util.*;
 /** Measure once: preview, full-size reader and PNG export share the same immutable layout. */
 final class ShareCardRenderer {
     static final int WIDTH = 1080, HEIGHT = 1920, PREVIEW_HEIGHT = 4096, MAX_HEIGHT = 120000;
-    static final int QR_SIZE = 248, QR_GAP = 28, QR_FOOTER = QR_SIZE + QR_GAP;
+    static final int QR_SIZE = 208, QR_GAP = 44, QR_FOOTER = QR_SIZE + QR_GAP;
     static final int QUOTE = 1, THOUGHT = 2, CROP = 4, CONTEXT = 8, ORIGINAL = 16, SOURCE = 32,
                      ANNOTATED = 64;
-    static final int PAPER = Color.rgb(247, 242, 232), INK = Color.rgb(48, 46, 40),
-                     ACCENT = Color.rgb(169, 80, 53);
-    private static final int MARGIN = 68, CONTENT_WIDTH = 944, NOTICE = 44;
+    static final int PAPER = 0xfff7f4ec, INK = 0xff24494e, ACCENT = 0xff955530;
+    private static final int MARGIN = 68, CONTENT_WIDTH = 944, NOTICE = 44,
+                             QUOTE_INSET = 34, QUOTE_PAPER = 0xffeeece3,
+                             SECONDARY_INK = 0xff4c5957, MUTED_INK = 0xff6d726a;
     static final class Result {
         final Bitmap bitmap;
         final String error;
@@ -34,6 +35,7 @@ final class ShareCardRenderer {
         StaticLayout text;
         Bitmap image;
         float height, desired, minimum, weight;
+        int textTop, textBottom, textInset;
         boolean partial;
     }
     static final class Document {
@@ -43,16 +45,15 @@ final class ShareCardRenderer {
         final float contextPosition;
         private final List<Block> blocks;
         private final Bitmap qr;
-        private final int mask, top, gap, heading;
+        private final int mask, top, gap;
         private final float qrTop;
-        Document(List<Block> blocks, Bitmap qr, int mask, int top, int gap, int heading, int height,
+        Document(List<Block> blocks, Bitmap qr, int mask, int top, int gap, int height,
             float qrTop, boolean compact, float position, String thought) {
             this.blocks = Collections.unmodifiableList(blocks);
             this.qr = qr;
             this.mask = mask;
             this.top = top;
             this.gap = gap;
-            this.heading = heading;
             this.height = height;
             this.qrTop = qrTop;
             this.compact = compact;
@@ -80,11 +81,11 @@ final class ShareCardRenderer {
             Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
             paint.setColor(INK);
             paint.setTypeface(Typeface.create("serif", Typeface.NORMAL));
-            paint.setTextSize(46);
-            canvas.drawText("Mnote", MARGIN, 91, paint);
-            paint.setColor(0xffc9bdae);
-            paint.setStrokeWidth(1.5f);
-            canvas.drawLine(MARGIN, 120, WIDTH - MARGIN, 120, paint);
+            paint.setTextSize(38);
+            canvas.drawText("Mnote", MARGIN, 88, paint);
+            paint.setColor(ACCENT);
+            paint.setStrokeWidth(3);
+            canvas.drawLine(MARGIN, 113, MARGIN + 44, 113, paint);
             float y = top;
             for (Block b : blocks) {
                 if (b.image != null) {
@@ -109,42 +110,43 @@ final class ShareCardRenderer {
                     if (b.partial)
                         notice(canvas, paint, "页面截图 · 局部预览", y + imageHeight + 32);
                 } else {
-                    paint.setColor(ACCENT);
                     paint.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
-                    paint.setTextSize(32);
+                    paint.setTextSize(26);
                     if (b.kind == QUOTE) {
-                        paint.setTypeface(Typeface.create("serif", Typeface.BOLD));
-                        paint.setTextSize(54);
-                        canvas.drawText("“", MARGIN, y + 44, paint);
-                        paint.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
-                        paint.setTextSize(32);
-                        canvas.drawText("摘录", MARGIN + 58, y + 39, paint);
+                        paint.setColor(QUOTE_PAPER);
+                        canvas.drawRoundRect(
+                            MARGIN, y, WIDTH - MARGIN, y + b.height, 8, 8, paint);
+                        paint.setColor(ACCENT);
+                        canvas.drawRect(MARGIN, y + 24, MARGIN + 3, y + b.height - 24, paint);
+                        canvas.drawText("摘录", MARGIN + b.textInset, y + 45, paint);
                     } else {
-                        if (y > top)
-                            canvas.drawLine(MARGIN, y - 12, WIDTH - MARGIN, y - 12, paint);
-                        canvas.drawText("我的想法", MARGIN, y + 39, paint);
+                        paint.setColor(ACCENT);
+                        canvas.drawText("我的想法", MARGIN, y + 27, paint);
                     }
                     canvas.save();
-                    canvas.translate(MARGIN, y + heading);
+                    canvas.translate(MARGIN + b.textInset, y + b.textTop);
                     b.text.draw(canvas);
                     canvas.restore();
-                    if (b.partial)
-                        notice(canvas, paint, "摘录未完整展示", y + b.height - 12);
+                    if (b.partial) {
+                        canvas.save();
+                        canvas.translate(b.textInset, 0);
+                        notice(canvas, paint, "摘录未完整展示 · 扫码继续阅读",
+                            y + b.height - b.textBottom - 10);
+                        canvas.restore();
+                    }
                 }
                 y += b.height + gap;
             }
             if (qr != null) {
-                paint.setColor(0xffbd9e86);
-                canvas.drawLine(MARGIN, qrTop - 24, WIDTH - MARGIN, qrTop - 24, paint);
                 paint.setFilterBitmap(false);
                 canvas.drawBitmap(qr, WIDTH - MARGIN - qr.getWidth(), qrTop, paint);
                 paint.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
                 paint.setColor(INK);
-                paint.setTextSize(38);
-                canvas.drawText("扫码查看本次分享", MARGIN, qrTop + 106, paint);
-                paint.setColor(0xff746a60);
-                paint.setTextSize(30);
-                canvas.drawText("长按识别 · 查看所选内容", MARGIN, qrTop + 154, paint);
+                paint.setTextSize(28);
+                canvas.drawText("查看本次分享", MARGIN, qrTop + QR_SIZE / 2f - 6, paint);
+                paint.setColor(MUTED_INK);
+                paint.setTextSize(24);
+                canvas.drawText("长按识别二维码", MARGIN, qrTop + QR_SIZE / 2f + 32, paint);
             }
         }
         void drawContextPreview(Canvas canvas, int width, int height) {
@@ -167,9 +169,9 @@ final class ShareCardRenderer {
             canvas.restore();
         }
         private static void notice(Canvas c, Paint p, String text, float baseline) {
-            p.setColor(0xff746a60);
+            p.setColor(MUTED_INK);
             p.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
-            p.setTextSize(28);
+            p.setTextSize(24);
             c.drawText(text, MARGIN, baseline, p);
         }
     }
@@ -220,7 +222,7 @@ final class ShareCardRenderer {
     }
     private static Document layout(String quote, String thought, Bitmap crop, Bitmap context,
         int mask, Bitmap qr, Typeface serif, float position, boolean compact) {
-        int heading = compact ? 56 : 64, gap = compact ? 22 : 30, top = compact ? 150 : 170;
+        int gap = compact ? 26 : 40, top = compact ? 146 : 168;
         int moduleCount = Integer.bitCount(mask & 15);
         int singleImageBudget = HEIGHT - top - MARGIN - QR_FOOTER;
         List<Block> blocks = new ArrayList<>(), optional = new ArrayList<>();
@@ -228,8 +230,9 @@ final class ShareCardRenderer {
         if ((mask & THOUGHT) != 0) {
             Block b = new Block();
             b.kind = THOUGHT;
-            b.text = text(thought, 52, Typeface.create("sans-serif", Typeface.NORMAL));
-            b.height = heading + b.text.getHeight();
+            b.textTop = compact ? 46 : 54;
+            b.text = text(thought, 54, serif, CONTENT_WIDTH, INK, 8, 1.14f);
+            b.height = b.textTop + b.text.getHeight();
             blocks.add(b);
         }
         if ((mask & QUOTE) != 0) {
@@ -237,9 +240,13 @@ final class ShareCardRenderer {
             b.kind = QUOTE;
             // Bound measurement work for huge excerpts, never the stored record or thought.
             String prefix = quote.substring(0, safeBoundary(quote, Math.min(6000, quote.length())));
-            b.text = text(prefix, compact ? 74 : 78, serif);
-            b.desired = heading + b.text.getHeight();
-            b.minimum = Math.min(b.desired, heading + b.text.getLineBottom(0) + NOTICE);
+            b.textTop = compact ? 58 : 64;
+            b.textBottom = compact ? 22 : 28;
+            b.textInset = QUOTE_INSET;
+            b.text = quoteText(prefix);
+            b.desired = b.textTop + b.text.getHeight() + b.textBottom;
+            b.minimum = Math.min(b.desired,
+                b.textTop + b.text.getLineBottom(0) + NOTICE + b.textBottom);
             b.weight = 3;
             blocks.add(b);
             optional.add(b);
@@ -274,17 +281,18 @@ final class ShareCardRenderer {
         Block q = find(blocks, QUOTE);
         if (q != null) {
             q.partial = q.text.getText().length() < quote.length()
-                || heading + q.text.getHeight() > q.height;
+                || q.textTop + q.text.getHeight() + q.textBottom > q.height;
             if (q.partial) {
-                int maxHeight = Math.max(0, (int) q.height - heading - NOTICE), end = 0;
+                int maxHeight =
+                        Math.max(0, (int) q.height - q.textTop - q.textBottom - NOTICE), end = 0;
                 for (int line = 0;
                     line < q.text.getLineCount() && q.text.getLineBottom(line) <= maxHeight; line++)
                     end = q.text.getLineEnd(line);
                 end = excerptEnd(quote, end);
-                q.text = text(quote.substring(0, end), compact ? 74 : 78, serif);
+                q.text = quoteText(quote.substring(0, end));
             }
             float old = q.height;
-            q.height = heading + q.text.getHeight() + (q.partial ? NOTICE : 0);
+            q.height = q.textTop + q.text.getHeight() + q.textBottom + (q.partial ? NOTICE : 0);
             List<Block> images = new ArrayList<>();
             for (Block b : optional)
                 if (b.image != null)
@@ -301,8 +309,10 @@ final class ShareCardRenderer {
         float end = top;
         for (Block b : blocks) end += b.height;
         end += gap * Math.max(0, blocks.size() - 1);
-        int height = (int) Math.ceil(end + MARGIN + QR_FOOTER - 0.01f);
-        return new Document(blocks, qr, mask, top, gap, heading, height, end + QR_GAP, compact,
+        // Keep the QR on the two-pixel grid so 540px sharing previews do not blur its modules.
+        int qrTop = (int) Math.ceil((end + QR_GAP - 0.01f) / 2f) * 2;
+        int height = qrTop + QR_SIZE + MARGIN;
+        return new Document(blocks, qr, mask, top, gap, height, qrTop, compact,
             Float.isFinite(position) ? Math.max(0, Math.min(1, position)) : 0, thought);
     }
     private static Block image(int kind, Bitmap bitmap, int cap, float weight) {
@@ -339,14 +349,19 @@ final class ShareCardRenderer {
                 return b;
         return null;
     }
-    private static StaticLayout text(String value, float size, Typeface face) {
+    private static StaticLayout quoteText(String value) {
+        return text(value, 44, Typeface.create("sans-serif", Typeface.NORMAL),
+            CONTENT_WIDTH - 2 * QUOTE_INSET, SECONDARY_INK, 6, 1.12f);
+    }
+    private static StaticLayout text(String value, float size, Typeface face, int width,
+        int color, float spacing, float multiplier) {
         TextPaint p = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-        p.setColor(INK);
+        p.setColor(color);
         p.setTextSize(size);
         p.setTypeface(face);
-        return StaticLayout.Builder.obtain(value, 0, value.length(), p, CONTENT_WIDTH)
+        return StaticLayout.Builder.obtain(value, 0, value.length(), p, width)
             .setIncludePad(false)
-            .setLineSpacing(4, 1.04f)
+            .setLineSpacing(spacing, multiplier)
             .build();
     }
     static int safeBoundary(String value, int end) {
