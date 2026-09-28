@@ -79,6 +79,9 @@ int wmain(int argc, wchar_t **argv) {
     }
     if (action == L"ready")
         return main && home ? 0 : 10;
+    if (action == L"library-uncovered")
+        return home && IsWindowVisible(home) && IsWindowEnabled(home) &&
+               !Window(L"Mnote · 设置") && !Window(L"Mnote · 账号与同步") ? 0 : 68;
     if (action == L"home-size" && argc == 4) {
         if (!home) return 60;
         return SetWindowPos(home, nullptr, 0, 0, std::stoi(argv[2]), std::stoi(argv[3]),

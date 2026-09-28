@@ -9,7 +9,7 @@ server_pid=""
 cleanup() { if [[ -n "${server_pid}" ]]; then kill "${server_pid}" 2>/dev/null || true; wait "${server_pid}" 2>/dev/null || true; fi; }
 trap cleanup EXIT
 drive() { wine "${driver}" "$@"; }
-until_drive() { for _ in $(seq 1 100); do if drive "$@" >/dev/null 2>&1; then return; fi; sleep 0.15; done; drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/failed-timeout.png" || true; echo "GUI timeout: $*" >&2; exit 1; }
+until_drive() { local last_status=0; for _ in $(seq 1 100); do if drive "$@" >/dev/null 2>&1; then return; else last_status=$?; fi; sleep 0.15; done; drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/failed-timeout.png" || true; echo "GUI timeout: $* (driver exit ${last_status})" >&2; exit 1; }
 wineboot -u >/dev/null 2>&1
 if [[ -f /usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf ]]; then
     cp /usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf "${WINEPREFIX}/drive_c/windows/Fonts/"
@@ -141,7 +141,11 @@ PY
     sleep 0.2
 done
 until_drive close-account
+# Account was opened from Settings; close its still-visible parent before pixel checks.
+# GetDC on a covered list can return the settings window's pixels or CLR_INVALID.
+until_drive settings-close
 drive show
+until_drive library-uncovered
 sleep 0.3
 until_drive cards-ready
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/library-preview.png"
