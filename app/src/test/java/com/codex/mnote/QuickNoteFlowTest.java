@@ -163,15 +163,16 @@ public class QuickNoteFlowTest {
     }
 
     @Test
-    public void inboxOffersIndependentEntryAndMovesSetupToSettings() {
+    public void inboxRemovesBottomActionsButSystemQuickNoteStillWorks() {
         try (ActivityController<CaptureInboxActivity> controller =
                      Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
             CaptureInboxActivity activity = controller.get();
             assertNull(activity.findViewById(R.id.capture_setup_panel));
             activity.findViewById(R.id.capture_settings_button).performClick();
             assertEquals(SettingsActivity.class.getName(),shadowOf(activity).getNextStartedActivity().getComponent().getClassName());
-            activity.findViewById(R.id.capture_quick_note_button).performClick();
-            Intent intent = shadowOf(activity).getNextStartedActivity();
+            assertNull(activity.findViewById(R.id.capture_action_dock));
+            assertNull(activity.findViewById(R.id.capture_quick_note_button));
+            Intent intent = QuickNoteTileService.noteIntent(activity);
             assertEquals(new ComponentName(activity, QuickNoteActivity.class), intent.getComponent());
             assertNull(intent.getExtras());
             assertEquals(0, CaptureTileFlowTest.ScreenshotServiceShadow.requests);

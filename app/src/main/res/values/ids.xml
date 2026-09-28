@@ -1,4 +1,8 @@
 <resources>
+    <!-- Retain IDs to verify removed home actions cannot accidentally reappear. -->
+    <item name="capture_action_dock" type="id" />
+    <item name="capture_start_button" type="id" />
+    <item name="capture_quick_note_button" type="id" />
     <item name="capture_expanded_text" type="id" />
     <item name="record_edit_open" type="id" />
     <item name="record_edit_save" type="id" />

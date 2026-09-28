@@ -35,7 +35,7 @@ public class CaptureTagInboxTest {
             choose(a,"全部标签");assertEquals(3,count(a));
             a.<EditText>findViewById(R.id.capture_search).setText("灵感");assertEquals(1,count(a));
             LinearLayout records=a.findViewById(R.id.capture_records);
-            assertTrue(records.getChildAt(0).<TextView>findViewById(R.id.capture_item_tags).getText().toString().contains("#灵感"));
+            assertTrue(records.getChildAt(0).findViewById(R.id.capture_item_tags).getContentDescription().toString().contains("#灵感"));
         }
     }
     @Test public void recordsBeyondFirstFiftyRemainReachableAndFiltersSearchTheWholeLibrary() throws Exception {

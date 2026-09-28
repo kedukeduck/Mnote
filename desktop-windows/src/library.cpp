@@ -321,6 +321,28 @@ std::wstring TagText(const Json &record) {
     }
     return text;
 }
+std::wstring RecordCategory(const Record &record) {
+    auto text = [](const Json &data, const char *key) {
+        auto found = data.find(key);
+        return found != data.end() && found->is_string()
+                   ? Trim(Wide(found->get<std::string>())) : std::wstring();
+    };
+    const auto kind = text(record.data, "kind");
+    if (kind == L"todo")
+        return L"待办";
+    if (kind == L"later")
+        return L"稍后回顾";
+    bool material = !record.assets.empty();
+    auto source = record.data.find("source");
+    if (source != record.data.end() && source->is_object())
+        material = material || !text(*source, "text").empty();
+    const Json::json_pointer original("/evidence/context/text/full_text");
+    if (record.data.contains(original) && record.data[original].is_string())
+        material = material || !Trim(Wide(record.data[original].get<std::string>())).empty();
+    if (text(record.data, "comment").empty() && material)
+        return L"摘录";
+    return kind == L"thought" ? L"想法" : L"批注";
+}
 Json TextContext(const std::wstring &text, const std::string &origin, const std::wstring &quote) {
     if (text.size() > 40000)
         throw std::runtime_error("text_too_long");

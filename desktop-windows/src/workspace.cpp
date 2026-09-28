@@ -19,6 +19,7 @@ constexpr COLORREF Background = RGB(247, 244, 236), Ink = RGB(36, 43, 43),
                    Muted = RGB(102, 108, 102), Accent = RGB(36, 73, 78),
                    Border = RGB(221, 216, 205), Surface = RGB(239, 235, 227),
                    Selected = RGB(227, 233, 227), Copper = RGB(149, 85, 48),
+                   Paper = RGB(255, 254, 250),
                    Danger = RGB(175, 73, 66);
 enum Control {
     Title = 2000,
@@ -118,7 +119,8 @@ struct Window {
     std::uint64_t serial = 0;
     Mode mode = Mode::Library;
     int dpi = 96, scroll = 0, extent = 0;
-    HFONT font = nullptr, heading = nullptr, brand = nullptr, reading = nullptr;
+    HFONT font = nullptr, heading = nullptr, brand = nullptr, reading = nullptr,
+          label = nullptr;
     std::vector<Placement> placements;
     bool busy = false, dirty = false, loading = false, showTrash = false, editing = false;
     std::string scope, baseline;
@@ -316,6 +318,8 @@ void Fonts(Window &w) {
         DeleteObject(w.brand);
     if (w.reading)
         DeleteObject(w.reading);
+    if (w.label)
+        DeleteObject(w.label);
     w.font = CreateFontW(-Scale(w, 15), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, 0,
                          0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
     w.heading = CreateFontW(-Scale(w, 25), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
@@ -324,6 +328,8 @@ void Fonts(Window &w) {
                           DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Georgia");
     w.reading = CreateFontW(-Scale(w, 19), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                             DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    w.label = CreateFontW(-Scale(w, 12), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                          DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
     for (auto &p : w.placements)
         SendMessageW(
             p.control, WM_SETFONT,
@@ -389,18 +395,19 @@ void Layout(Window &w) {
         ShowWindow(ControlOf(w, KindFilter), w.filtersOpen ? SW_SHOW : SW_HIDE);
         int listTop = w.filtersOpen ? 182 : 140;
         move(List, left, listTop, listWidth, std::max(80, height - listTop - 102));
-        SendMessageW(ControlOf(w, List), LB_SETITEMHEIGHT, 0, Scale(w, 134));
+        SendMessageW(ControlOf(w, List), LB_SETITEMHEIGHT, 0, Scale(w, 176));
         move(BatchExport, left + listWidth - 134, height - 82, 134, 38);
         move(MultiCancel, left, height - 82, 62, 38);
         move(MultiAll, left + 68, height - 82, 82, 38);
         move(MultiDelete, left + listWidth - 102, 25, 102, 36);
         move(OpenRecord, wide ? split + 24 : left, height - 82, 100, 38);
         move(ReaderTitle, split + 24, 28, 100, 36);
-        move(Capture, wide ? width - 354 : left, wide ? 28 : height - 132, 88, 38);
-        move(NewNote, wide ? width - 256 : left + 100, wide ? 28 : height - 132, 108, 38);
-        move(Refresh, width - 138, wide ? 28 : height - 132, 114, 38);
-        if (!wide)
-            move(List, left, listTop, listWidth, std::max(80, height - listTop - 160));
+        move(Capture, wide ? width - 354 : 12, wide ? 28 : 218,
+             wide ? 88 : sidebar - 24, 38);
+        move(NewNote, wide ? width - 256 : 12, wide ? 28 : 264,
+             wide ? 108 : sidebar - 24, 38);
+        move(Refresh, wide ? width - 138 : 12, wide ? 28 : 310,
+             wide ? 114 : sidebar - 24, 38);
         move(Subtitle, 24, height - 32, sidebar - 36, 22);
         move(Status, left, height - 34, width - left - 24, 24);
         move(ReaderPanel, split, 92, std::max(120, width - split - 12), height - 190);
@@ -692,9 +699,12 @@ void Populate(Window &w) {
     for (const auto &record : w.records) {
         if (record.deleted != w.showTrash)
             continue;
-        if (kind > 0 && Field(record.data, "kind") !=
+        if (kind > 0 && kind < 4 && Field(record.data, "kind") !=
                             std::vector<std::wstring>{L"", L"thought", L"todo",
                                                       L"later"}[static_cast<std::size_t>(kind)])
+            continue;
+        if (kind == 4 && record.assets.empty() &&
+            Field(Object(record.data, "source"), "text").empty() && OriginalText(record.data).empty())
             continue;
         if (tagIndex == 1 && !record.data.value("tags", Json::array()).empty())
             continue;
@@ -715,7 +725,16 @@ void Populate(Window &w) {
         if (record.id == selected)
             selection = static_cast<int>(w.filtered.size());
         w.filtered.push_back(record);
-        SendMessageW(ControlOf(w, List), LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L""));
+        // Owner-drawn rows still expose a useful label to keyboard/screen-reader users.
+        auto summary = Field(record.data, "comment");
+        if (summary.empty())
+            summary = Field(source, "text");
+        if (summary.empty())
+            summary = OriginalText(record.data);
+        auto accessible = RecordCategory(record) + L" · " + Field(record.data, "created_at") +
+                          L" · " + summary.substr(0, 256) + L" · " + TagText(record.data);
+        SendMessageW(ControlOf(w, List), LB_ADDSTRING, 0,
+                     reinterpret_cast<LPARAM>(accessible.c_str()));
     }
     SendMessageW(ControlOf(w, List), LB_SETCURSEL,
                  static_cast<WPARAM>(selection < 0 ? 0 : selection), 0);
@@ -2465,6 +2484,125 @@ void DrawRecord(Window &w, const DRAWITEMSTRUCT &item) {
     HDC dc = item.hDC;
     bool chosen = w.mode == Mode::Library && w.selecting ? w.selectedIds.count(record.id) > 0
                                                          : (item.itemState & ODS_SELECTED) != 0;
+    if (w.mode == Mode::Library) {
+        FillRect(dc, &r, backgroundBrush);
+        r.top += Scale(w, 6);
+        r.bottom -= Scale(w, 6);
+        r.right -= 1;
+        auto brush = CreateSolidBrush(chosen ? Selected : Paper);
+        auto pen = CreatePen(PS_SOLID, std::max(1, Scale(w, 1)), chosen ? Accent : Border);
+        auto previousBrush = SelectObject(dc, brush);
+        auto previousPen = SelectObject(dc, pen);
+        RoundRect(dc, r.left, r.top, r.right, r.bottom, Scale(w, 12), Scale(w, 12));
+        SelectObject(dc, previousPen);
+        SelectObject(dc, previousBrush);
+        DeleteObject(pen);
+        DeleteObject(brush);
+        auto card = r;
+        r.left += Scale(w, 14);
+        r.right -= Scale(w, 14);
+        r.top += Scale(w, 12);
+        const auto category = RecordCategory(record);
+        SIZE categorySize{};
+        auto previousFont = SelectObject(dc, w.label);
+        GetTextExtentPoint32W(dc, category.c_str(), static_cast<int>(category.size()), &categorySize);
+        SelectObject(dc, previousFont);
+        RECT badge{r.left, r.top, r.left + categorySize.cx + Scale(w, 18), r.top + Scale(w, 20)};
+        auto accent = CreateSolidBrush(Accent);
+        auto oldBrush = SelectObject(dc, accent);
+        auto oldPen = SelectObject(dc, GetStockObject(NULL_PEN));
+        RoundRect(dc, badge.left, badge.top, badge.right, badge.bottom, Scale(w, 6), Scale(w, 6));
+        SelectObject(dc, oldPen);
+        SelectObject(dc, oldBrush);
+        DeleteObject(accent);
+        DrawTextLine(dc, badge, category, RGB(255, 254, 250), w.label,
+                     DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        RECT time{badge.right + Scale(w, 10), r.top, r.right, badge.bottom};
+        if (w.selecting) {
+            RECT check{r.right - Scale(w, 18), r.top + Scale(w, 1), r.right, r.top + Scale(w, 19)};
+            DrawFrameControl(dc, &check, DFC_BUTTON, DFCS_BUTTONCHECK | (chosen ? DFCS_CHECKED : 0));
+            time.right = check.left - Scale(w, 8);
+        }
+        auto stamp = Field(record.data, "created_at");
+        if (stamp.size() >= 16 && stamp[10] == L'T') {
+            stamp = stamp.substr(0, 16);
+            stamp[10] = L' ';
+            stamp += L" UTC";
+        }
+        DrawTextLine(dc, time, stamp, Muted, w.label,
+                     DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        r.top = badge.bottom + Scale(w, 9);
+        r.bottom = r.top + Scale(w, 60);
+        auto image = w.thumbnails.find(record.id);
+        if (!record.assets.empty()) {
+            QueueLibraryThumbnail(w, record);
+            if (image != w.thumbnails.end()) {
+                auto bitmap = image->second;
+                int box = Scale(w, 60);
+                double ratio = std::min(double(box) / bitmap->GetWidth(), double(box) / bitmap->GetHeight());
+                int iw = int(bitmap->GetWidth() * ratio), ih = int(bitmap->GetHeight() * ratio);
+                Gdiplus::Graphics graphics(dc);
+                graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+                graphics.DrawImage(bitmap.get(), r.right - box + (box - iw) / 2,
+                                   r.top + (box - ih) / 2, iw, ih);
+                r.right -= box + Scale(w, 12);
+            }
+        }
+        auto content = Field(record.data, "comment");
+        if (content.empty())
+            content = Field(Object(record.data, "source"), "text");
+        if (content.empty())
+            content = OriginalText(record.data);
+        if (content.empty())
+            content = L"保存的一刻 · 页面截图";
+        DrawTextLine(dc, r, content, Ink, w.font, DT_WORDBREAK | DT_EDITCONTROL | DT_END_ELLIPSIS);
+        r.right = card.right - Scale(w, 14);
+        r.top = card.bottom - Scale(w, 54);
+        r.bottom = r.top + Scale(w, 20);
+        const auto tags = record.data.value("tags", Json::array());
+        int x = r.left;
+        for (std::size_t i = 0; i < tags.size(); ++i) {
+            auto tag = L"# " + Wide(tags[i].get<std::string>());
+            SIZE size{};
+            previousFont = SelectObject(dc, w.label);
+            GetTextExtentPoint32W(dc, tag.c_str(), static_cast<int>(tag.size()), &size);
+            SelectObject(dc, previousFont);
+            const int remaining = static_cast<int>(r.right) - x;
+            if (remaining < Scale(w, 34))
+                break;
+            const int reserve = i + 1 < tags.size() ? Scale(w, 42) : 0;
+            const int chipWidth = std::min<int>(size.cx + Scale(w, 14), remaining - reserve);
+            if (chipWidth < Scale(w, 38)) {
+                RECT overflow{x, r.top, r.right, r.bottom};
+                DrawTextLine(dc, overflow, L"+" + std::to_wstring(tags.size() - i), Muted, w.label);
+                break;
+            }
+            RECT chip{x, r.top, x + chipWidth, r.bottom};
+            auto chipBrush = CreateSolidBrush(Background);
+            auto chipPen = CreatePen(PS_SOLID, std::max(1, Scale(w, 1)), Border);
+            oldBrush = SelectObject(dc, chipBrush);
+            oldPen = SelectObject(dc, chipPen);
+            RoundRect(dc, chip.left, chip.top, chip.right, chip.bottom, Scale(w, 8), Scale(w, 8));
+            SelectObject(dc, oldPen);
+            SelectObject(dc, oldBrush);
+            DeleteObject(chipPen);
+            DeleteObject(chipBrush);
+            chip.left += Scale(w, 7);
+            chip.right -= Scale(w, 7);
+            DrawTextLine(dc, chip, tag, Muted, w.label);
+            x += chipWidth + Scale(w, 6);
+        }
+        r.top = card.bottom - Scale(w, 28);
+        r.bottom = card.bottom - Scale(w, 8);
+        auto sync = record.state == "synced" ? L"已同步" : record.state == "local" ? L"本机保存"
+                   : record.state == "error" ? L"同步待处理" : L"等待同步";
+        DrawTextLine(dc, r, sync, Muted, w.label);
+        if (item.itemState & ODS_FOCUS) {
+            InflateRect(&card, -Scale(w, 3), -Scale(w, 3));
+            DrawFocusRect(dc, &card);
+        }
+        return;
+    }
     HBRUSH brush = CreateSolidBrush(chosen ? Selected : Background);
     if (w.mode == Mode::Markdown || (w.mode == Mode::Library && w.selecting)) {
         FillRect(dc, &r, backgroundBrush);
@@ -2484,59 +2622,6 @@ void DrawRecord(Window &w, const DRAWITEMSTRUCT &item) {
     } else
         FillRect(dc, &r, brush);
     DeleteObject(brush);
-    if (w.mode == Mode::Library) {
-        if (chosen) {
-            RECT marker{r.left, r.top + Scale(w, 10), r.left + Scale(w, 4), r.bottom - Scale(w, 10)};
-            auto accent = CreateSolidBrush(Accent);
-            FillRect(dc, &marker, accent);
-            DeleteObject(accent);
-        }
-        RECT line{r.left + Scale(w, 14), r.bottom - 1, r.right - Scale(w, 14), r.bottom};
-        auto border = CreateSolidBrush(Border);
-        FillRect(dc, &line, border);
-        DeleteObject(border);
-        r.left += Scale(w, 18);
-        r.right -= Scale(w, 14);
-        r.top += Scale(w, 16);
-        auto image = w.thumbnails.find(record.id);
-        if (!record.assets.empty()) {
-            QueueLibraryThumbnail(w, record);
-            if (image != w.thumbnails.end()) {
-                auto bitmap = image->second;
-                int box = Scale(w, 72);
-                double ratio = std::min(double(box) / bitmap->GetWidth(), double(box) / bitmap->GetHeight());
-                int iw = int(bitmap->GetWidth() * ratio), ih = int(bitmap->GetHeight() * ratio);
-                Gdiplus::Graphics graphics(dc);
-                graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-                graphics.DrawImage(bitmap.get(), r.right - box + (box - iw) / 2, r.top + (box - ih) / 2, iw, ih);
-                r.right -= box + Scale(w, 14);
-            }
-        }
-        auto content = Field(record.data, "comment");
-        if (content.empty())
-            content = Field(Object(record.data, "source"), "text");
-        if (content.empty())
-            content = OriginalText(record.data);
-        if (content.empty())
-            content = L"保存的一刻 · 页面截图";
-        r.bottom = r.top + Scale(w, 74);
-        DrawTextLine(dc, r, content, Ink, w.font, DT_WORDBREAK | DT_EDITCONTROL | DT_END_ELLIPSIS);
-        r.top = item.rcItem.bottom - Scale(w, 28);
-        r.bottom = item.rcItem.bottom - Scale(w, 5);
-        r.right = item.rcItem.right - Scale(w, 16);
-        auto stamp = Field(record.data, "created_at");
-        if (stamp.size() >= 16 && stamp[10] == L'T') {
-            stamp = stamp.substr(0, 16);
-            stamp[10] = L' ';
-            stamp += L" UTC";
-        }
-        auto sync = record.state == "synced" ? L"" : record.state == "local" ? L" · 本机保存"
-                   : record.state == "error" ? L" · 同步待处理" : L" · 等待同步";
-        DrawTextLine(dc, r, stamp + sync, Muted, w.font);
-        if (item.itemState & ODS_FOCUS)
-            DrawFocusRect(dc, &item.rcItem);
-        return;
-    }
     int pad = Scale(w, 18);
     r.left += pad;
     r.right -= pad;
@@ -2885,6 +2970,8 @@ LRESULT CALLBACK Procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
             DeleteObject(w->brand);
         if (w->reading)
             DeleteObject(w->reading);
+        if (w->label)
+            DeleteObject(w->label);
         // Remove only this draft's explicitly allocated staging files, never the
         // library or Inbox.
         if (w->mode == Mode::Editor && !w->draft.staging.empty()) {
@@ -3029,7 +3116,7 @@ void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> ca
                  reinterpret_cast<LPARAM>(L"搜索想法、摘录、原文与标签"));
     Add(w, TagFilter, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, 0, 174, 190, 280);
     Add(w, KindFilter, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, 0, 174, 198, 280);
-    for (auto value : {L"全部类型", L"想法", L"TODO", L"稍后回顾"})
+    for (auto value : {L"全部类型", L"想法", L"待办", L"稍后回顾", L"摘录"})
         SendMessageW(ControlOf(w, KindFilter), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(value));
     SendMessageW(ControlOf(w, KindFilter), CB_SETCURSEL, 0, 0);
     Add(w, List, L"LISTBOX", L"",

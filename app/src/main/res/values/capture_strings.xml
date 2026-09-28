@@ -67,7 +67,7 @@
     <string name="capture_inbox_count">本机 %1$d 条</string>
     <string name="capture_inbox_count_zero">本机 0 条</string>
     <string name="capture_empty_title">从一个小想法开始</string>
-    <string name="capture_empty_detail">一句灵感、一件待办，或一张有启发的截图。\n点击“随手记”，写下第一条。</string>
+    <string name="capture_empty_detail">一句灵感、一件待办，或一张有启发的截图。\n从系统快捷方式“随手记”或“单次摘录”开始。\n可在设置的“快捷方式与权限”中添加入口。</string>
 
     <string name="capture_tile_label">单次摘录</string>
     <string name="capture_tile_ready">截图、圈选与批注</string>

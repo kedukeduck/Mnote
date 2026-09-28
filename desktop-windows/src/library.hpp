@@ -39,6 +39,8 @@ struct Record {
     fs::path file;
     std::map<std::string, fs::path> assets;
 };
+// Presentation only: never rewrite the persisted kind when a capture is an excerpt.
+std::wstring RecordCategory(const Record &record);
 using Transport = std::function<PersonalCaptureSync::Response(
     const PersonalCaptureSync::Settings &, const std::wstring &, const std::wstring &,
     const std::string &, std::size_t, int)>;

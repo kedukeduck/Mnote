@@ -143,7 +143,15 @@ done
 until_drive close-account
 drive show
 sleep 0.3
+until_drive cards-ready
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/library-preview.png"
+drive home-size 780 650
+sleep 0.3
+until_drive cards-ready
+drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/journal-library-compact.png" "Mnote · 我的知识库"
+drive home-size 1240 900
+sleep 0.3
+until_drive cards-ready
 drive read-record 2
 sleep 0.3
 drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/journal-library.png" "Mnote · 我的知识库"

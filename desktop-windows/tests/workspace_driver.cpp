@@ -79,6 +79,40 @@ int wmain(int argc, wchar_t **argv) {
     }
     if (action == L"ready")
         return main && home ? 0 : 10;
+    if (action == L"home-size" && argc == 4) {
+        if (!home) return 60;
+        return SetWindowPos(home, nullptr, 0, 0, std::stoi(argv[2]), std::stoi(argv[3]),
+                            SWP_NOMOVE | SWP_NOZORDER) ? 0 : 61;
+    }
+    if (action == L"cards-ready") {
+        auto list = GetDlgItem(home, 2005);
+        if (!home || !list || SendMessageW(list, LB_GETCOUNT, 0, 0) != 3) return 62;
+        const int dpi = static_cast<int>(GetDpiForWindow(home));
+        auto scale = [dpi](int n) { return MulDiv(n, dpi, 96); };
+        if (SendMessageW(list, LB_GETITEMHEIGHT, 0, 0) != scale(176)) return 63;
+        bool thought = false, excerpt = false;
+        for (int i = 0; i < 3; ++i) {
+            const auto length = SendMessageW(list, LB_GETTEXTLEN, i, 0);
+            if (length < 1 || length > 200000) return 64;
+            std::wstring label(static_cast<std::size_t>(length) + 1, L'\0');
+            SendMessageW(list, LB_GETTEXT, i, reinterpret_cast<LPARAM>(label.data()));
+            thought = thought || label.rfind(L"想法 · ", 0) == 0;
+            excerpt = excerpt || label.rfind(L"摘录 · ", 0) == 0;
+        }
+        if (!thought || !excerpt) return 65;
+        RECT row{}, bounds{}, capture{}, note{}, client{};
+        SendMessageW(list, LB_GETITEMRECT, 1, reinterpret_cast<LPARAM>(&row));
+        HDC dc = GetDC(list);
+        const auto gap = GetPixel(dc, scale(20), row.top + scale(2));
+        const auto paper = GetPixel(dc, scale(4), row.top + scale(30));
+        ReleaseDC(list, dc);
+        if (gap != RGB(247,244,236) || paper != RGB(255,254,250)) return 66;
+        GetWindowRect(list, &bounds); GetWindowRect(GetDlgItem(home, 2008), &capture);
+        GetWindowRect(GetDlgItem(home, 2007), &note); GetClientRect(home, &client);
+        if (client.right < scale(1080) && (capture.right > bounds.left || note.right > bounds.left))
+            return 67;
+        return 0;
+    }
     if (action == L"read-record" && argc == 3) {
         auto list = GetDlgItem(home, 2005);
         int index = std::stoi(argv[2]);

@@ -229,7 +229,7 @@ public class CaptureUiLayoutTest {
             View root = layout(activity,390,844);
             android.widget.LinearLayout records = root.findViewById(R.id.capture_records);
             assertEquals(3,records.getChildCount());
-            assertInside(root,root.findViewById(R.id.capture_action_dock));
+            assertNull(root.findViewById(R.id.capture_action_dock));
             render(root,"style-a-library.png");
             android.widget.RadioGroup filters = root.findViewById(R.id.capture_filter_group);
             filters.check(R.id.capture_filter_excerpt); assertEquals(1,records.getChildCount());
@@ -248,9 +248,10 @@ public class CaptureUiLayoutTest {
         try (ActivityController<CaptureInboxActivity> controller =
                      Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
             View root = layout(controller.get(),320,400);
-            assertInside(root,root.findViewById(R.id.capture_action_dock));
-            assertInside(root,root.findViewById(R.id.capture_quick_note_button));
-            assertInside(root,root.findViewById(R.id.capture_start_button));
+            assertNull(root.findViewById(R.id.capture_action_dock));
+            assertNull(root.findViewById(R.id.capture_quick_note_button));
+            assertNull(root.findViewById(R.id.capture_start_button));
+            assertInside(root,root.findViewById(R.id.journal_library_scroll));
             render(root,"style-a-library-small.png");
         } finally { RuntimeEnvironment.setFontScale(1f); }
     }
