@@ -18,6 +18,7 @@ class NoRedirect(HTTPRedirectHandler):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--version", required=True)
+    parser.add_argument("--platform", choices=("android", "windows", "both"), default="both")
     args = parser.parse_args()
     version = args.version
     assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-test)?", version)
@@ -33,11 +34,15 @@ def main():
     with get(BASE + "releases.json") as response:
         releases = json.load(response)
     repo = Path(__file__).resolve().parents[1]
+    download_names = []
     for platform, names in (
         ("android", [f"Mnote-Android-{version}.apk", "SHA256SUMS"]),
         ("windows", [f"Mnote-Windows-{version}-Setup.exe",
                      f"Mnote-Windows-{version}-Portable.zip", "SHA256SUMS"]),
     ):
+        if args.platform not in ("both", platform):
+            continue
+        download_names.extend(name for name in names if name != "SHA256SUMS")
         tag = f"mnote-{platform}-v{version}"
         matches = [r for r in releases if r["tag_name"] == tag]
         assert len(matches) == 1
@@ -65,8 +70,7 @@ def main():
             print(f"Verified {platform} {name}: {size} bytes; SHA-256 {local_hash}; no redirect")
     with get(BASE) as response:
         page = response.read().decode("utf-8")
-    for name in (f"Mnote-Android-{version}.apk", f"Mnote-Windows-{version}-Setup.exe",
-                 f"Mnote-Windows-{version}-Portable.zip"):
+    for name in download_names:
         assert name in page
     print("Public manifest, download page and every package match verified local artifacts.")
 
