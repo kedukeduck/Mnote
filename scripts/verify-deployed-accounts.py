@@ -20,7 +20,10 @@ from heartnote_capture.markdown_export import MarkdownExports
 parser = argparse.ArgumentParser()
 parser.add_argument('--backup', required=True)
 parser.add_argument('--card-shares', action='store_true', help='Verify 0.7 selected-module QR snapshots with synthetic content only')
+parser.add_argument('--editorial', action='store_true', help='Also verify the 0.8 editorial share-page structure')
 args = parser.parse_args()
+if args.editorial and not args.card_shares:
+    parser.error('--editorial requires --card-shares')
 backup = Path(args.backup).resolve()
 assert backup.parent == Path('/var/backups') and backup.name.startswith('mnote-account-upgrade.')
 assert (backup / 'data/captures.sqlite3').is_file()
@@ -88,6 +91,16 @@ try:
             assert shared['id'] == export_id
             status, page = request('GET', public_path)
             assert status == 200
+            if args.editorial:
+                assert b'class="page-header"' in page and b'/assets/share-card.css' in page
+                for field, marker in [('thought', b'class="thought-body"'),
+                                      ('excerpt', b'class="quote-body"'),
+                                      ('original', b'class="original-details"'),
+                                      ('source', b'class="source-link"')]:
+                    assert (marker in page) == (field in fields), ('editorial module', field)
+                if 'original' in fields:
+                    expected_open = not bool(set(fields) & {'thought', 'excerpt', 'crop', 'context'})
+                    assert (b'class="original-details" open' in page) == expected_open
             for field, value in [('thought', body['comment']), ('excerpt', body['source']['text']),
                                  ('original', body['evidence']['context']['text']['full_text']),
                                  ('source', body['source']['url'])]:
