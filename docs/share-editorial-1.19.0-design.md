@@ -9,7 +9,7 @@
 1. [模块选择与实时预览](design/share-editorial/before/01-preview.png)：功能完整，预览与模块选择关系明确；现有短卡中页脚视觉权重偏大。
 2. [混合分享图](design/share-editorial/before/02-card-mixed.png)：想法在上、素材在下的顺序正确，但摘录 78px、想法 52px，字号层级反向。两类内容仅靠小标题区分，阅读时容易先被摘录吸引。
 3. [仅想法短卡](design/share-editorial/before/03-card-thought.png)：248px 二维码占图宽约 23%，与大号页脚说明共同占据大量短卡空间。长横线直接贴近正文末行，段落呼吸感不足。
-4. 扫码阅读页：源码已定位，视觉审查等待本机浏览器使用确认；目前不能称其完成截图验收。用户已确认安卓和网页一起发布，生产发布尚未执行。
+4. 扫码阅读页：[原手机首屏](design/share-editorial/before/05-web-mobile.png)、[原桌面](design/share-editorial/before/05-web-desktop.png)、[原来源入口](design/share-editorial/before/06-web-mobile-source.png)。在获准使用本机 Chromium 后，先对真实服务端模板的合成快照采集截图，再修改代码。想法/摘录字号与字形相同、正文归属难区分，长原文把来源入口推到页面底部，桌面截图无尺寸约束导致页面过长。最初图片尚未加载的截图已拒收，接受的是两张图片 decode 完成后的画面。
 
 证据边界：原生截图来自 Robolectric/Skia，不是实体手机；无法仅凭这些截图声称完整无障碍合规。二维码需要额外验证实际解码，不能只根据外观判断大小是否安全。
 
@@ -21,7 +21,7 @@
 - **去掉装饰性的拥挤**：轻量 Mnote 字标与短下划线取代满宽分隔线；保留合理区块间距。图片仍位于文字之后，原文和来源只通过扫码页查看。
 - **短内容不硬撑，长内容不失真**：保留短卡、轻度压缩、摘录截断、上下文取景与长 PNG 分块导出的既有机制；想法不截断。
 
-扫码页的待验证方向：采用同一字体层级和引用样式；图片保持原比例并可打开原图；原文用明确的原生展开入口，原文-only 页面默认展开；来源呈现为清晰的外链入口。保持纯外部 CSS、既有 CSP、HTML 转义、no-store/no-referrer 与选中字段边界，不加载第三方追踪或字体服务。
+扫码页采用同一字体层级和引用样式；图片保持原比例并可打开原图；原文用明确的原生展开入口，仅原文/来源页面默认展开；来源显示域名及外链入口。有三个以上内容组时生成所选分组的页内导航。保持纯外部 CSS、既有 CSP、HTML 转义、no-store/no-referrer 与选中字段边界，不加载第三方追踪或字体服务。
 
 ## 验收门槛
 
@@ -37,11 +37,22 @@
 
 本轮不改 Windows 本机代码；更新校验脚本新增可选平台参数，默认依旧检查双端，本次只发布 Android 包。扫码页是跨平台网页，后续部署完成后历史有效分享链接也会采用新版样式。
 
-## Android 实现检查点（未发布）
+## Android 实现检查点
 
 - 分享相关 4 个测试类共 63 项通过，0 失败、0 错误、0 跳过；覆盖 API 30/35、全部模块组合、授权/撤销/保存失败、实时勾选和 PNG/预览一致性。日志：`/tmp/mnote-share-native-final.log`。
 - Android debug 构建、lint 通过（0 errors / 116 warnings）；独立任务 `mnote-share-native-final.service` 最终 inactive、Result=success、ExecMainStatus=0。这是分享子系统检查点，不代替发布前完整项目回归。
 - 新版实际渲染：[预览界面](design/share-editorial/after/01-preview.png)、[想法与摘录](design/share-editorial/after/02-card-mixed.png)、[仅想法](design/share-editorial/after/03-card-thought.png)、[包含圈选与上下文截图](design/share-editorial/after/04-card-images.png)。截图全部使用合成记录；图中二维码没有发布为真实分享。
 - 原图不被拉伸；窄图按原比例完整呈现，页面上下文继续按已有取景选择展示局部，不假定其首页顶部就是用户圈选位置。实体手机的分享软件压缩/长按扫码尚未验收。
 - 更新校验脚本的 `--platform android` 已对线上现有 1.18 包做只读校验通过，不代表 1.19 已经上线。
-- 浏览器权限未确认，未修改服务端模板、未部署服务、未打发布 tag 或更新下载清单。下一步是扫码页面前后截图审查、实现、完整项目验证及联合发布。
+- 此检查点之后已获浏览器及联合发布授权；最终完整回归和发布信息以对应发布验证文档为准。
+
+## 扫码页实现与浏览器验收
+
+1. **扫码阅读首屏，通过**：[390px 手机](design/share-editorial/after/05-web-mobile.png)、[320px 窄屏](design/share-editorial/after/05-web-narrow.png)、[桌面](design/share-editorial/after/05-web-desktop.png)。想法 22/26px 衬线、摘录 17/18px 浅底引用，品牌和说明降为次要信息；短分享没有多余导航。
+2. **图片原图与来源，通过**：[来源与折叠原文](design/share-editorial/after/06-web-mobile-source.png)、[仅图片](design/share-editorial/after/08-web-image.png)、[仅来源](design/share-editorial/after/08-web-source.png)。桌面双图并排；预览不裁切原图，以 560px 最大高度控制纵向长度。原图 HTTP 跳转实测为 PNG；来源链接地址和安全属性与原快照一致。
+3. **原文展开与收起，通过**：[展开状态](design/share-editorial/after/07-web-mobile-original.png)、[旧版原文/来源分享](design/share-editorial/after/08-web-legacy.png)。原生 details 不依赖 JavaScript，Space/Enter 可切换；完整原文未从 HTML 删除。第一次焦点截图显示展开按钮外框与下方说明过近，增加 8px 内距后复查。
+4. **短内容状态，通过**：[仅想法](design/share-editorial/after/08-web-thought.png)、[仅摘录](design/share-editorial/after/08-web-excerpt.png)。内容自然收尾，不为填满屏幕放大字或加入无意义卡片。
+
+`scripts/verify-share-page-browser.py` 在 320/390/768/1280px 四种宽度和六种内容组合中通过 24 项响应式检查；无横向溢出、无页面脚本异常、无外部请求。页内导航、原图链接、原文键盘焦点/切换、无 JavaScript 展开、长连续文字和长域名换行均验证。文字对比度：主文 8.94、标题 5.28、辅助文字 4.79、摘录 6.17，均高于 4.5。日志：`/tmp/mnote-1.19-browser-verification.log`。
+
+证据边界：浏览器为本机无头 Chromium，记录全部合成；网页衬线字体使用本机字体回退，不同手机实际字形可能不同。没有把浏览器模拟当成微信/相册实机、Safari、TalkBack 或完整 WCAG 合规验收。来源按钮仅核对目标与安全属性，测试不访问外部原文网站。

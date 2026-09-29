@@ -394,20 +394,55 @@ class MarkdownExports:
                 data = json.loads((self.root / row["id"] / "card.json").read_text(encoding="utf-8"))["data"]
             except (OSError, ValueError, KeyError):
                 raise CaptureNotFound("card")
-            content = ""
-            for field, title in (("thought", "我的想法"), ("excerpt", "摘录")):
-                if field in data:
-                    content += '<section><h2>' + title + '</h2><div class="original">' + html.escape(data[field]) + '</div></section>'
+            groups = [(key, title) for key, title in (
+                ("thought", "想法"), ("excerpt", "摘录"), ("images", "图片"),
+                ("original", "原文"), ("source", "来源"))
+                if key in data or (key == "images" and ("crop" in data or "context" in data))]
+            navigation = ('<nav aria-label="本次分享内容">' + ''.join(
+                '<a href="#' + key + '">' + title + '</a>' for key, title in groups) + '</nav>'
+                if len(groups) >= 3 else '')
+            content = []
+            if "thought" in data:
+                content.append('<section id="thought" class="module thought-module"><h2>我的想法</h2>'
+                    '<div class="thought-body">' + html.escape(data["thought"]) + '</div></section>')
+            if "excerpt" in data:
+                content.append('<section id="excerpt" class="module quote-module"><h2>摘录</h2>'
+                    '<blockquote class="quote-body">' + html.escape(data["excerpt"]) + '</blockquote></section>')
+            images = []
             for field, title in (("crop", "圈选截图"), ("context", "页面截图")):
                 if field in data:
                     src = html.escape(self.public_base + "/s/" + token + "/" + data[field]["name"], quote=True)
-                    content += '<section><h2>' + title + '</h2><a class="image-link" href="' + src + '" aria-label="打开' + title + '原图"><img loading="lazy" src="' + src + '" alt="' + title + '"></a><p class="hint">点击图片查看原图。</p></section>'
+                    images.append('<section class="image-module"><h2>' + title + '</h2>'
+                        '<a class="image-link" href="' + src + '" aria-label="打开' + title + '原图">'
+                        '<img loading="lazy" decoding="async" src="' + src + '" alt="' + title + '">'
+                        '<span class="image-caption">查看原图 <span aria-hidden="true">↗</span></span></a></section>')
+            if images:
+                content.append('<div id="images" class="module images">' + ''.join(images) + '</div>')
             if "original" in data:
-                content += '<section><h2>保存的原文</h2><p class="hint">这是记录时保存的文字，不保证包含完整页面。</p><div class="original">' + html.escape(data["original"]) + '</div></section>'
+                # Legacy/original-only shares should open directly on their actual content.
+                opened = ' open' if not any(key in data for key in ("thought", "excerpt", "crop", "context")) else ''
+                content.append('<section id="original" class="module original-module">'
+                    '<details class="original-details"' + opened + '><summary><h2>保存的原文'
+                    '<span class="summary-action"><span class="when-closed">展开阅读</span>'
+                    '<span class="when-open">收起原文</span></span></h2></summary><div class="original-body">'
+                    '<p class="hint">这是记录时保存的文字，不保证包含完整页面。</p>'
+                    '<div class="original">' + html.escape(data["original"]) + '</div></div></details></section>')
             if "source" in data:
-                content += '<section><h2>来源</h2><p class="hint">以下链接由分享者提供，将前往外部网站。</p><a rel="noreferrer noopener" href="' + html.escape(data["source"], quote=True) + '">打开来源 ↗</a></section>'
+                domain = html.escape(urlsplit(data["source"]).netloc)
+                content.append('<section id="source" class="module source-module"><h2>来源</h2>'
+                    '<a class="source-link" rel="noreferrer noopener" href="' + html.escape(data["source"], quote=True) + '">'
+                    '<span class="source-domain">' + domain + '</span><span class="source-action">打开来源 '
+                    '<span aria-hidden="true">↗</span></span></a>'
+                    '<p class="hint">链接由分享者提供，将前往外部网站。</p></section>')
             css = html.escape(self.public_base + "/assets/share-card.css", quote=True)
-            return ('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><title>Mnote · 本次分享</title><link rel="stylesheet" href="' + css + '"></head><body><main><header>Mnote</header><h1>本次分享</h1><p class="hint">仅展示分享者选择公开的内容，保留分享时的快照。</p>' + content + '<footer>分享者可随时撤销此页面。请勿转发含私人信息的内容。</footer></main></body></html>').encode("utf-8")
+            return ('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
+                '<meta name="viewport" content="width=device-width,initial-scale=1">'
+                '<meta name="robots" content="noindex,nofollow,noarchive"><title>Mnote · 本次分享</title>'
+                '<link rel="stylesheet" href="' + css + '"></head><body><main>'
+                '<header class="page-header"><span class="brand">Mnote</span><h1>本次分享</h1></header>'
+                '<p class="intro">分享时的内容快照</p>' + navigation + '<article>' + ''.join(content) + '</article>'
+                '<footer>仅展示本次选择公开的内容，分享者可随时撤销。<br>请勿转发含私人信息的内容。</footer>'
+                '</main></body></html>').encode("utf-8")
 
     def _preview(self, export_id):
         try:
