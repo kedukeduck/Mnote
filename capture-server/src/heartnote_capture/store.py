@@ -4,6 +4,7 @@ import base64
 import binascii
 import hashlib
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -247,14 +248,27 @@ class CaptureStore:
         self.blob_root.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._initialize()
+        # Chat uses its own private database/feed. The record deletion feed is a
+        # durable cleanup outbox; attached WAL databases cannot commit atomically.
+        from .chat_store import ChatStore
+        self.chats = ChatStore(self)
+        try:
+            self.chats.initialize()
+        except (sqlite3.Error, OSError):
+            # Optional chat storage must not take legacy record reading down.
+            # Chat endpoints retry initialization and return an unavailable error.
+            logging.getLogger(__name__).warning("Chat storage unavailable; record storage remains available")
 
     @contextmanager
-    def connection(self) -> Iterator[sqlite3.Connection]:
+    def connection(self, *, include_chat: bool = False) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.db_path, timeout=30, isolation_level=None)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA busy_timeout=30000")
         try:
+            if include_chat:
+                connection.execute("ATTACH DATABASE ? AS chat", (str(self.root / "chat.sqlite3"),))
+                connection.execute("PRAGMA chat.secure_delete=ON")
             yield connection
         finally:
             connection.close()
@@ -297,6 +311,8 @@ class CaptureStore:
                     operation TEXT NOT NULL,
                     changed_at TEXT NOT NULL
                 );
+                CREATE INDEX IF NOT EXISTS changes_capture_sequence
+                    ON changes(capture_id, sequence);
                 CREATE TABLE IF NOT EXISTS audit (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     at TEXT NOT NULL,
@@ -594,6 +610,9 @@ class CaptureStore:
             except Exception:
                 db.rollback()
                 raise
+            # The parent delete/change event must commit BEFORE chat cleanup.
+            # If cleanup is interrupted, every chat read/feed/upload replays it.
+            self._reconcile_chats_after_delete()
         return self.get(capture_id, include_deleted=True)
 
     def restore(self, capture_id: str, base_revision: int | None) -> dict[str, Any]:
@@ -656,7 +675,20 @@ class CaptureStore:
             except Exception:
                 db.rollback()
                 raise
+            self._reconcile_chats_after_delete()
             self._remove_unreferenced_blobs()
+
+    def _reconcile_chats_after_delete(self) -> None:
+        try:
+            self.chats.reconcile()
+        except (sqlite3.Error, OSError):
+            # The parent deletion has already committed. Preserve the existing
+            # successful record-delete response, not a fictitious rollback. Chat
+            # APIs replay the durable parent event before returning any content;
+            # an unavailable cleanup database makes them fail closed with 503.
+            logging.getLogger(__name__).warning(
+                "Chat cleanup deferred; parent deletion committed and chat access remains denied"
+            )
 
     def changes(self, after: int = 0, limit: int = 200, *, ai_only: bool = False) -> dict[str, Any]:
         if ai_only:

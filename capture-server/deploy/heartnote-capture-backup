@@ -1,55 +1,222 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env python3
+"""Standalone private backup; no service stop, dependency, or raw WAL copy.
 
-data_dir="${HEARTNOTE_CAPTURE_DATA:-/var/lib/heartnote-capture}"
-backup_dir="${HEARTNOTE_CAPTURE_BACKUP_DIR:-/var/backups/heartnote-capture}"
-retention_days="${HEARTNOTE_CAPTURE_BACKUP_RETENTION_DAYS:-14}"
-database="${data_dir}/captures.sqlite3"
+SQLite write reservations briefly pause mutations while metadata and immutable
+assets are copied. API reads remain available. Includes every account vault,
+private chat database, and active historical share. Installers are excluded.
+"""
+from __future__ import annotations
 
-if [[ ! -f "${database}" ]]; then
-  echo "HeartNote database does not exist: ${database}" >&2
-  exit 1
-fi
+import hashlib
+import json
+import os
+import re
+import shutil
+import sqlite3
+import stat
+import sys
+import tarfile
+import tempfile
+import time
+import uuid
+from contextlib import ExitStack
+from datetime import datetime, timezone
+from pathlib import Path
 
-umask 077
-mkdir -p "${backup_dir}"
-timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-staging="$(mktemp -d "${backup_dir}/.staging-${timestamp}-XXXXXX")"
-archive_temp="${backup_dir}/.heartnote-capture-${timestamp}.tar.gz.tmp"
-archive="${backup_dir}/heartnote-capture-${timestamp}.tar.gz"
 
-cleanup() {
-  if [[ -d "${staging}" && "${staging}" == "${backup_dir}/.staging-"* ]]; then
-    find "${staging}" -depth -delete
-  fi
-  rm -f -- "${archive_temp}"
-}
-trap cleanup EXIT
+def regular(path: Path) -> bool:
+    if path.is_symlink():
+        raise ValueError("backup source must not contain symlinks")
+    if not path.exists():
+        return False
+    if not path.is_file():
+        raise ValueError("expected a regular database or asset file")
+    return True
 
-mkdir -p "${staging}/data"
-sqlite3 "${database}" ".backup '${staging}/data/captures.sqlite3'"
-if [[ -d "${data_dir}/blobs" ]]; then
-  rsync -a "${data_dir}/blobs/" "${staging}/data/blobs/"
-fi
 
-cat >"${staging}/RESTORE.txt" <<EOF
-HeartNote Capture backup created at ${timestamp} UTC.
+def directory(path: Path) -> bool:
+    if path.is_symlink():
+        raise ValueError("backup source must not contain symlinks")
+    if not path.exists():
+        return False
+    if not path.is_dir():
+        raise ValueError("expected a data directory")
+    return True
 
-Restore only while heartnote-capture-api.service is stopped:
-1. Extract this archive into a temporary directory.
-2. Replace /var/lib/heartnote-capture/captures.sqlite3 and blobs/ with data/.
-3. Set owner to heartnote-capture:heartnote-capture and permissions to 0700.
-4. Start heartnote-capture-api.service and run its health check.
-EOF
 
-tar -C "${staging}" -czf "${archive_temp}" RESTORE.txt data
-chmod 0600 "${archive_temp}"
-mv "${archive_temp}" "${archive}"
-sha256sum "${archive}" >"${archive}.sha256"
-chmod 0600 "${archive}.sha256"
+def copy_tree(source: Path, destination: Path) -> None:
+    if not directory(source):
+        return
+    destination.mkdir(parents=True, exist_ok=True, mode=0o700)
+    for item in sorted(source.iterdir()):
+        if item.is_symlink():
+            raise ValueError("backup source must not contain symlinks")
+        target = destination / item.name
+        if item.is_dir():
+            copy_tree(item, target)
+        elif regular(item):
+            shutil.copyfile(item, target)
+            target.chmod(0o600)
 
-find "${backup_dir}" -maxdepth 1 -type f \
-  \( -name 'heartnote-capture-*.tar.gz' -o -name 'heartnote-capture-*.tar.gz.sha256' \) \
-  -mtime "+${retention_days}" -delete
 
-echo "Created ${archive}"
+def lock_database(stack: ExitStack, path: Path, attached_chat: Path | None = None) -> sqlite3.Connection:
+    connection = sqlite3.connect(path.as_uri() + "?mode=rw", uri=True, timeout=30, isolation_level=None)
+    stack.callback(connection.close)
+    connection.execute("PRAGMA busy_timeout=30000")
+    if attached_chat is not None:
+        connection.execute("ATTACH DATABASE ? AS chat", (str(attached_chat),))
+    # Match CaptureStore's main-then-chat lock order; no source row is changed.
+    connection.execute("BEGIN IMMEDIATE")
+    return connection
+
+
+def snapshot_database(source: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # Do not back up the connection owning a write transaction: that would
+    # wait for its own write reservation. A separate WAL reader stays available.
+    reader = sqlite3.connect(source.as_uri() + "?mode=ro", uri=True, timeout=30)
+    output = sqlite3.connect(destination)
+    try:
+        reader.backup(output)
+        if output.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+            raise ValueError("backup database integrity check failed")
+        output.execute("PRAGMA journal_mode=DELETE")
+    finally:
+        output.close()
+        reader.close()
+    destination.chmod(0o600)
+
+
+def snapshot_data(source: Path, destination: Path) -> list[str]:
+    """Capture all mutable data while SQLite write reservations are held."""
+    copied: list[str] = []
+    with ExitStack() as locks:
+        accounts = source / "accounts.sqlite3"
+        databases: list[Path] = []
+        if regular(accounts):
+            lock_database(locks, accounts)
+            databases.append(accounts)
+        vaults = [source]
+        account_vaults = source / "account-vaults"
+        if directory(account_vaults):
+            for vault in sorted(account_vaults.iterdir()):
+                if not re.fullmatch(r"[a-f0-9]{32}", vault.name) or not directory(vault):
+                    raise ValueError("unexpected account vault entry")
+                vaults.append(vault)
+        for vault in vaults:
+            capture = vault / "captures.sqlite3"
+            if not regular(capture):
+                raise ValueError("vault is missing its record database")
+            chat = vault / "chat.sqlite3"
+            has_chat = regular(chat)
+            lock_database(locks, capture, chat if has_chat else None)
+            if has_chat:
+                databases.append(chat)
+            databases.append(capture)
+        exports = source / "markdown-exports"
+        active_shares: list[str] = []
+        if directory(exports):
+            index = exports / "exports.sqlite3"
+            if not regular(index):
+                raise ValueError("shares are missing their database")
+            export_lock = lock_database(locks, index)
+            databases.append(index)
+            active_shares = [row[0] for row in export_lock.execute("SELECT id FROM exports WHERE revoked=0")]
+        for database in databases:
+            relative = database.relative_to(source)
+            snapshot_database(database, destination / relative)
+            copied.append(str(relative))
+        for vault in vaults:
+            copy_tree(vault / "blobs", destination / vault.relative_to(source) / "blobs")
+        for share in active_shares:
+            if not re.fullmatch(r"[a-f0-9]{32}", share) or not directory(exports / share):
+                raise ValueError("active share is missing its snapshot")
+            copy_tree(exports / share, destination / "markdown-exports" / share)
+    return copied
+
+
+def backup(data_root: str, backup_root: str, retention_days: int = 14) -> Path:
+    if not data_root.strip() or not backup_root.strip() or not 1 <= retention_days <= 3650:
+        raise ValueError("invalid backup configuration")
+    if Path(data_root).is_symlink() or Path(backup_root).is_symlink():
+        raise ValueError("backup roots must not be symlinks")
+    source, output = Path(data_root).resolve(), Path(backup_root).resolve()
+    if source.parent == source or output.parent == output or source == output or source in output.parents or output in source.parents:
+        raise ValueError("backup and data directories must be distinct, non-nested locations")
+    if not directory(source) or not regular(source / "captures.sqlite3"):
+        raise ValueError("record database does not exist")
+    output.mkdir(parents=True, exist_ok=True, mode=0o700)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    filename = f"heartnote-capture-{stamp}-{uuid.uuid4().hex[:8]}.tar.gz"
+    archive = output / filename
+    with tempfile.TemporaryDirectory(prefix=".staging-" + stamp + "-", dir=output) as temporary:
+        stage = Path(temporary)
+        destination = stage / "data"
+        destination.mkdir(mode=0o700)
+        databases = snapshot_data(source, destination)
+        metadata = {"format": 2, "created_at": datetime.now(timezone.utc).isoformat(),
+                    "databases": databases, "includes": ["accounts", "all-vault-records", "private-chats", "images", "active-share-snapshots"],
+                    "excludes": ["update-installers", "server-env", "model-credentials"]}
+        (stage / "BACKUP.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+        (stage / "RESTORE.txt").write_text(
+            "Mnote complete account/record/chat backup. Private data; keep this archive private.\n\n"
+            "Restore only with heartnote-capture-api.service and MCP/other writers stopped.\n"
+            "1. Extract into a NEW private temporary directory and verify archive checksum.\n"
+            "2. Back up live data separately before replacement; never overlay old WAL/SHM files.\n"
+            "3. Restore accounts.sqlite3, captures.sqlite3, chat.sqlite3, blobs/, account-vaults/,\n"
+            "   and markdown-exports/ together from data/. Missing chat.sqlite3 in an old backup\n"
+            "   means it predates chats; do not mix in a newer chat database.\n"
+            "4. Leave existing updates/ installers and /etc service credentials in place.\n"
+            "5. Set data owner to heartnote-capture:heartnote-capture; directories 0700/files 0600.\n"
+            "6. Invalidate restored account sessions before exposure; backups can contain\n"
+            "   sessions or shares revoked after their snapshot. Review public shares too.\n"
+            "7. Start server so record-deletion outbox cleanup runs; verify health and accounts\n"
+            "   before public traffic. Record restore does not restore deleted chats.\n",
+            encoding="utf-8")
+        temporary_archive = stage / "archive.tar.gz"
+        with tarfile.open(temporary_archive, "w:gz") as packed:
+            for name in ("RESTORE.txt", "BACKUP.json", "data"):
+                packed.add(stage / name, arcname=name, recursive=True)
+        temporary_archive.chmod(0o600)
+        with temporary_archive.open("rb") as stream:
+            os.fsync(stream.fileno())
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        checksum = stage / "checksum"
+        with checksum.open("w", encoding="ascii") as stream:
+            stream.write(f"{digest}  {filename}\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        checksum.chmod(0o600)
+        os.replace(checksum, output / (filename + ".sha256"))
+        os.replace(temporary_archive, archive)
+        directory_fd = os.open(output, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    cutoff = time.time() - retention_days * 86400
+    pattern = re.compile(r"heartnote-capture-\d{8}T\d{6}(?:\.\d{6})?Z(?:-[a-f0-9]{8})?\.tar\.gz(?:\.sha256)?")
+    for item in output.iterdir():
+        try:
+            if pattern.fullmatch(item.name) and not item.is_symlink() and stat.S_ISREG(item.stat().st_mode) and item.stat().st_mtime < cutoff:
+                item.unlink()
+        except FileNotFoundError:
+            pass  # A concurrent successful backup may have removed this expired file.
+    return archive
+
+
+def main() -> int:
+    os.umask(0o077)
+    try:
+        archive = backup(os.environ.get("HEARTNOTE_CAPTURE_DATA", "/var/lib/heartnote-capture"),
+                         os.environ.get("HEARTNOTE_CAPTURE_BACKUP_DIR", "/var/backups/heartnote-capture"),
+                         int(os.environ.get("HEARTNOTE_CAPTURE_BACKUP_RETENTION_DAYS", "14")))
+    except Exception:
+        print("Mnote backup failed; verify private source storage and backup configuration.", file=sys.stderr)
+        return 1
+    print(f"Created {archive}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

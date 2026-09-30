@@ -93,7 +93,7 @@ heartnote-capture-mcp --transport streamable-http --host 127.0.0.1 --port 8788
 
 - `heartnote-capture-api.service`：以独立非登录用户运行 API，只允许写入 `/var/lib/heartnote-capture`。
 - `nginx-heartnote-capture.conf`：在 HTTPS 站点的 `/heartnote-capture/` 下反向代理，且不记录包含搜索词或记录 ID 的请求路径。
-- `heartnote-capture-backup.service` 与 `.timer`：每天使用 SQLite 在线备份 API 创建一致数据库快照，再打包内容寻址图片；默认保留 14 天。
+- `heartnote-capture-backup.service` 与 `.timer`：每天使用 SQLite 在线备份 API 备份账号、所有 vault 记录/聊天库、内容寻址图片和活跃历史分享；默认保留 14 天。备份复制期间短暂保留数据库写锁以保护资料一致性，普通读取仍可用；压缩在释放写锁后进行。
 - `heartnote-capture-mcp.service`：可选的只读 MCP，只监听 `127.0.0.1:8788`，不应直接暴露公网。
 
 生产环境令牌放在 root-only 的 `/etc/heartnote-capture/server.env`，不要写入仓库或客户端安装包。API 本身只监听 `127.0.0.1:8787`，公网入口必须经过有效 TLS 证书的反向代理。
@@ -109,6 +109,25 @@ heartnote-capture-mcp --transport streamable-http --host 127.0.0.1 --port 8788
 文字快照保存在分享目录的私有 `text.json`，摘要在 `preview.json`；两者均不在公开图片资产清单中，无法通过 `/s/` 或图片接口读取。旧分享没有保存文字，不能从当前记录准确回填；列表会明确标记不可用。新增文件不改变数据库表结构，单次全文 JSON 最大 8 MiB，超限整次导出失败。
 
 这些接口只接受所属账号的 Bearer 会话，不接受旧 read / write / AI token，也不返回公开分享 token。读取的是独立导出快照，即使原记录删除或修改也不受影响。旧分享的图片无需迁移或重新导出即可查看，但文字需新导出才会保存；已撤销分享返回 404，不能恢复预览。查看不会创建新的分享或延长链接有效期。
+
+## 记录 AI 对话（仅账号私有同步）
+
+- `GET /v1/chat/changes?after=0&limit=100` 返回独立的聊天变更序列、`next_cursor` 和 `has_more`。
+- `GET /v1/chat/conversations/{uuid}` 读取所属账号会话及 `revision`。
+- `PUT /v1/chat/conversations/{uuid}` 使用 `If-Match: "revision:N"` 创建或更新；首次为 `0`。等价重试幂等，冲突返回 `409`，不执行最后写入覆盖。
+- `DELETE /v1/chat/conversations/{uuid}` 使用相同修订条件删除，保留同步墓碑但清除正文、资料和图片副本。
+
+只接受登录账号的 Bearer 会话，包括接管旧记录库的个人账号。旧 read/write/AI token、MCP、公开分享和普通记录 ZIP 导出均不能读取聊天。账号的 `chat.sqlite3` 与 `captures.sqlite3` 分开存放，API Key、配置密钥、provider 原始错误体与本机草稿不属于聊天协议字段。服务端不请求模型；客户端直接访问用户配置的服务。
+
+每个会话保存不可变的已选资料快照；已结束消息不可覆盖。客户端生成前用 CAS 保存 user 消息和末尾 assistant `generating` 占位，取得 5 分钟可续租锁。同一 request 可保存部分或最终回复；新 request 在锁有效时不能追加，过期后必须保留旧消息并标为中断。失败重试可以只追加新的 assistant request，不需要重复用户问题。
+
+正文限 8 MiB、最多 500 条消息、单条最多 100,000 字符。图片以受限的 PNG/JPEG/WebP 数据提供，最多 4 张、每张 3 MiB、最长边 4096 像素且总像素不超过 4,194,304；容器和尺寸验证不会代替客户端健壮的图片解码。未选模块不允许夹带正文。所有读取和错误均不缓存。
+
+删除父记录时，其删除事件先在原记录库事务中持久提交，作为聊天清理的 durable outbox，再独立事务清理聊天。SQLite ATTACH 的 WAL 模式不保证跨库断电原子性，因此不能依赖一次跨库提交。正常删除响应等待清理；若聊天数据库暂时不可写，父记录删除仍返回成功并记录无内容告警。所有聊天读、写和变更流在响应前必须重放清理；清理不可用返回 `503` 而不是旧内容。启动时也执行恢复。父记录恢复不恢复旧聊天，墓碑 ID 不能复活。现有记录变更历史应保留，不能在未确认聊天清理水位时裁剪删除事件。
+
+新版 `deploy/heartnote-capture-backup` 是独立 Python 3.11+ 标准库脚本，不依赖服务 venv、sqlite3 CLI 或 rsync。沿用原环境变量和 systemd 入口，输出私有压缩包、SHA-256 和完整恢复说明。旧版仅打包 legacy `captures.sqlite3` 的已安装脚本不会随 pip 升级自动改变；发布时需另外替换 `/usr/local/sbin/heartnote-capture-backup`，保留可执行权限。安装包更新目录与 `/etc` 服务凭证不属于数据备份，恢复时应保留它们。
+
+备份必须整套恢复账号资料、全部账号 vault 的记录库、聊天库和图片，不能把不同时间的记录库与聊天库混用，也不能覆盖到仍存在旧 WAL 的目录。恢复账号会话可能包含备份后被撤销的凭证，开放服务前应作废恢复出的会话并审核旧公开分享。服务启动先执行 outbox 重放，再对外提供聊天。聊天数据库故障不会阻止普通记录/旧客户端读取；聊天 API 会拒绝读取直到恢复。
 
 ## 测试
 

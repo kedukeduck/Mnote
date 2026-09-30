@@ -4,6 +4,7 @@ import asyncio
 import base64
 import tempfile
 import unittest
+import uuid
 
 from heartnote_capture.mcp_server import build_server
 from heartnote_capture.store import CaptureStore, minimal_png
@@ -40,6 +41,18 @@ class MCPServerTest(unittest.TestCase):
                     },
                 )
             server = build_server(store)
+            chat_id = str(uuid.uuid4())
+            stamp = "2026-09-29T00:00:00Z"
+            private_chat = "PRIVATE_CHAT_NOT_IN_MCP"
+            store.chats.put(chat_id, {
+                "schema_version": 1, "id": chat_id, "record_id": "capture-mcp-allowed",
+                "title": private_chat, "created_at": stamp, "updated_at": stamp,
+                "snapshot": {"record_id": "capture-mcp-allowed", "modules": ["thought"],
+                             "thought": private_chat, "consent": "record_chat_only"},
+                "model": {"label": "Synthetic", "model": "synthetic", "base_url": "https://example.invalid/v1"},
+                "messages": [{"id": str(uuid.uuid4()), "role": "user", "content": private_chat,
+                              "created_at": stamp, "status": "complete", "request_id": str(uuid.uuid4()), "error": ""}],
+            }, 0)
 
             async def check() -> None:
                 async with Client(server) as client:
@@ -54,10 +67,14 @@ class MCPServerTest(unittest.TestCase):
                     text = str(result.structured_content)
                     self.assertIn("capture-mcp-allowed", text)
                     self.assertNotIn("capture-mcp-denied", text)
+                    self.assertNotIn(private_chat, text)
+                    self.assertNotIn(chat_id, text)
                     capture = await client.call_tool(
                         "get_capture", {"capture_id": "capture-mcp-allowed"}
                     )
                     self.assertEqual("capture-mcp-allowed", capture.structured_content["id"])
+                    self.assertNotIn(private_chat, str(capture.structured_content))
+                    self.assertNotIn(chat_id, str(capture.structured_content))
                     self.assertIn("image", {block.type for block in capture.content})
                     self.assertEqual(2, sum(block.type == "image" for block in capture.content))
                     labels = [block.text for block in capture.content if block.type == "text"]

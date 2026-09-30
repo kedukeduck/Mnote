@@ -4,6 +4,7 @@ import hmac
 import json
 import mimetypes
 import os
+import sqlite3
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ from .store import (
     CaptureValidationError,
 )
 from .accounts import Accounts, AuthError
+from .chat_store import ChatConflict, MAX_CHAT_BYTES
 from .markdown_export import MarkdownExports
 from .releases import Releases
 
@@ -114,20 +116,20 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
     def _problem(self, status: int, code: str, detail: str, **extra: Any) -> None:
         self._json(status, {"error": code, "detail": detail, **extra})
 
-    def _body(self) -> dict[str, Any]:
+    def _body(self, maximum: int = MAX_JSON_BYTES) -> dict[str, Any]:
         raw_length = self.headers.get("Content-Length", "")
         try:
             length = int(raw_length)
         except ValueError as error:
             raise CaptureValidationError("Content-Length is required") from error
-        if length < 0 or length > MAX_JSON_BYTES:
+        if length < 0 or length > maximum:
             raise CaptureValidationError("request body exceeds the size limit")
         content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
         if content_type != "application/json":
             raise CaptureValidationError("Content-Type must be application/json")
         try:
             value = json.loads(self.rfile.read(length).decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        except (UnicodeDecodeError, ValueError, RecursionError) as error:
             raise CaptureValidationError("request body is not valid UTF-8 JSON") from error
         if not isinstance(value, dict):
             raise CaptureValidationError("request body must be an object")
@@ -211,6 +213,8 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         self.public_image = False
         parsed = urlparse(self.path)
+        if self._chat_action("GET"):
+            return
         if self._web_asset(parsed.path):
             return
         if parsed.path == "/health":
@@ -386,6 +390,8 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
             self._problem(HTTPStatus.BAD_REQUEST, "invalid_request", str(error))
 
     def do_PUT(self) -> None:  # noqa: N802
+        if self._chat_action("PUT"):
+            return
         if self._require("write") is None:
             return
         parts = self._parts(urlparse(self.path).path)
@@ -408,6 +414,8 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
             self._problem(HTTPStatus.BAD_REQUEST, "invalid_request", str(error))
 
     def do_POST(self) -> None:  # noqa: N802
+        if self._chat_action("POST"):
+            return
         if urlparse(self.path).path.startswith("/v1/auth/"):
             self._account_action()
             return
@@ -468,6 +476,8 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
             self._problem(HTTPStatus.BAD_REQUEST, "invalid_request", str(error))
 
     def do_DELETE(self) -> None:  # noqa: N802
+        if self._chat_action("DELETE"):
+            return
         if self._require("write") is None:
             return
         parts = self._parts(urlparse(self.path).path)
@@ -515,6 +525,47 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
+
+    def _chat_action(self, method: str) -> bool:
+        parsed = urlparse(self.path)
+        parts = self._parts(parsed.path)
+        if parts[:2] != ["v1", "chat"]:
+            return False
+        # Check account credentials before inspecting IDs or body. First-party
+        # legacy write/read and MCP AI tokens deliberately grant no chat access,
+        # including for the account which adopted the old legacy vault.
+        if self._require("account") is None:
+            return True
+        try:
+            if method == "GET" and parts == ["v1", "chat", "changes"]:
+                query = parse_qs(parsed.query, keep_blank_values=False)
+                self._json(200, self.store.chats.changes(
+                    self._integer(query, "after", 0), self._integer(query, "limit", 100)))
+                return True
+            if len(parts) != 4 or parts[:3] != ["v1", "chat", "conversations"] or method not in {"GET", "PUT", "DELETE"}:
+                self._problem(404, "not_found", "Unknown chat endpoint")
+                return True
+            if method == "GET":
+                result = self.store.chats.get(parts[3])
+            else:
+                raw = self.headers.get("If-Match", "").strip('"')
+                if not raw.startswith("revision:") or not raw[9:].isdigit() or len(raw[9:]) > 19:
+                    raise CaptureValidationError("If-Match revision:N is required")
+                revision = int(raw[9:])
+                if method == "PUT":
+                    result = self.store.chats.put(parts[3], self._body(MAX_CHAT_BYTES), revision)
+                else:
+                    result = self.store.chats.delete(parts[3], revision)
+            self._json(200, result, {"ETag": f'"revision:{result["revision"]}"'})
+        except CaptureNotFound:
+            self._problem(404, "not_found", "Conversation or live parent record was not found")
+        except ChatConflict as error:
+            self._problem(409, error.code, error.code, current_revision=error.current_revision)
+        except CaptureValidationError as error:
+            self._problem(400, "invalid_request", str(error))
+        except (sqlite3.Error, OSError):
+            self._problem(503, "chat_storage_unavailable", "Chat storage is temporarily unavailable")
+        return True
 
     def _account_action(self):
         path = urlparse(self.path).path
