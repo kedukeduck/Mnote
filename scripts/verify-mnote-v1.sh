@@ -75,6 +75,10 @@ echo "[4/7] Windows sync boundary and WinHTTP smoke test"
   bash desktop-windows/tests/run-library-tests.sh
   bash desktop-windows/tests/run-library-live.sh
   bash desktop-windows/tests/run-updater-tests.sh
+  if [[ -f desktop-windows/tests/run-ai-chat-tests.sh ]]; then
+    bash desktop-windows/tests/run-ai-chat-tests.sh
+    bash desktop-windows/tests/run-ai-chat-live.sh
+  fi
 )
 
 echo "[5/7] Browser extension manifest and module smoke tests"
@@ -91,7 +95,12 @@ echo "[6/7] Capture Server data, HTTP, Web, and MCP tests"
 (
   cd "${repo_dir}/capture-server"
   python3 -m py_compile src/heartnote_capture/*.py
-  if [[ -d /tmp/heartnote-mcp-py ]]; then
+  # An explicit test venv takes priority over disposable /tmp dependency caches.
+  # Presence of a directory alone does not prove its MCP files are still intact.
+  if [[ -n "${MNOTE_SERVER_TEST_PYTHON:-}" ]]; then
+    PYTHONPATH=src "${MNOTE_SERVER_TEST_PYTHON}" -c 'from mcp import Client'
+    PYTHONPATH=src "${MNOTE_SERVER_TEST_PYTHON}" -m unittest discover -s tests -v
+  elif [[ -d /tmp/heartnote-mcp-py ]] && PYTHONPATH=/tmp/heartnote-mcp-py python3 -c 'from mcp import Client' >/dev/null 2>&1; then
     PYTHONPATH="/tmp/heartnote-mcp-py:src" python3 -m unittest discover -s tests -v
   else
     PYTHONPATH=src python3 -m unittest discover -s tests -v
@@ -123,6 +132,9 @@ for component in \
   CaptureEditorActivity \
   AppUpdateActivity \
   SettingsActivity \
+  AiChatActivity \
+  AiChatHistoryActivity \
+  AiModelSettingsActivity \
   MarkdownExportActivity \
   ShareHistoryActivity \
   ShareGalleryActivity \
