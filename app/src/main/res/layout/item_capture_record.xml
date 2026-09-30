@@ -11,6 +11,8 @@
                 <TextView android:id="@+id/capture_item_time" android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:layout_marginStart="8dp" android:paddingTop="2dp" android:gravity="end" android:textColor="@color/ink_muted" android:textSize="12sp" />
             </LinearLayout>
+            <TextView android:id="@id/ai_record_badge" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="6dp" android:textSize="11sp" android:textColor="@color/copper" android:visibility="gone" />
             <TextView android:id="@+id/capture_item_comment_label" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="12dp" android:layout_marginBottom="4dp" android:text="@string/capture_preview_thought"
                 android:textColor="@color/ink_muted" android:textSize="11sp" android:visibility="gone" />

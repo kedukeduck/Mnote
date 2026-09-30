@@ -44,6 +44,7 @@ final class CaptureReadingLayout {
         View status = root.findViewById(R.id.capture_editor_status);
         View tools = root.findViewById(R.id.capture_tool_row);
         View composer = root.findViewById(R.id.capture_composer);
+        View saveAndChat = root.findViewById(R.id.ai_save_chat);
         LinearLayout body = new LinearLayout(context);
         body.setOrientation(LinearLayout.VERTICAL);
         ScrollView scroll = new ScrollView(context) {
@@ -59,7 +60,10 @@ final class CaptureReadingLayout {
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
         scroll.setVerticalScrollBarEnabled(false);
-        for (View child : new View[]{evidence,tools,composer,status}) {
+        // Keep the optional chat action in the scrollable reading area. A second fixed
+        // toolbar steals the writing space when the keyboard or large text is active.
+        for (View child : new View[]{evidence,tools,composer,saveAndChat,status}) {
+            if(child==null)continue;
             ((ViewGroup)child.getParent()).removeView(child);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1,-2);
             if (child == evidence) {

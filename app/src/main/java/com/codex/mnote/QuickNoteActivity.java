@@ -46,6 +46,7 @@ public final class QuickNoteActivity extends Activity {
     private SaveTask saveTask;
     private Toast feedback;
     private Button expandOriginal;
+    private boolean chatAfterSave;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -88,7 +89,8 @@ public final class QuickNoteActivity extends Activity {
             View target = clipboard.isChecked() ? quote : contextMode.equals("text") ? original : image;
             target.post(() -> target.requestRectangleOnScreen(new android.graphics.Rect(0,0,target.getWidth(),target.getHeight()),true));
         });
-        findViewById(R.id.capture_editor_save).setOnClickListener(v -> save());
+        findViewById(R.id.capture_editor_save).setOnClickListener(v -> {chatAfterSave=false;save();});
+        findViewById(R.id.ai_save_chat).setOnClickListener(v -> {chatAfterSave=true;save();});
         findViewById(R.id.capture_editor_cancel).setOnClickListener(v -> onBackPressed());
         findViewById(R.id.quick_note_read_page).setOnClickListener(v -> requestContext(true));
         findViewById(R.id.quick_note_capture_page).setOnClickListener(v -> requestContext(false));
@@ -351,6 +353,7 @@ public final class QuickNoteActivity extends Activity {
         String urlOrigin = link.origin(url);
         if (url.isEmpty() && !source.url.isEmpty()) { url = source.url; urlOrigin = source.origin; }
         saveTask = new SaveTask(this);
+        saveTask.chat=chatAfterSave;
         SaveTask task = saveTask;
         Context app = getApplicationContext(); File snapshot = draft;
         String scope = ownerScope, pkg = source.appPackage, savedUrl = url, savedOrigin = urlOrigin;
@@ -373,6 +376,7 @@ public final class QuickNoteActivity extends Activity {
                     CaptureAccountSession.requireScope(app, scope);
                     record = CaptureStore.save(app, snapshot, bitmap, bitmap, layer, kind, thought, type, excerpt,
                             pkg, savedUrl, savedOrigin, snapshot != null, savedText, savedTags);
+                    task.recordId=record.id;
                 }
                 if (CaptureStore.SYNC_PENDING.equals(record.syncState)) {
                     try { CaptureSyncWorker.enqueue(app); }
@@ -393,12 +397,14 @@ public final class QuickNoteActivity extends Activity {
         QuickNoteActivity receiver;
         volatile boolean complete;
         String error;
+        String recordId;boolean chat;
         SaveTask(QuickNoteActivity receiver) { this.receiver = receiver; }
         void deliver() {
             if (!complete || receiver == null || receiver.destroyed || receiver.isFinishing()) return;
             QuickNoteActivity activity = receiver;
             if (error == null) {
                 activity.draft = null; activity.message(activity.getString(R.string.capture_saved));
+                if(chat&&recordId!=null&&activity.ownerScope.equals(CaptureAccountSession.scope(activity)))AiUi.open(activity,activity.ownerScope,recordId);
                 activity.setResult(RESULT_OK); activity.finish();
             } else { activity.saveTask = null; activity.busy(false); activity.message(error); }
         }

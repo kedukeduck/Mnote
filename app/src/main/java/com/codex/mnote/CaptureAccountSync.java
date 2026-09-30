@@ -36,6 +36,16 @@ public final class CaptureAccountSync extends Worker {
         }
     }
     static int run(Context context) throws Exception {
+        int changes=runRecords(context);
+        // Chats have a separate cursor and failure state. A chat server not yet upgraded
+        // must never break the existing record sync path or hold the account lock.
+        if(CaptureAccountSession.hasAccount(context)) {
+            try { changes+=AiChatSync.run(context); }
+            catch(Exception ignored) { /* Chat UI reports its own pending/conflict state. */ }
+        }
+        return changes;
+    }
+    private static int runRecords(Context context) throws Exception {
         synchronized (CaptureAccountSession.LOCK) {
             try {
                 CaptureSyncPreferences.Config config = CaptureAccountSession.config(context);

@@ -66,6 +66,8 @@ public final class CaptureEditorActivity extends Activity {
     private boolean loading;
     private boolean saving;
     private boolean saved;
+    private boolean chatAfterSave;
+    private String savedRecordId;
     private boolean destroyed;
     private boolean requestNoteKeyboard;
     private SourceLinkField sourceLink;
@@ -193,7 +195,8 @@ public final class CaptureEditorActivity extends Activity {
         findViewById(R.id.capture_editor_cancel).setOnClickListener(
                 view -> requestCancel()
         );
-        saveButton.setOnClickListener(view -> save());
+        saveButton.setOnClickListener(view -> {chatAfterSave=false;save();});
+        findViewById(R.id.ai_save_chat).setOnClickListener(view -> {chatAfterSave=true;save();});
         selectTool.setOnClickListener(
                 view -> selectTool(CaptureMarkupView.Tool.SELECT)
         );
@@ -428,6 +431,7 @@ public final class CaptureEditorActivity extends Activity {
         loading = value;
         progress.setVisibility(value ? View.VISIBLE : View.GONE);
         saveButton.setEnabled(!value && !saving);
+        findViewById(R.id.ai_save_chat).setEnabled(!value&&!saving);
     }
 
     private void save() {
@@ -473,6 +477,7 @@ public final class CaptureEditorActivity extends Activity {
 
         saving = true;
         saveButton.setEnabled(false);
+        findViewById(R.id.ai_save_chat).setEnabled(false);
         progress.setVisibility(View.VISIBLE);
         status.setText(R.string.capture_saving);
         Bitmap finalOriginal = original;
@@ -507,12 +512,14 @@ public final class CaptureEditorActivity extends Activity {
                 if (CaptureStore.SYNC_PENDING.equals(record.syncState)) {
                     CaptureSyncWorker.enqueue(this);
                 }
+                savedRecordId=record.id;
                 runOnUiThread(this::finishSaved);
             } catch (IOException | RuntimeException | OutOfMemoryError error) {
                 runOnUiThread(() -> {
                     saving = false;
                     progress.setVisibility(View.GONE);
                     saveButton.setEnabled(true);
+                    findViewById(R.id.ai_save_chat).setEnabled(true);
                     showStatusError(R.string.capture_error_save_failed);
                 });
             } finally {
@@ -540,6 +547,7 @@ public final class CaptureEditorActivity extends Activity {
                 R.string.capture_saved,
                 Toast.LENGTH_SHORT
         ).show();
+        if(chatAfterSave&&savedRecordId!=null&&ownerScope.equals(CaptureAccountSession.scope(this)))AiUi.open(this,ownerScope,savedRecordId);
         finish();
     }
 

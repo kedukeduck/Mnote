@@ -30,6 +30,7 @@ final class CaptureDeletionStore {
             JSONObject data = read(context);
             data.put(id, CaptureAccountSession.hasAccount(context));
             write(context, data);
+            try { AiChatStore.deleteForRecord(context,id); } catch(Exception ignored) { /* Parent tombstone already blocks chat access. */ }
         }
         // The durable delete is already committed. Notification failures must not report a rollback.
         try { context.sendBroadcast(new android.content.Intent(CaptureStore.ACTION_RECORDS_CHANGED).setPackage(context.getPackageName())); }
@@ -50,6 +51,9 @@ final class CaptureDeletionStore {
                 data.put(record.id, CaptureAccountSession.hasAccount(context));
             }
             write(context, data);
+            for(CaptureStore.CaptureRecord record:records) {
+                try { AiChatStore.deleteForRecord(context,record.id); } catch(Exception ignored) { /* Retried with sync. */ }
+            }
         }
         try { context.sendBroadcast(new android.content.Intent(CaptureStore.ACTION_RECORDS_CHANGED).setPackage(context.getPackageName())); } catch (RuntimeException ignored) { }
         try { CaptureAccountSync.enqueue(context); } catch (RuntimeException ignored) { }

@@ -73,6 +73,7 @@ final class CaptureOverlayEditor {
     private boolean attached;
     private boolean loading = true;
     private boolean saving;
+    private boolean chatAfterSave;
     private boolean closed;
     private boolean ownsDraft;
     private Runnable unregisterBack;
@@ -240,8 +241,9 @@ final class CaptureOverlayEditor {
         root.findViewById(R.id.capture_editor_cancel).setOnClickListener(view -> back());
         save.setOnClickListener(view -> {
             if (loading || saving) return;
-            if (composing) save(); else setComposing(true);
+            if (composing) {chatAfterSave=false;save();} else setComposing(true);
         });
+        root.findViewById(R.id.ai_save_chat).setOnClickListener(view->{if(!loading&&!saving&&composing){chatAfterSave=true;save();}});
         save.setEnabled(false);
         LinearLayout header = (LinearLayout) save.getParent();
         Button minimize = new Button(context);
@@ -385,6 +387,7 @@ final class CaptureOverlayEditor {
         status.setVisibility(View.GONE);
         status.setMaxLines(2);
         composerScroll.setVisibility(value ? View.VISIBLE : View.GONE);
+        root.findViewById(R.id.ai_save_chat).setVisibility(value?View.VISIBLE:View.GONE);
         root.findViewById(R.id.capture_tool_row).setVisibility(!value && !loading ? View.VISIBLE : View.GONE);
         markup.setEnabled(!value);
         ((TextView) root.findViewById(R.id.capture_editor_title)).setText(
@@ -575,12 +578,14 @@ final class CaptureOverlayEditor {
         }
         saving = true;
         save.setEnabled(false);
+        root.findViewById(R.id.ai_save_chat).setEnabled(false);
         status.setText(R.string.capture_saving);
         Bitmap originalCopy = original;
         Bitmap annotatedCopy = annotated;
         boolean retainImage = ((android.widget.CompoundButton)root.findViewById(R.id.capture_retain_image_context)).isChecked();
         writer.execute(() -> {
             boolean success = false;
+            String savedRecordId=null;
             try {
                 CaptureStore.CaptureRecord record;
                 synchronized (CaptureAccountSession.LOCK) {
@@ -590,6 +595,7 @@ final class CaptureOverlayEditor {
                             retainImage, null, savedTags);
                 }
                 success = true;
+                savedRecordId=record.id;
                 if (CaptureStore.SYNC_PENDING.equals(record.syncState)) CaptureSyncWorker.enqueue(context);
             } catch (Exception | OutOfMemoryError error) {
                 // Keep the session editable when the atomic local write fails.
@@ -598,15 +604,18 @@ final class CaptureOverlayEditor {
                 recycle(annotatedCopy);
             }
             boolean saved = success;
+            String chatRecordId=savedRecordId;
             main.post(() -> {
                 saving = false;
                 if (closed) {
                     if (ownsDraft) CaptureStore.discardDraft(context, draft);
                 } else if (saved) {
+                    if(chatAfterSave&&chatRecordId!=null&&ownerScope.equals(CaptureAccountSession.scope(context)))AiUi.open(context,ownerScope,chatRecordId);
                     close();
                 } else {
                     status.setText(R.string.capture_error_save_failed);
                     save.setEnabled(true);
+                    root.findViewById(R.id.ai_save_chat).setEnabled(true);
                 }
                 // Service-owned feedback survives a successful editor teardown.
                 CaptureAccessibilityService.showFeedback(context,

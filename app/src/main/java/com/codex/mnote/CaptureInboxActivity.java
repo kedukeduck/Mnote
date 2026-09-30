@@ -47,7 +47,8 @@ public final class CaptureInboxActivity extends Activity {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (CaptureSyncWorker.ACTION_SYNC_CHANGED.equals(intent.getAction())
-                    || CaptureStore.ACTION_RECORDS_CHANGED.equals(intent.getAction())) {
+                    || CaptureStore.ACTION_RECORDS_CHANGED.equals(intent.getAction())
+                    || AiChatStore.ACTION_CHANGED.equals(intent.getAction())) {
                 renderRecords();
             }
         }
@@ -65,6 +66,8 @@ public final class CaptureInboxActivity extends Activity {
     private EditText searchInput;
     private RadioGroup filterGroup;
     private String tagFilter, filterScope;
+    private int chatFilter, chatCountGeneration;
+    private java.util.Map<String,Integer> chatCounts=new java.util.HashMap<>();
     private int visibleLimit = RECORD_LIMIT;
     private final java.util.Set<String> selectedRecords = new java.util.LinkedHashSet<>();
     private boolean selecting, deletingSelection;
@@ -81,6 +84,7 @@ public final class CaptureInboxActivity extends Activity {
         filterScope = CaptureAccountSession.scope(this);
         if (savedInstanceState != null && filterScope.equals(savedInstanceState.getString("tag_scope"))) {
             tagFilter = savedInstanceState.getString("tag_filter");
+            chatFilter=savedInstanceState.getInt("chat_filter",0);
             selecting = savedInstanceState.getBoolean("selecting");
             ArrayList<String> restored = savedInstanceState.getStringArrayList("selected_records");
             if (restored != null) selectedRecords.addAll(restored.subList(0, Math.min(100, restored.size())));
@@ -100,6 +104,7 @@ public final class CaptureInboxActivity extends Activity {
         if (!syncReceiverRegistered) {
             IntentFilter changes = new IntentFilter(CaptureSyncWorker.ACTION_SYNC_CHANGED);
             changes.addAction(CaptureStore.ACTION_RECORDS_CHANGED);
+            changes.addAction(AiChatStore.ACTION_CHANGED);
             ContextCompat.registerReceiver(
                     this,
                     syncChangedReceiver,
@@ -174,7 +179,7 @@ public final class CaptureInboxActivity extends Activity {
         refreshButton.setOnClickListener(view -> refreshRecords());
         ((JournalRefreshScroll)findViewById(R.id.journal_library_scroll)).setRefreshAction(this::refreshRecords);
         findViewById(R.id.journal_filter_summary).setOnClickListener(view -> {
-            tagFilter = null; searchInput.setText(""); filterGroup.check(R.id.capture_filter_all); renderFilteredRecords();
+            tagFilter = null; chatFilter=0; searchInput.setText(""); filterGroup.check(R.id.capture_filter_all); renderFilteredRecords();
         });
     }
 
@@ -229,6 +234,7 @@ public final class CaptureInboxActivity extends Activity {
         final String scope = CaptureAccountSession.scope(this);
         final String[] pendingTag = {tagFilter};
         final int[] pendingType = {filterGroup.getCheckedRadioButtonId()};
+        final int[] pendingChat={chatFilter};
         LinearLayout body = JournalUi.column(this);
         body.setPadding(dp(22), dp(16), dp(22), dp(20));
         LinearLayout heading = new LinearLayout(this);
@@ -249,6 +255,15 @@ public final class CaptureInboxActivity extends Activity {
             types.addView(button, new RadioGroup.LayoutParams(0,-2,1));
         }
         types.check(pendingType[0]); body.addView(types);
+        JournalUi.section(body,"AI 对话");
+        RadioGroup chats=new RadioGroup(this);chats.setId(R.id.ai_filter_group);chats.setOrientation(RadioGroup.HORIZONTAL);
+        int[] chatIds={R.id.ai_filter_all,R.id.ai_filter_chatted,R.id.ai_filter_unchatted};
+        String[] chatNames={"全部","已聊过","未聊过"};
+        for(int i=0;i<chatIds.length;i++){
+            android.widget.RadioButton button=new android.widget.RadioButton(this,null,0,R.style.CaptureSegment);
+            button.setId(chatIds[i]);button.setText(chatNames[i]);chats.addView(button,new RadioGroup.LayoutParams(0,-2,1));
+        }
+        chats.check(chatIds[Math.max(0,Math.min(2,pendingChat[0]))]);body.addView(chats);
         JournalUi.section(body, "标签");
         EditText tagSearch = new EditText(this);
         tagSearch.setId(R.id.journal_filter_search);
@@ -294,11 +309,12 @@ public final class CaptureInboxActivity extends Activity {
         actions.addView(reset,new LinearLayout.LayoutParams(-2,-2));
         Button apply=new Button(this); apply.setId(R.id.journal_filter_apply); JournalUi.primary(apply);
         actions.addView(apply,new LinearLayout.LayoutParams(0,-2,1)); body.addView(actions);
-        Runnable count=()->apply.setText("查看 "+matchingRecords(pendingType[0],pendingTag[0]).size()+" 条记录");
+        Runnable count=()->apply.setText("查看 "+matchingRecords(pendingType[0],pendingTag[0],pendingChat[0]).size()+" 条记录");
+        chats.setOnCheckedChangeListener((group,id)->{pendingChat[0]=id==R.id.ai_filter_chatted?1:id==R.id.ai_filter_unchatted?2:0;count.run();});
         types.setOnCheckedChangeListener((group,id)->{pendingType[0]=id;count.run();});
         tags.setOnCheckedChangeListener((group,id)->{View chosen=tags.findViewById(id);pendingTag[0]=chosen==null?null:(String)chosen.getTag();count.run();});
         final int allTagId=tags.getChildAt(0).getId();
-        reset.setOnClickListener(v->{tagSearch.setText("");types.check(R.id.capture_filter_all);tags.check(allTagId);count.run();});
+        reset.setOnClickListener(v->{tagSearch.setText("");types.check(R.id.capture_filter_all);tags.check(allTagId);chats.check(R.id.ai_filter_all);count.run();});
         AlertDialog dialog=new AlertDialog.Builder(this).create();
         dialog.setView(body,0,0,0,0); dialog.show();
         close.setOnClickListener(v->dialog.dismiss());
@@ -314,12 +330,15 @@ public final class CaptureInboxActivity extends Activity {
         count.run();
         apply.setOnClickListener(v->{
             dialog.dismiss(); if(!scope.equals(CaptureAccountSession.scope(this)))return;
-            tagFilter=pendingTag[0]; visibleLimit=RECORD_LIMIT;
+            tagFilter=pendingTag[0]; chatFilter=pendingChat[0]; visibleLimit=RECORD_LIMIT;
             filterGroup.check(pendingType[0]);renderFilteredRecords();
         });
     }
 
     private List<CaptureStore.CaptureRecord> matchingRecords(int filter,String tag) {
+        return matchingRecords(filter,tag,chatFilter);
+    }
+    private List<CaptureStore.CaptureRecord> matchingRecords(int filter,String tag,int chats) {
         List<CaptureStore.CaptureRecord> result=new ArrayList<>();
         String query=searchInput.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
         for(CaptureStore.CaptureRecord r:libraryRecords) {
@@ -328,12 +347,14 @@ public final class CaptureInboxActivity extends Activity {
                 : filter==R.id.capture_filter_thought ? hasThought(r)
                 : filter==R.id.capture_filter_todo ? "todo".equals(r.kind) : true;
             String searchable=r.comment+"\n"+r.sourceText+"\n"+CaptureRecordEdits.original(r)+"\n"+r.sourceUrl+"\n"+CaptureTags.input(r.tags);
-            if(match && CaptureTags.matches(r.tags,tag) && searchable.toLowerCase(java.util.Locale.ROOT).contains(query))result.add(r);
+            boolean chatted=chatCounts.getOrDefault(r.id,0)>0;
+            if(match && (chats==0 || (chats==1?chatted:!chatted)) && CaptureTags.matches(r.tags,tag) && searchable.toLowerCase(java.util.Locale.ROOT).contains(query))result.add(r);
         }
         return result;
     }
     @Override protected void onSaveInstanceState(Bundle state) {
         state.putString("tag_filter",tagFilter);state.putString("tag_scope",filterScope);
+        state.putInt("chat_filter",chatFilter);
         state.putBoolean("selecting", selecting);
         state.putStringArrayList("selected_records", new ArrayList<>(selectedRecords));
         super.onSaveInstanceState(state);
@@ -341,7 +362,7 @@ public final class CaptureInboxActivity extends Activity {
 
     private void renderRecords() {
         String currentScope=CaptureAccountSession.scope(this);
-        if (!currentScope.equals(filterScope)) { tagFilter=null; filterScope=currentScope; visibleLimit=RECORD_LIMIT; selectedRecords.clear(); selecting=false; }
+        if (!currentScope.equals(filterScope)) { tagFilter=null; chatFilter=0;chatCounts.clear();filterScope=currentScope; visibleLimit=RECORD_LIMIT; selectedRecords.clear(); selecting=false; }
         List<CaptureStore.CaptureRecord> allRecords = CaptureStore.list(
                 this,
                 Integer.MAX_VALUE
@@ -349,16 +370,24 @@ public final class CaptureInboxActivity extends Activity {
         renderSyncStatus(allRecords);
         libraryRecords = CaptureRemoteCache.merged(this, allRecords);
         renderFilteredRecords();
+        int chatGeneration=++chatCountGeneration;
+        refreshExecutor.execute(()->{try{
+            CaptureAccountSession.requireScope(this,currentScope);
+            java.util.Map<String,Integer> counts=AiChatStore.completedCounts(this);
+            runOnUiThread(()->{if(!destroyed&&chatGeneration==chatCountGeneration&&currentScope.equals(CaptureAccountSession.scope(this))&&!counts.equals(chatCounts)){
+                chatCounts=counts;renderFilteredRecords();
+            }});
+        }catch(Exception ignored){}});
     }
 
     private void renderFilteredRecords() {
         ((Button)findViewById(R.id.capture_tag_filter)).setText("筛选");
         Button summary=findViewById(R.id.journal_filter_summary);
         int activeType=filterGroup.getCheckedRadioButtonId();
-        boolean hasFilter=tagFilter!=null || activeType!=R.id.capture_filter_all;
+        boolean hasFilter=tagFilter!=null || activeType!=R.id.capture_filter_all || chatFilter!=0;
         summary.setVisibility(hasFilter?View.VISIBLE:View.GONE);
         String type=activeType==R.id.capture_filter_excerpt?"摘录":activeType==R.id.capture_filter_thought?"想法":activeType==R.id.capture_filter_todo?"待办":"全部类型";
-        summary.setText(type+(tagFilter==null?"":tagFilter.isEmpty()?" · 未分类":" · #"+tagFilter)+" · 清除筛选");
+        summary.setText(type+(tagFilter==null?"":tagFilter.isEmpty()?" · 未分类":" · #"+tagFilter)+(chatFilter==1?" · 已聊过":chatFilter==2?" · 未聊过":"")+" · 清除筛选");
         int generation = ++renderGeneration;
         clearThumbnails();
         recordsContainer.removeAllViews();
@@ -376,7 +405,7 @@ public final class CaptureInboxActivity extends Activity {
         recordCount.setText(filteredCount(allRecords.size(), libraryRecords.size()));
         TextView emptyTitle = (TextView) ((LinearLayout) emptyState).getChildAt(1);
         TextView emptyDetail = (TextView) ((LinearLayout) emptyState).getChildAt(2);
-        boolean filtered = !query.isEmpty() || filter != R.id.capture_filter_all || tagFilter!=null;
+        boolean filtered = !query.isEmpty() || filter != R.id.capture_filter_all || tagFilter!=null || chatFilter!=0;
         emptyTitle.setText(filtered ? R.string.capture_search_empty_title : R.string.capture_empty_title);
         emptyDetail.setText(filtered ? R.string.capture_search_empty_detail : R.string.capture_empty_detail);
         emptyState.setVisibility(records.isEmpty() ? View.VISIBLE : View.GONE);
@@ -390,6 +419,9 @@ public final class CaptureInboxActivity extends Activity {
                     false
             );
             bindRecord(card, record, generation);
+            TextView chatBadge=card.findViewById(R.id.ai_record_badge);
+            int chats=chatCounts.getOrDefault(record.id,0);chatBadge.setVisibility(chats>0?View.VISIBLE:View.GONE);
+            chatBadge.setText("AI · "+chats);chatBadge.setContentDescription("已与 AI 聊过，共 "+chats+" 段对话");
             String day=DateFormat.format("yyyy-MM-dd",record.createdAt).toString();
             if(!day.equals(lastDay)) {
                 TextView heading=card.findViewById(R.id.journal_item_day);
@@ -583,7 +615,7 @@ public final class CaptureInboxActivity extends Activity {
         for(CaptureStore.CaptureRecord record:libraryRecords) if(selectedRecords.contains(record.id))snapshot.add(record);
         if(snapshot.isEmpty()||!scope.equals(CaptureAccountSession.scope(this)))return;
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("删除选中的 "+snapshot.size()+" 条记录？")
-            .setMessage(CaptureAccountSession.hasAccount(this)?"只删除已勾选的记录；联网后同步到账号回收站，其他设备也会移除。已公开的分享不会自动撤销。":"只从本机列表移除已勾选的记录，不删除服务器副本。")
+            .setMessage((CaptureAccountSession.hasAccount(this)?"只删除已勾选的记录；联网后同步到账号回收站，其他设备也会移除。已公开的分享不会自动撤销。":"只从本机列表移除已勾选的记录，不删除服务器副本。")+"\n这些记录的关联 AI 对话及资料副本也会删除，恢复记录不会恢复对话。")
             .setNegativeButton("取消",null).setPositiveButton("删除 "+snapshot.size()+" 条",(d,w)->{
                 deletingSelection=true;updateSelection();
                 refreshExecutor.execute(()->{
@@ -649,9 +681,9 @@ public final class CaptureInboxActivity extends Activity {
     private void confirmDelete(CaptureStore.CaptureRecord record, String scope) {
         if (!scope.equals(CaptureAccountSession.scope(this))) return;
         AlertDialog confirmation = new AlertDialog.Builder(this).setTitle("删除这条记录？")
-                .setMessage(CaptureAccountSession.hasAccount(this)
+                .setMessage((CaptureAccountSession.hasAccount(this)
                         ? "将从当前列表移除，联网后同步移到账号回收站。其他设备同步后也会移除。"
-                        : "将从本机列表移除。未登录时不会删除服务器上的副本。")
+                        : "将从本机列表移除。未登录时不会删除服务器上的副本。")+"\n本条记录的关联 AI 对话及资料副本也会删除，恢复记录不会恢复对话。")
                 .setNegativeButton("取消", null).setPositiveButton("删除", (dialog, which) -> {
                     refreshExecutor.execute(() -> {
                         boolean ok = false;

@@ -113,6 +113,7 @@ final class CaptureRecordPage {
         close.setOnClickListener(view->dialog.dismiss());
         editButton.setOnClickListener(view->{dialog.dismiss();if(edit!=null)edit.run();});
         remove.setOnClickListener(view->{dialog.dismiss();delete.run();});
+        AiRecordSection.attach(activity,page,record);
         dialog.show();
         dialog.getWindow().setBackgroundDrawable(new ColorDrawable(activity.getColor(R.color.cream)));
         dialog.getWindow().setLayout(WindowManager.LayoutParams.MATCH_PARENT,WindowManager.LayoutParams.MATCH_PARENT);

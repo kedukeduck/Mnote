@@ -102,4 +102,7 @@
         <include layout="@layout/capture_tags" />
         </LinearLayout>
     </LinearLayout>
+    <Button android:id="@id/ai_save_chat" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:minHeight="48dp" android:layout_marginHorizontal="18dp" android:text="保存并聊天"
+        android:textSize="14sp" android:textColor="@color/coral" android:background="?android:attr/selectableItemBackground" />
 </LinearLayout>

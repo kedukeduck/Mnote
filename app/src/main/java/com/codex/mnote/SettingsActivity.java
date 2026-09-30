@@ -40,6 +40,11 @@ public final class SettingsActivity extends Activity {
                     .putExtra("scope", CaptureAccountSession.scope(this)));
             }
         });
+        section(root, "AI 与思考");
+        row(root, "AI 模型配置", "自定义模型服务，密钥仅保存在本机", R.id.ai_settings_models,
+            () -> startActivity(new Intent(this, AiModelSettingsActivity.class)));
+        row(root, "全部 AI 对话", "回顾每条记录的讨论，继续或整理会话", R.id.ai_settings_history,
+            () -> startActivity(AiUi.history(this, CaptureAccountSession.scope(this), null)));
         section(root, "应用");
         String version = "";
         try {

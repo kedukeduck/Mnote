@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="ai_chat_open" type="id"/><item name="ai_chat_history" type="id"/>
+    <item name="ai_chat_send" type="id"/><item name="ai_chat_input" type="id"/>
+    <item name="ai_chat_messages" type="id"/><item name="ai_chat_status" type="id"/>
+    <item name="ai_chat_context" type="id"/><item name="ai_chat_model" type="id"/>
+    <item name="ai_chat_new" type="id"/><item name="ai_chat_stop" type="id"/>
+    <item name="ai_save_chat" type="id"/><item name="ai_record_badge" type="id"/>
+    <item name="ai_filter_all" type="id"/><item name="ai_filter_chatted" type="id"/>
+    <item name="ai_filter_unchatted" type="id"/><item name="ai_filter_group" type="id"/>
+    <item name="ai_settings_models" type="id"/><item name="ai_settings_history" type="id"/>
+    <item name="ai_model_add" type="id"/><item name="ai_model_save" type="id"/>
+    <item name="ai_model_test" type="id"/><item name="ai_model_key" type="id"/>
+    <item name="ai_model_url" type="id"/><item name="ai_model_name" type="id"/>
+    <item name="ai_model_label" type="id"/><item name="ai_model_vision" type="id"/>
+    <item name="ai_history_search" type="id"/><item name="ai_history_list" type="id"/>
+</resources>

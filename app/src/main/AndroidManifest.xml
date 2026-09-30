@@ -21,6 +21,11 @@
         <activity android:name=".ShareTextActivity" android:exported="false" />
         <activity android:name=".ShareCardActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" android:label="设置" />
+        <activity android:name=".AiChatActivity" android:exported="false" android:label="围绕这条聊聊"
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden" />
+        <activity android:name=".AiChatHistoryActivity" android:exported="false" android:label="AI 对话" />
+        <activity android:name=".AiModelSettingsActivity" android:exported="false" android:label="AI 模型配置"
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden" />
         <activity android:name=".CapturePermissionsActivity" android:exported="false" android:label="快捷方式与权限" />
         <activity android:name=".AppUpdateActivity" android:exported="false" android:label="版本与更新" />
         <provider android:name=".AppUpdateProvider" android:authorities="${applicationId}.updates"
