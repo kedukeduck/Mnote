@@ -1,11 +1,13 @@
 #include "workspace.hpp"
 #include "updater.hpp"
+#include "ai_chat.hpp"
 #include <cmath>
 #include <commctrl.h>
 #include <commdlg.h>
 #include <condition_variable>
 #include <deque>
 #include <objidl.h>
+#include <richedit.h>
 #include <set>
 #include <shellapi.h>
 #include <thread>
@@ -92,7 +94,13 @@ enum Control {
     ReaderOriginal,
     ReaderCrop,
     ReaderContext,
-    ReaderSource
+    ReaderSource,
+    ChatButton = 29000, SaveChat, ChatFilter, ChatModels, ChatHistory, ChatSend, ChatStop,
+    ChatNew, ChatInput, ChatTranscript, ChatProfile, ChatMaterials, ChatRename, ChatRefresh,
+    ChatThought, ChatExcerpt, ChatOriginal, ChatImages, ChatMetadata, ChatName,
+    ModelLabel, ModelEndpoint, ModelId, ModelKey, ModelVision, ModelLimit, ModelNew,
+    ModelTest, ModelImageTest, ModelDelete, ChatSuggestOne, ChatSuggestTwo, ChatSuggestThree,
+    ChatRetry
 };
 enum class Mode {
     Library,
@@ -105,7 +113,7 @@ enum class Mode {
     Shares,
     Settings,
     ShareText,
-    Reader
+    Reader, Chat, ChatHistory, ChatModels
 };
 struct Placement {
     HWND control;
@@ -147,10 +155,19 @@ struct Window {
     double zoom = 1;
     POINT pan{}, anchor{};
     bool dragging = false;
+    std::string chatId, chatRecordId, profileId;
+    Json profiles = Json::array();
+    std::vector<Ai::Conversation> conversations;
+    std::map<std::string, int> chatCounts;
+    std::shared_ptr<std::atomic_bool> chatStop;
+    Ai::Conversation conversation;
+    bool chatReceiving = false;
 };
 HINSTANCE instance = nullptr;
 HWND home = nullptr, editor = nullptr, accountWindow = nullptr;
 std::unique_ptr<Library> library;
+std::unique_ptr<Ai::Store> chats;
+std::vector<std::thread> chatWorkers;
 std::map<HWND, std::unique_ptr<Window>> windows;
 std::uint64_t nextSerial = 0;
 std::function<void()> captureAction;
@@ -158,6 +175,7 @@ std::function<void()> exitForUpdateAction;
 std::function<void(const std::wstring &, bool)> notify;
 HBRUSH backgroundBrush = nullptr, whiteBrush = nullptr;
 HFONT defaultFont = nullptr;
+HMODULE richEdit = nullptr;
 std::thread worker, syncWorker;
 std::mutex queueMutex;
 std::condition_variable queueWake;
@@ -168,6 +186,10 @@ void Load();
 void Layout(Window &);
 void OpenEditor(Draft, const Record *record = nullptr);
 void OpenAccount();
+void OpenChat(const Record &, const std::string &id = "");
+void OpenChatHistory(const std::string &record = "");
+void OpenChatModels();
+void ChatCommand(Window &, int, int);
 void SelectionControls(Window &);
 void DrawImage(Window &, HDC, RECT);
 void RefreshReader(Window &);
@@ -218,7 +240,9 @@ void Busy(Window &w, bool value) {
                    AiAccess,  UpdateCheck,    UpdateDownload, UpdateInstall, BatchExport,
                    SelectAll, ClearSelection, ExportShares,   MultiSelect,   MultiCancel,
                    MultiAll,  MultiDelete,    ImageRole,      ExportPreview, TagsPicker,
-                   ShareText})
+                   ShareText, SaveChat, ChatSend, ChatProfile, ChatRefresh, ChatRename, ModelLabel,
+                   ModelEndpoint, ModelId, ModelKey, ModelVision, ModelLimit, ModelTest,
+                   ModelImageTest, ModelDelete, ModelNew})
         if (auto c = ControlOf(w, id))
             EnableWindow(c, !value);
 }
@@ -375,6 +399,28 @@ void Layout(Window &w) {
         LayoutReader(w);
         return;
     }
+    if (w.mode == Mode::Chat) {
+        auto move = [&](int id, int x, int y, int ww, int hh) {
+            MoveWindow(ControlOf(w,id),Scale(w,x),Scale(w,y),Scale(w,ww),Scale(w,hh),TRUE);
+        };
+        move(Title,28,20,width-310,40); move(ChatHistory,width-274,22,116,36); move(ChatNew,width-146,22,118,36);
+        move(Subtitle,28,67,width-56,42); move(ChatProfile,28,112,width-230,220); move(ChatMaterials,width-186,112,158,36);
+        const int checks[]={ChatThought,ChatExcerpt,ChatOriginal,ChatImages,ChatMetadata};
+        for(int i=0;i<5;++i) { move(checks[i],28+i*(width-56)/5,158,(width-56)/5,28); ShowWindow(ControlOf(w,checks[i]),w.chatId.empty()?SW_SHOW:SW_HIDE); }
+        int top=w.chatId.empty()?196:158;
+        move(ChatTranscript,28,top,width-56,std::max(80,height-top-238));
+        move(ChatSuggestOne,28,height-222,146,32); move(ChatSuggestTwo,184,height-222,146,32); move(ChatSuggestThree,340,height-222,146,32);
+        move(ChatRetry,width-170,height-222,142,32);
+        move(ChatInput,28,height-178,width-192,112); move(ChatSend,width-150,height-178,122,48); move(ChatStop,width-150,height-120,122,38);
+        move(Status,28,height-52,width-56,38);
+        InvalidateRect(w.hwnd,nullptr,TRUE); return;
+    }
+    if (w.mode == Mode::ChatHistory) {
+        auto move = [&](int id,int x,int y,int ww,int hh){MoveWindow(ControlOf(w,id),Scale(w,x),Scale(w,y),Scale(w,ww),Scale(w,hh),TRUE);};
+        move(Title,28,22,width-56,42); move(Subtitle,28,74,width-56,34); move(Search,28,120,width-180,38); move(ChatRefresh,width-140,120,112,38);
+        move(List,28,172,width-56,height-340); move(ChatName,28,height-150,width-292,38); move(ChatRename,width-252,height-150,104,38); move(Delete,width-136,height-150,108,38);
+        move(ChatButton,28,height-96,134,38); move(ChatNew,176,height-96,132,38); move(Cancel,322,height-96,100,38); move(Status,28,height-44,width-56,34); return;
+    }
     if (w.mode == Mode::Library) {
         auto move = [&](int id, int x, int y, int ww, int hh) {
             MoveWindow(ControlOf(w, id), Scale(w, x), Scale(w, y), Scale(w, ww), Scale(w, hh),
@@ -396,9 +442,11 @@ void Layout(Window &w) {
         move(FilterToggle, left + listWidth - 78, 84, 78, 38);
         move(TagFilter, left, 132, (listWidth - 12) / 2, 280);
         move(KindFilter, left + (listWidth + 12) / 2, 132, (listWidth - 12) / 2, 280);
+        move(ChatFilter,left,172,listWidth,200);
         ShowWindow(ControlOf(w, TagFilter), w.filtersOpen ? SW_SHOW : SW_HIDE);
         ShowWindow(ControlOf(w, KindFilter), w.filtersOpen ? SW_SHOW : SW_HIDE);
-        int listTop = w.filtersOpen ? 182 : 140;
+        ShowWindow(ControlOf(w, ChatFilter), w.filtersOpen ? SW_SHOW : SW_HIDE);
+        int listTop = w.filtersOpen ? 220 : 140;
         move(List, left, listTop, listWidth, std::max(80, height - listTop - 102));
         move(BatchExport, left + listWidth - 134, height - 82, 134, 38);
         move(MultiCancel, left, height - 82, 62, 38);
@@ -478,13 +526,13 @@ void Layout(Window &w) {
             y -= 10000;
         if (id == Status)
             y = height - 44;
-        else if (id == Save || id == Login)
+        else if (id == Save || id == Login || id == SaveChat)
             y = height - 94;
         else if (id == Cancel || id == Delete)
             y = height - 94;
         int ww = p.stretch ? std::max(120, width - 56) : p.w;
         MoveWindow(p.control, Scale(w, p.x), Scale(w, y), Scale(w, ww), Scale(w, p.h), TRUE);
-        bool footer = id == Status || id == Save || id == Login || id == Cancel || id == Delete;
+        bool footer = id == Status || id == Save || id == Login || id == Cancel || id == Delete || id == SaveChat;
         // Clip the scrolling body above the fixed save/status footer.
         if (!footer)
             SetWindowRgn(p.control,
@@ -574,6 +622,7 @@ void RefreshReader(Window &from) {
     w.record = *record;
     w.draft.data = record->data;
     w.draft.assets = record->assets;
+    if(!record->deleted) Button(w,ChatButton,L"与 AI 聊聊 · 本条记录的对话",24,0,300);
     auto section = [&](int labelId, int id, const std::wstring &title, const std::wstring &value) {
         if (value.empty())
             return;
@@ -686,6 +735,7 @@ void Populate(Window &w) {
     int tagIndex = static_cast<int>(SendMessageW(ControlOf(w, TagFilter), CB_GETCURSEL, 0, 0));
     auto query = Text(ControlOf(w, Search)), tag = Text(ControlOf(w, TagFilter));
     int kind = static_cast<int>(SendMessageW(ControlOf(w, KindFilter), CB_GETCURSEL, 0, 0));
+    int chatFilter = static_cast<int>(SendMessageW(ControlOf(w, ChatFilter), CB_GETCURSEL, 0, 0));
     auto lower = [](std::wstring value) {
         for (auto &c : value)
             c = static_cast<wchar_t>(towlower(c));
@@ -703,6 +753,8 @@ void Populate(Window &w) {
     for (const auto &record : w.records) {
         if (record.deleted != w.showTrash)
             continue;
+        if ((chatFilter == 1 && w.chatCounts[record.id] == 0) ||
+            (chatFilter == 2 && w.chatCounts[record.id] > 0)) continue;
         const auto presentation = PresentRecord(record);
         if (kind == 1 && !presentation.hasThought)
             continue;
@@ -740,6 +792,7 @@ void Populate(Window &w) {
                        (presentation.material.empty() ? L"已保留页面截图" : presentation.material.substr(0, 256));
         auto accessible = RecordCategory(record) + L" · " + Field(record.data, "created_at") +
                           L" · " + summary + L" · " + TagText(record.data);
+        if(w.chatCounts[record.id]>0) accessible+=L" · AI 对话 "+std::to_wstring(w.chatCounts[record.id]);
         SendMessageW(ControlOf(w, List), LB_ADDSTRING, 0,
                      reinterpret_cast<LPARAM>(accessible.c_str()));
     }
@@ -870,14 +923,18 @@ void Load() {
     Enqueue([hwnd, serial, scope] {
         try {
             auto rows = library->list(scope);
+            chats->prune(scope);
+            std::map<std::string,int> counts;
+            for(const auto &c:chats->list(scope)) if(Ai::Store::chatted(c)) ++counts[c.data.at("record_id").get<std::string>()];
             auto account = library->account();
-            Post([hwnd, serial, scope, rows = std::move(rows), account]() mutable {
+            Post([hwnd, serial, scope, rows = std::move(rows), counts, account]() mutable {
                 auto w = Find(hwnd, serial);
                 if (!w || library->account().scope != scope)
                     return;
                 bool changed = w->scope != scope;
                 w->scope = scope;
                 w->records = std::move(rows);
+                w->chatCounts=counts;
                 auto tag = changed ? L"全部标签" : Text(ControlOf(*w, TagFilter));
                 bool untagged =
                     !changed && SendMessageW(ControlOf(*w, TagFilter), CB_GETCURSEL, 0, 0) == 1;
@@ -903,6 +960,11 @@ void Load() {
                 SendMessageW(ControlOf(*w, TagFilter), CB_SETCURSEL, static_cast<WPARAM>(selected),
                              0);
                 if (changed) {
+                    for(const auto &entry:windows)if(entry.second->scope!=scope&&
+                        (entry.second->mode==Mode::Chat||entry.second->mode==Mode::ChatHistory||entry.second->mode==Mode::ChatModels)){
+                        if(entry.second->chatStop)entry.second->chatStop->store(true);
+                        ShowWindow(entry.first,SW_HIDE);PostMessageW(entry.first,WM_CLOSE,0,0);
+                    }
                     w->thumbnails.clear();
                     w->shareLoading.clear();
                     w->shareErrors.clear();
@@ -911,6 +973,7 @@ void Load() {
                     Set(*w, Search, L"");
                     w->showTrash = false;
                     SendMessageW(ControlOf(*w, KindFilter), CB_SETCURSEL, 0, 0);
+                    SendMessageW(ControlOf(*w, ChatFilter), CB_SETCURSEL, 0, 0);
                 }
                 Set(*w, AccountButton, account.signedIn() ? Wide(account.username) : L"登录账号");
                 Set(*w, Subtitle,
@@ -1063,7 +1126,7 @@ void OpenEditor(Draft draft, const Record *record) {
     w.scope = w.draft.scope.empty() ? library->account().scope : w.draft.scope;
     w.loading = true;
     if (record) {
-        w.record = *record;
+    w.record = *record;
         w.editing = true;
         w.baseline = Library::fingerprint(*record);
     }
@@ -1072,6 +1135,7 @@ void OpenEditor(Draft draft, const Record *record) {
     Label(w, Title, w.editing ? L"回看，也继续想" : L"记下这一刻", 24);
     // Heading uses a larger line box than normal section labels.
     w.placements.back().h = 42;
+    if(w.editing){w.placements.back().stretch=false;w.placements.back().w=420;Button(w,ChatButton,L"本条 AI 对话",490,24,180);}
     Label(w, Subtitle,
           Field(source, "app_name").empty()
               ? L"只记录你选择保留的内容"
@@ -1187,9 +1251,10 @@ void OpenEditor(Draft draft, const Record *record) {
     if (!w.moreOptions)
         w.extent = moreStart;
     Button(w, Save, L"保存记录", 28, 0, 148);
-    Button(w, Cancel, L"取消", 190, 0, 100);
+    Button(w, SaveChat, L"保存并聊天", 190, 0, 142);
+    Button(w, Cancel, L"取消", 348, 0, 86);
     if (w.editing)
-        Button(w, Delete, L"删除记录", 310, 0, 132);
+        Button(w, Delete, L"删除记录", 450, 0, 118);
     Label(w, Status,
           w.editing ? L"修改不会丢失原始图片和圈选信息。"
                     : L"未登录时仅保存在本机；不会自动读取剪贴板。",
@@ -1370,7 +1435,7 @@ Json Edited(Window &w) {
     }
     return data;
 }
-void SaveEditor(Window &w) {
+void SaveEditor(Window &w, bool startChat = false) {
     if (w.busy)
         return;
     auto data = Edited(w);
@@ -1386,6 +1451,7 @@ void SaveEditor(Window &w) {
     auto scope = w.scope, baseline = w.baseline;
     auto full = w.draft.fullImage;
     auto staging = w.draft.staging;
+    auto saved = std::make_shared<Record>();
     bool retain = full && (ControlOf(w, Full) ? Checked(w, Full)
                                               : data.value("evidence", Json::object())
                                                     .value("context", Json::object())
@@ -1393,7 +1459,7 @@ void SaveEditor(Window &w) {
                                                     .value("retained", false));
     Run(
         w,
-        [data, assets, scope, baseline, full, retain, staging]() mutable {
+        [data, assets, scope, baseline, full, retain, staging, saved]() mutable {
             if (full && !baseline.size()) {
                 data["evidence"]["context"]["image"]["retained"] = retain;
                 data["evidence"]["context"]["image"]["asset_role"] =
@@ -1405,14 +1471,15 @@ void SaveEditor(Window &w) {
                 } else
                     assets.erase("context");
             }
-            library->save(scope, data, assets, baseline);
+            *saved=library->save(scope, data, assets, baseline);
         },
-        [](Window &form) {
+        [saved,startChat](Window &form) {
             form.dirty = false;
             notify(L"记录已保存到本机", false);
             DestroyWindow(form.hwnd);
             Load();
             Sync();
+            if(startChat) OpenChat(*saved);
         });
 }
 void CaptureContext(Window &w, bool screenshot) {
@@ -1613,19 +1680,667 @@ void OpenSettings() {
     Button(w, ExportShares, L"分享管理\n回看已导出的文字与图片，管理分享链接", 28, 338, 260);
     w.placements.back().h = 100;
     w.placements.back().stretch = true;
-    Label(w, 26103, L"应用", 462);
+    Label(w, 26107, L"思考伙伴", 462);
+    Button(w,ChatModels,L"AI 模型配置\n本机密钥、多模型与连接测试",28,498,260);
+    w.placements.back().h=88; w.placements.back().stretch=true;
+    Button(w,ChatHistory,L"全部 AI 对话\n继续讨论，或回到当时的记录",28,598,260);
+    w.placements.back().h=88; w.placements.back().stretch=true;
+    Label(w, 26103, L"应用", 710);
     Button(w, Updates,
            L"版本与更新\n当前 " + std::wstring(Updater::Current) + L" · 从 Mnote 服务器获取更新",
-           28, 498, 260);
+           28, 746, 260);
     w.placements.back().h = 100;
     w.placements.back().stretch = true;
-    Label(w, 26105, L"不依赖 GitHub，也不需要笔记账号或 Token。", 614);
-    w.extent = 650;
+    Label(w, 26105, L"不依赖 GitHub，也不需要笔记账号或 Token。", 862);
+    w.extent = 904;
     Button(w, Cancel, L"返回", 28, 0, 100);
     Label(w, Status, L"", 0);
     Layout(w);
     ShowWindow(w.hwnd, SW_SHOW);
     SetForegroundWindow(w.hwnd);
+}
+Record ChatRecord(const std::string &scope, const std::string &id) {
+    if (library->account().scope != scope)
+        throw std::runtime_error("account_changed");
+    for (const auto &record : library->list(scope))
+        if (record.id == id && !record.deleted)
+            return record;
+    throw std::runtime_error("record_unavailable");
+}
+void ChatProfileList(Window &w) {
+    w.profiles = chats->profiles(w.scope);
+    SendMessageW(ControlOf(w, ChatProfile), CB_RESETCONTENT, 0, 0);
+    int selected = 0, index = 0;
+    auto desired =
+        w.chatId.empty() ? Json::object() : w.conversation.data.value("model", Json::object());
+    for (const auto &p : w.profiles) {
+        auto label = Field(p, "label") + L" · " + Field(p, "model");
+        SendMessageW(ControlOf(w, ChatProfile), CB_ADDSTRING, 0,
+                     reinterpret_cast<LPARAM>(label.c_str()));
+        if ((!desired.empty() &&
+             p.value("model", std::string()) == desired.value("model", std::string()) &&
+             p.value("base_url", std::string()) == desired.value("base_url", std::string())) ||
+            (desired.empty() && p.value("default", false)))
+            selected = index;
+        ++index;
+    }
+    if (w.profiles.empty())
+        SendMessageW(ControlOf(w, ChatProfile), CB_ADDSTRING, 0,
+                     reinterpret_cast<LPARAM>(L"请先在设置中添加 AI 模型"));
+    SendMessageW(ControlOf(w, ChatProfile), CB_SETCURSEL, selected, 0);
+}
+Json ChosenProfile(Window &w) {
+    auto index = SendMessageW(ControlOf(w, ChatProfile), CB_GETCURSEL, 0, 0);
+    if (index < 0 || static_cast<std::size_t>(index) >= w.profiles.size())
+        throw std::runtime_error("chat_model");
+    return w.profiles.at(static_cast<std::size_t>(index));
+}
+struct ChatTextSpan {
+    LONG first, last;
+    bool bold = false, code = false;
+    COLORREF color = Ink;
+    int size = 240;
+};
+std::wstring ChatMarkdown(const std::wstring &input, std::vector<ChatTextSpan> &spans) {
+    // Native, inert text only. Markdown links/images are never loaded or executed.
+    std::wstring result;
+    std::size_t at = 0;
+    bool code = false;
+    while (at < input.size()) {
+        auto end = input.find(L'\n', at);
+        if (end == std::wstring::npos)
+            end = input.size();
+        auto line = input.substr(at, end - at);
+        if (!line.empty() && line.back() == L'\r')
+            line.pop_back();
+        if (line.rfind(L"```", 0) == 0) {
+            code = !code;
+            at = end + 1;
+            continue;
+        }
+        bool bold = false;
+        COLORREF color = Ink;
+        int size = 240;
+        if (!code) {
+            std::size_t heading = 0;
+            while (heading < line.size() && line[heading] == L'#')
+                ++heading;
+            if (heading > 0 && heading <= 6 && heading < line.size() && line[heading] == L' ') {
+                line.erase(0, heading + 1);
+                bold = true;
+                size = heading <= 2 ? 290 : 260;
+            }
+            if (line.rfind(L"> ", 0) == 0) {
+                line = L"│ " + line.substr(2);
+                color = Copper;
+            }
+            if (line.rfind(L"- ", 0) == 0 || line.rfind(L"* ", 0) == 0)
+                line = L"• " + line.substr(2);
+            if (line == L"你" || line.rfind(L"AI · ", 0) == 0) {
+                bold = true;
+                color = Accent;
+                size = 225;
+            }
+        }
+        auto start = static_cast<LONG>(result.size());
+        auto base = spans.size();
+        spans.push_back({start, start, bold, code, color, size});
+        if (!code) {
+            bool emphasis = false;
+            LONG emphasisStart = 0;
+            for (std::size_t i = 0; i < line.size(); ++i) {
+                if (i + 1 < line.size() && line[i] == L'*' && line[i + 1] == L'*') {
+                    if (emphasis)
+                        spans.push_back({emphasisStart, static_cast<LONG>(result.size()), true,
+                                         false, color, size});
+                    else
+                        emphasisStart = static_cast<LONG>(result.size());
+                    emphasis = !emphasis;
+                    ++i;
+                } else
+                    result += line[i];
+            }
+        } else
+            result += line;
+        // RichEdit uses one CR character per paragraph, avoiding selection offset drift.
+        result += L'\r';
+        spans[base].last = static_cast<LONG>(result.size());
+        at = end + 1;
+    }
+    return result;
+}
+void ChatTranscriptText(Window &w, const Ai::Conversation &c) {
+    w.conversation = c;
+    std::wstring text;
+    for (const auto &m : c.data.value("messages", Json::array())) {
+        bool user = m.value("role", std::string()) == "user";
+        text += (user ? L"你" : L"AI · " + Field(m, "model")) + L"\r\n";
+        auto status = m.value("status", std::string());
+        text += Field(m, "content");
+        if (status == "generating")
+            text += L"\r\n正在思考…";
+        else if (status == "stopped")
+            text += L"\r\n[已停止，已有内容保留]";
+        else if (status == "failed")
+            text +=
+                L"\r\n[未完成] " +
+                Ai::Store::error(std::runtime_error(m.value("error", std::string("chat_request"))));
+        text += L"\r\n\r\n────────────────────────\r\n\r\n";
+    }
+    if (text.empty())
+        text = L"从这一条记录出发。\r\n\r\n你可以让 AI "
+               L"帮你澄清想法、提出不同视角，或把启发变成一个行动。\r\n\r\n选好上方资料，再写下你的"
+               L"问题。只有点击发送并确认后才会调用模型。";
+    auto control = ControlOf(w, ChatTranscript);
+    SCROLLINFO scroll{sizeof(scroll), SIF_ALL, 0, 0, 0, 0, 0};
+    GetScrollInfo(control, SB_VERT, &scroll);
+    bool bottom = scroll.nPos + static_cast<int>(scroll.nPage) >= scroll.nMax - 3;
+    auto first = SendMessageW(control, EM_GETFIRSTVISIBLELINE, 0, 0);
+    std::vector<ChatTextSpan> spans;
+    if (richEdit)
+        text = ChatMarkdown(text, spans);
+    SetWindowTextW(control, text.c_str());
+    if (richEdit) {
+        for (const auto &span : spans) {
+            CHARRANGE range{span.first, span.last};
+            SendMessageW(control, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&range));
+            CHARFORMAT2W format{};
+            format.cbSize = sizeof(format);
+            format.dwMask = CFM_FACE | CFM_SIZE | CFM_COLOR | CFM_BOLD;
+            format.dwEffects = span.bold ? CFE_BOLD : 0;
+            format.crTextColor = span.color;
+            format.yHeight = span.size;
+            lstrcpynW(format.szFaceName, span.code ? L"Consolas" : L"Segoe UI", LF_FACESIZE);
+            SendMessageW(control, EM_SETCHARFORMAT, SCF_SELECTION,
+                         reinterpret_cast<LPARAM>(&format));
+        }
+    }
+    if (bottom) {
+        SendMessageW(control, EM_SETSEL, static_cast<WPARAM>(-1), static_cast<LPARAM>(-1));
+        SendMessageW(control, EM_SCROLLCARET, 0, 0);
+    } else
+        SendMessageW(control, EM_LINESCROLL, 0, first);
+    Set(w, Title, Field(c.data, "title").empty() ? L"与 AI 聊聊" : Field(c.data, "title"));
+}
+void OpenChat(const Record &record, const std::string &id) {
+    auto scope = library->account().scope;
+    ChatRecord(scope, record.id);
+    for (const auto &entry : windows)
+        if (entry.second->mode == Mode::Chat && entry.second->scope == scope &&
+            ((!id.empty() && entry.second->chatId == id) ||
+             (id.empty() && entry.second->chatId.empty() &&
+              entry.second->chatRecordId == record.id))) {
+            ShowWindow(entry.first, SW_SHOW);
+            SetForegroundWindow(entry.first);
+            return;
+        }
+    auto &w = Create(Mode::Chat, L"Mnote · 与 AI 聊聊", 880, 900);
+    w.record = record;
+    w.chatRecordId = record.id;
+    w.chatId = id;
+    Label(w, Title, L"与 AI 聊聊", 20);
+    Label(w, Subtitle, L"本条记录 · 不读取其他笔记，不自动修改记录", 66);
+    Button(w, ChatHistory, L"本条会话", 0, 0, 116);
+    Button(w, ChatNew, L"新建对话", 0, 0, 116);
+    Add(w, ChatProfile, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, 28, 112, 500, 220);
+    Button(w, ChatMaterials, L"查看本次资料", 0, 0, 158);
+    const std::pair<int, const wchar_t *> modules[] = {{ChatThought, L"我的想法"},
+                                                       {ChatExcerpt, L"摘录"},
+                                                       {ChatOriginal, L"原文"},
+                                                       {ChatImages, L"截图"},
+                                                       {ChatMetadata, L"来源与标签"}};
+    for (const auto &m : modules) {
+        Add(w, m.first, L"BUTTON", m.second, BS_AUTOCHECKBOX | WS_TABSTOP, 28, 158, 120, 28);
+        SendMessageW(ControlOf(w, m.first), BM_SETCHECK, BST_CHECKED, 0);
+    }
+    auto transcript = richEdit ? Add(w,ChatTranscript,L"RICHEDIT50W",L"",WS_TABSTOP|WS_BORDER|ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL,28,194,660,400,true)
+                               : Edit(w, ChatTranscript, L"", 194, 400, 8388608);
+    if(richEdit){SendMessageW(transcript,EM_EXLIMITTEXT,0,8388608);SendMessageW(transcript,EM_SETBKGNDCOLOR,0,Paper);SendMessageW(transcript,EM_AUTOURLDETECT,0,0);}
+    SendMessageW(transcript, EM_SETREADONLY, TRUE, 0);
+    Edit(w, ChatInput, L"", 610, 110, 100000);
+    SendMessageW(ControlOf(w, ChatInput), EM_SETCUEBANNER, TRUE,
+                 reinterpret_cast<LPARAM>(L"针对这条记录，想聊些什么？"));
+    Button(w, ChatSend, L"发送", 0, 0, 122);
+    Button(w, ChatStop, L"停止生成", 0, 0, 122);
+    EnableWindow(ControlOf(w, ChatStop), FALSE);
+    Button(w, ChatSuggestOne, L"帮我梳理这条记录", 0, 0, 160);
+    Button(w, ChatSuggestTwo, L"提出一个不同视角", 0, 0, 170);
+    Button(w, ChatSuggestThree, L"转化成下一步行动", 0, 0, 166);
+    Button(w, ChatRetry, L"重试 / 同步", 0, 0, 142);
+    Label(w, Status, L"Enter 换行；Ctrl + Enter 发送。回复仅作参考，不会自动执行。", 0);
+    w.loading = true;
+    if (!id.empty()) {
+        w.conversation = chats->get(scope, id);
+        Set(w, ChatInput, Wide(w.conversation.draft));
+        if (!Ai::Store::snapshotMatches(record, w.conversation.data["snapshot"]))
+            Set(w, Subtitle, L"这条记录已更新 · 当前会话仍使用原版本，可基于新版新建对话");
+    } else
+        Set(w, ChatInput, Wide(chats->scratch(scope, record.id)));
+    ChatTranscriptText(w, w.conversation);
+    ChatProfileList(w);
+    w.loading = false;
+    Layout(w);
+    ShowWindow(w.hwnd, SW_SHOW);
+    SetForegroundWindow(w.hwnd);
+    SetFocus(ControlOf(w, ChatInput));
+}
+void LoadChatHistory(Window &w) {
+    auto query = Text(ControlOf(w, Search));
+    for (auto &c : query)
+        c = static_cast<wchar_t>(towlower(c));
+    w.conversations.clear();
+    SendMessageW(ControlOf(w, List), LB_RESETCONTENT, 0, 0);
+    for (const auto &c : chats->list(w.scope, w.chatRecordId)) {
+        auto record = ChatRecord(w.scope, c.data.at("record_id").get<std::string>());
+        auto summary = Field(record.data, "comment");
+        if (summary.empty())
+            summary = Field(Object(record.data, "source"), "text");
+        auto text = Field(c.data, "title") + L"  ·  " + Field(c.data, "updated_at") + L"  ·  " +
+                    summary.substr(0, 40);
+        std::wstring searchable = text;
+        for (const auto &m : c.data["messages"])
+            searchable += Field(m, "content");
+        for (auto &ch : searchable)
+            ch = static_cast<wchar_t>(towlower(ch));
+        if (!query.empty() && searchable.find(query) == std::wstring::npos)
+            continue;
+        if (c.dirty)
+            text += L"  [待同步]";
+        SendMessageW(ControlOf(w, List), LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
+        w.conversations.push_back(c);
+    }
+    SendMessageW(ControlOf(w, List), LB_SETCURSEL, 0, 0);
+    Set(w, ChatName, w.conversations.empty() ? L"" : Field(w.conversations.front().data, "title"));
+    StatusText(w, w.conversations.empty() ? L"还没有对话。打开一条记录，开始交流。"
+                                          : L"显示 " + std::to_wstring(w.conversations.size()) +
+                                                L" 个会话 · 只属于当前账号");
+}
+void OpenChatHistory(const std::string &record) {
+    auto &w =
+        Create(Mode::ChatHistory,
+               record.empty() ? L"Mnote · 全部 AI 对话" : L"Mnote · 本条记录的对话", 900, 760);
+    w.chatRecordId = record;
+    Label(w, Title, record.empty() ? L"全部 AI 对话" : L"这一条，我们聊过", 22);
+    Label(w, Subtitle, record.empty() ? L"每段讨论，都有它的记录。" : L"只展示本条记录关联的会话",
+          74);
+    Edit(w, Search, L"", 120, 38, 200, false);
+    SendMessageW(ControlOf(w, Search), EM_SETCUEBANNER, TRUE,
+                 reinterpret_cast<LPARAM>(L"搜索会话标题、消息和记录摘要"));
+    Button(w, ChatRefresh, L"刷新同步", 0, 0, 112);
+    Add(w, List, L"LISTBOX", L"",
+        LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP | WS_BORDER, 28,
+        170, 840, 400);
+    Edit(w, ChatName, L"", 0, 38, 120, false);
+    Button(w, ChatRename, L"重命名", 0, 0, 104);
+    Button(w, Delete, L"删除会话", 0, 0, 108);
+    Button(w, ChatButton, L"继续对话", 0, 0, 134);
+    Button(w, ChatNew, L"新建对话", 0, 0, 132);
+    Button(w, Cancel, L"返回", 0, 0, 100);
+    Label(w, Status, L"", 0);
+    EnableWindow(ControlOf(w, ChatNew), !record.empty());
+    LoadChatHistory(w);
+    Layout(w);
+    ShowWindow(w.hwnd, SW_SHOW);
+    SetForegroundWindow(w.hwnd);
+}
+void SetProfileForm(Window &w, const Json &p) {
+    w.loading = true;
+    w.profileId = p.value("id", std::string());
+    Set(w, ModelLabel, Field(p, "label"));
+    Set(w, ModelEndpoint, Field(p, "base_url"));
+    Set(w, ModelId, Field(p, "model"));
+    Set(w, ModelKey, Field(p, "key"));
+    Set(w, ModelLimit, std::to_wstring(p.value("context_chars", 180000)));
+    SendMessageW(ControlOf(w, ModelVision), BM_SETCHECK,
+                 p.value("vision", false) ? BST_CHECKED : BST_UNCHECKED, 0);
+    w.loading = false;
+    w.dirty = false;
+}
+Json ProfileForm(Window &w) {
+    Json p = {{"id", w.profileId.empty() ? NewId() : w.profileId},
+              {"label", Utf8(Text(ControlOf(w, ModelLabel)))},
+              {"base_url", Utf8(Text(ControlOf(w, ModelEndpoint)))},
+              {"model", Utf8(Text(ControlOf(w, ModelId)))},
+              {"key", Utf8(Text(ControlOf(w, ModelKey)))},
+              {"vision", Checked(w, ModelVision)},
+              {"context_chars", 180000}};
+    try {
+        p["context_chars"] = std::stoi(Text(ControlOf(w, ModelLimit)));
+    } catch (...) {
+        throw std::runtime_error("chat_context");
+    }
+    if (p["context_chars"] < 1000 || p["context_chars"] > 500000)
+        throw std::runtime_error("chat_context");
+    Ai::Store::validateProfile(p);
+    return p;
+}
+void OpenChatModels() {
+    for (const auto &item : windows)
+        if (item.second->mode == Mode::ChatModels && item.second->scope == Scope()) {
+            ShowWindow(item.first, SW_SHOW);
+            SetForegroundWindow(item.first);
+            return;
+        }
+    auto &w = Create(Mode::ChatModels, L"Mnote · AI 模型配置", 760, 880);
+    Label(w, Title, L"你的思考伙伴", 24);
+    w.placements.back().h = 44;
+    Label(w, Subtitle, L"OpenAI-compatible · 密钥仅本机保存，不进入聊天同步或导出", 78);
+    Add(w, ChatProfile, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, 28, 124, 474, 220);
+    Button(w, ModelNew, L"添加配置", 518, 124, 146);
+    Label(w, 29101, L"配置名称", 178);
+    Edit(w, ModelLabel, L"", 208, 38, 80, false);
+    Label(w, 29102, L"API 基址 · HTTPS，例如 https://api.example.com/v1", 266);
+    Edit(w, ModelEndpoint, L"", 296, 38, 2048, false);
+    Label(w, 29103, L"模型 ID", 354);
+    Edit(w, ModelId, L"", 384, 38, 200, false);
+    Label(w, 29104, L"API Key · Windows DPAPI 加密，不上传到 Mnote", 442);
+    auto key = Edit(w, ModelKey, L"", 472, 38, 4096, false);
+    SendMessageW(key, EM_SETPASSWORDCHAR, L'●', 0);
+    Add(w, ModelVision, L"BUTTON", L"这个模型支持图片输入（请单独测试图片能力）",
+        BS_AUTOCHECKBOX | WS_TABSTOP, 28, 532, 630, 32);
+    Label(w, 29105, L"输入字符预算 · 超过时明确阻止，不静默截断（1000—500000）", 590);
+    Edit(w, ModelLimit, L"180000", 620, 38, 6, false);
+    Button(w, ModelTest, L"测试文字与流式", 28, 682, 178);
+    Button(w, ModelImageTest, L"测试图片能力", 220, 682, 166);
+    Button(w, ModelDelete, L"删除此配置", 400, 682, 150);
+    Label(w, 29106, L"测试仅发送固定合成内容，可能产生少量服务商费用。", 738);
+    Label(w, 29107, L"兼容接口能力因服务商而异；聊天只在你确认发送后调用。", 774);
+    Button(w, Save, L"保存并设为默认", 28, 0, 192);
+    Button(w, Cancel, L"返回", 236, 0, 100);
+    Label(w, Status, L"模型配置按当前账号在本机保存。其他设备需要单独填写密钥。", 0);
+    w.extent = 826;
+    ChatProfileList(w);
+    SetProfileForm(w, w.profiles.empty() ? Json::object() : ChosenProfile(w));
+    Layout(w);
+    ShowWindow(w.hwnd, SW_SHOW);
+    SetForegroundWindow(w.hwnd);
+}
+void ChatMaterialsPage(Window &w) {
+    Json data;
+    if (w.chatId.empty()) {
+        data = {{"thought", w.record.data.value("comment", Json(""))},
+                {"excerpt", Object(w.record.data, "source").value("text", Json(""))},
+                {"original", Utf8(OriginalText(w.record.data))},
+                {"source", Object(w.record.data, "source")},
+                {"note", "以发送时勾选的模块为准。截图将缩放为最长边 1600 "
+                         "像素以内后发送，不生成公开图片链接。"}};
+    } else {
+        data = w.conversation.data.at("snapshot");
+        if (data.contains("images"))
+            for (auto &img : data["images"])
+                img["data_base64"] = "[已保留实际图片数据，不在文字页显示]";
+        if (!w.conversation.conflict.empty())
+            data["本机冲突内容副本_未发给模型"] =
+                w.conversation.conflict.value("messages", Json::array());
+    }
+    auto &view = Create(Mode::ShareText, L"Mnote · 本次 AI 资料", 800, 780);
+    Label(view, Title, L"AI 可以使用的记录资料", 20);
+    auto text = Edit(view, Original, Wide(data.dump(2)), 82, 540, 400000);
+    SendMessageW(text, EM_SETREADONLY, TRUE, 0);
+    Button(view, Cancel, L"关闭", 28, 0, 100);
+    Layout(view);
+    ShowWindow(view.hwnd, SW_SHOW);
+}
+void SendChat(Window &w) {
+    if (w.chatReceiving)
+        return;
+    auto input = Utf8(Text(ControlOf(w, ChatInput)));
+    if (input.empty()) {
+        SetFocus(ControlOf(w, ChatInput));
+        return;
+    }
+    if (w.profiles.empty()) {
+        OpenChatModels();
+        StatusText(w, L"添加模型后返回此页即可发送，记录已经保存。");
+        return;
+    }
+    auto p = ChosenProfile(w);
+    auto record = ChatRecord(w.scope, w.chatRecordId);
+    Json modules = Json::array();
+    if (w.chatId.empty()) {
+        for (const auto &item :
+             std::vector<std::pair<int, const char *>>{{ChatThought, "thought"},
+                                                       {ChatExcerpt, "excerpt"},
+                                                       {ChatOriginal, "original"},
+                                                       {ChatImages, "images"},
+                                                       {ChatMetadata, "metadata"}})
+            if (Checked(w, item.first))
+                modules.push_back(item.second);
+        if (modules.empty()) {
+            StatusText(w, L"至少选择一个资料模块。");
+            return;
+        }
+        if (Checked(w, ChatImages) && !record.assets.empty() && !p.value("vision", false)) {
+            StatusText(w, Ai::Store::error(std::runtime_error("chat_vision")));
+            return;
+        }
+    } else
+        modules = w.conversation.data.at("snapshot").at("modules");
+    std::wstring disclosure =
+        L"将本条记录中所选资料、实际截图及本会话历史发送到：\n" + Field(p, "base_url") +
+        L"\n模型：" + Field(p, "model") + L"\n\n所选模块：" + Wide(modules.dump()) +
+        L"\n\n仅授权本次记录对话，不改变记录的其他 AI/MCP "
+        L"权限。可能产生模型费用；登录账号后聊天和资料快照会随账号同步。服务商可能独立保留数据。";
+    if (record.data.value("ai_access", std::string("local_only")) == "deny" ||
+        record.data.value("ai_access", std::string("local_only")) == "local_only")
+        disclosure += L"\n\n本条当前禁止远程 AI 自动读取。是否明确给予这一会话单独的远程发送许可？";
+    if (MessageBoxW(w.hwnd, disclosure.c_str(), L"Mnote · 确认资料与模型",
+                    MB_YESNO | MB_ICONQUESTION) != IDYES)
+        return;
+    if (w.chatId.empty()) {
+        w.conversation = chats->create(w.scope, record, modules, p);
+        w.chatId = w.conversation.data.at("id");
+        chats->scratch(w.scope, record.id, "");
+        Layout(w);
+    }
+    auto consent = Hash(record.data.value("ai_access", std::string()) + "\n" +
+                        Library::fingerprint(record) + "\n" + Ai::Store::sanitizeModel(p).dump());
+    chats->draft(w.scope, w.chatId, input);
+    w.chatStop = std::make_shared<std::atomic_bool>(false);
+    w.chatReceiving = true;
+    EnableWindow(ControlOf(w, ChatSend), FALSE);
+    EnableWindow(ControlOf(w, ChatStop), TRUE);
+    EnableWindow(ControlOf(w, ChatProfile), FALSE);
+    EnableWindow(ControlOf(w, ChatInput), FALSE);
+    StatusText(w, L"先保存消息并校验同步，再向你选择的模型发送…");
+    auto scope = w.scope, id = w.chatId;
+    auto hwnd = w.hwnd;
+    auto serial = w.serial;
+    auto stop = w.chatStop;
+    chatWorkers.emplace_back([scope, id, p, input, consent, hwnd, serial, stop] {
+        try {
+            chats->send(scope, id, input, p, consent, true, *stop,
+                        [hwnd, serial, scope](const Ai::Conversation &c) {
+                            Post([hwnd, serial, scope, c] {
+                                if (auto form = Find(hwnd, serial); form && Scope() == scope) {
+                                    ChatTranscriptText(*form, c);
+                                    if (c.draft.empty() && form->chatReceiving) {
+                                        form->loading = true;
+                                        Set(*form, ChatInput, L"");
+                                        form->loading = false;
+                                    }
+                                }
+                            });
+                        });
+            Post([hwnd, serial, scope] {
+                if (auto form = Find(hwnd, serial); form && Scope() == scope) {
+                    form->chatReceiving = false;
+                    EnableWindow(ControlOf(*form, ChatSend), TRUE);
+                    EnableWindow(ControlOf(*form, ChatStop), FALSE);
+                    EnableWindow(ControlOf(*form, ChatProfile), TRUE);
+                    EnableWindow(ControlOf(*form, ChatInput), TRUE);
+                    StatusText(*form, L"已保存会话。可以继续提问，或新开一个讨论方向。");
+                }
+                Load();
+            });
+        } catch (const std::exception &e) {
+            auto message = Ai::Store::error(e);
+            Post([hwnd, serial, scope, message] {
+                if (auto form = Find(hwnd, serial); form && Scope() == scope) {
+                    form->chatReceiving = false;
+                    EnableWindow(ControlOf(*form, ChatSend), TRUE);
+                    EnableWindow(ControlOf(*form, ChatStop), FALSE);
+                    EnableWindow(ControlOf(*form, ChatProfile), TRUE);
+                    EnableWindow(ControlOf(*form, ChatInput), TRUE);
+                    StatusText(*form, message);
+                    try {
+                        auto c = chats->get(scope, form->chatId);
+                        ChatTranscriptText(*form, c);
+                        form->loading = true;
+                        Set(*form, ChatInput, Wide(c.draft));
+                        form->loading = false;
+                    } catch (...) {
+                    }
+                }
+                Load();
+            });
+        }
+    });
+}
+void ChatCommand(Window &w, int id, int event) {
+    if (w.scope != Scope())
+        throw std::runtime_error("account_changed");
+    if (id == Cancel) {
+        PostMessageW(w.hwnd, WM_CLOSE, 0, 0);
+        return;
+    }
+    if (w.mode == Mode::Chat) {
+        if (id == ChatSend)
+            SendChat(w);
+        else if (id == ChatStop && w.chatStop) {
+            w.chatStop->store(true);
+            StatusText(w, L"正在停止，已收到的内容会保留…");
+        } else if (id == ChatHistory)
+            OpenChatHistory(w.chatRecordId);
+        else if (id == ChatNew)
+            OpenChat(ChatRecord(w.scope, w.chatRecordId));
+        else if (id == ChatMaterials)
+            ChatMaterialsPage(w);
+        else if (id == ChatRetry && !w.chatReceiving && !w.chatId.empty()) {
+            auto choice = MessageBoxW(w.hwnd,
+                                      L"“是”：同步最新历史（本机冲突内容保留为副本，可在资料页查看"
+                                      L"）。\n“否”：把上一问填入输入框，确认后重新发送。",
+                                      L"Mnote · 恢复对话", MB_YESNOCANCEL | MB_ICONQUESTION);
+            if (choice == IDYES) {
+                auto scope = w.scope, cid = w.chatId;
+                Run(
+                    w, [scope, cid] { chats->resolve(scope, cid); },
+                    [](Window &form) {
+                        auto c = chats->get(form.scope, form.chatId);
+                        ChatTranscriptText(form, c);
+                        Set(form, ChatInput, Wide(c.draft));
+                        StatusText(
+                            form,
+                            L"已读取云端历史。本机冲突副本（如有）保留在资料页，不会发送给模型。");
+                    });
+            } else if (choice == IDNO)
+                for (auto it = w.conversation.data["messages"].rbegin();
+                     it != w.conversation.data["messages"].rend(); ++it)
+                    if (it->value("role", std::string()) == "user") {
+                        Set(w, ChatInput, Field(*it, "content"));
+                        break;
+                    }
+        } else if (id == ChatInput && event == EN_CHANGE && !w.loading)
+            SetTimer(w.hwnd, 7, 600, nullptr);
+        else if (id == ChatSuggestOne || id == ChatSuggestTwo || id == ChatSuggestThree)
+            Set(w, ChatInput,
+                id == ChatSuggestOne
+                    ? L"帮我梳理这条记录，区分我的想法、引用的内容和需要验证的问题。"
+                : id == ChatSuggestTwo
+                    ? L"针对我的想法，提出一个有价值的不同视角，不要只附和我。"
+                    : L"这条记录能转化成什么具体行动？请帮我选一个很小的下一步。");
+        return;
+    }
+    if (w.mode == Mode::ChatModels) {
+        if (w.busy)
+            return;
+        if (id == ChatProfile && event == CBN_SELCHANGE)
+            SetProfileForm(w, ChosenProfile(w));
+        else if (id == ModelNew)
+            SetProfileForm(w, Json::object());
+        else if (id == Save) {
+            auto p = ProfileForm(w);
+            chats->saveProfile(w.scope, p);
+            w.profileId = p["id"];
+            ChatProfileList(w);
+            w.dirty = false;
+            StatusText(w, L"配置已安全保存为默认模型。已有会话不会自动发送。");
+        } else if (id == ModelDelete && !w.profileId.empty() &&
+                   MessageBoxW(w.hwnd, L"仅删除本机模型配置和密钥，不删除聊天历史？", L"Mnote",
+                               MB_YESNO | MB_ICONQUESTION) == IDYES) {
+            chats->eraseProfile(w.scope, w.profileId);
+            ChatProfileList(w);
+            SetProfileForm(w, w.profiles.empty() ? Json::object() : ChosenProfile(w));
+        } else if (id == ModelTest || id == ModelImageTest) {
+            auto p = ProfileForm(w);
+            if (MessageBoxW(
+                    w.hwnd,
+                    L"向所填服务商发送固定合成测试内容？不会发送你的记录，可能产生少量费用。",
+                    L"Mnote · 连接测试", MB_YESNO | MB_ICONQUESTION) != IDYES)
+                return;
+            auto scope = w.scope;
+            auto image = id == ModelImageTest;
+            auto stop = std::make_shared<std::atomic_bool>(false);
+            w.chatStop = stop;
+            Run(
+                w, [p, scope, image, stop] { chats->test(scope, p, image, *stop); },
+                [image](Window &form) {
+                    StatusText(form,
+                               image
+                                   ? L"图片输入与流式回复测试通过。请按测试结果勾选图片能力并保存。"
+                                   : L"文字输入与流式回复测试通过。图片能力请单独测试。");
+                });
+        }
+        return;
+    }
+    if (w.mode == Mode::ChatHistory) {
+        if (id == Search && event == EN_CHANGE) {
+            LoadChatHistory(w);
+            return;
+        }
+        if (id == ChatRefresh) {
+            auto scope = w.scope;
+            Run(
+                w,
+                [scope] {
+                    if (library->account().signedIn())
+                        library->sync();
+                    chats->sync(scope);
+                },
+                [](Window &form) {
+                    LoadChatHistory(form);
+                    Load();
+                });
+            return;
+        }
+        if (id == ChatNew && !w.chatRecordId.empty()) {
+            OpenChat(ChatRecord(w.scope, w.chatRecordId));
+            return;
+        }
+        auto index = SendMessageW(ControlOf(w, List), LB_GETCURSEL, 0, 0);
+        if (index < 0 || static_cast<std::size_t>(index) >= w.conversations.size())
+            return;
+        auto c = w.conversations[static_cast<std::size_t>(index)];
+        auto cid = c.data.at("id").get<std::string>();
+        if (id == List && event == LBN_SELCHANGE)
+            Set(w, ChatName, Field(c.data, "title"));
+        else if (id == ChatButton || (id == List && event == LBN_DBLCLK))
+            OpenChat(ChatRecord(w.scope, c.data.at("record_id").get<std::string>()), cid);
+        else if (id == ChatRename) {
+            chats->rename(w.scope, cid, Utf8(Text(ControlOf(w, ChatName))));
+            LoadChatHistory(w);
+            Sync();
+        } else if (id == Delete &&
+                   MessageBoxW(
+                       w.hwnd,
+                       L"删除这段对话和它的资料快照？原记录不受影响，删除会同步到其他设备。",
+                       L"Mnote · 删除对话", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+            chats->erase(w.scope, cid);
+            LoadChatHistory(w);
+            Load();
+            Sync();
+        }
+    }
 }
 void OpenMarkdown(Window &source, bool shares = false) {
     if (source.scope != library->account().scope) {
@@ -1904,6 +2619,14 @@ void ExportRecords(Window &w, const std::vector<Record> &records) {
         });
 }
 void Command(Window &w, int id, int event) {
+    if(w.mode==Mode::Chat||w.mode==Mode::ChatHistory||w.mode==Mode::ChatModels) {
+        try { ChatCommand(w,id,event); } catch(const std::exception &e) { StatusText(w,Ai::Store::error(e)); }
+        return;
+    }
+    if(w.mode==Mode::Editor&&id==ChatButton){
+        if(w.dirty&&MessageBoxW(w.hwnd,L"本次尚未保存的修改不会进入聊天资料。继续查看已保存记录的对话？",L"Mnote",MB_YESNO|MB_ICONQUESTION)!=IDYES)return;
+        auto history=chats->list(w.scope,w.record.id);if(history.empty())OpenChat(ChatRecord(w.scope,w.record.id));else OpenChatHistory(w.record.id);return;
+    }
     if (w.mode == Mode::Editor && id == TagsPicker && event == CBN_SELCHANGE && !w.busy) {
         if (w.scope != library->account().scope) {
             StatusText(w, L"账号已变化，请重新打开记录。");
@@ -1983,6 +2706,7 @@ void Command(Window &w, int id, int event) {
                     for (const auto &r : snapshot) {
                         try {
                             library->erase(scope, r.id, library->fingerprint(r));
+                            chats->prune(scope);
                             ++result->first;
                         } catch (const std::exception &) {
                             ++result->second;
@@ -2034,7 +2758,7 @@ void Command(Window &w, int id, int event) {
             Populate(w);
         else if (id == List && event == LBN_SELCHANGE)
             RefreshReader(w);
-        else if ((id == TagFilter || id == KindFilter) && event == CBN_SELCHANGE)
+        else if ((id == TagFilter || id == KindFilter || id == ChatFilter) && event == CBN_SELCHANGE)
             Populate(w);
         else if (!w.selecting && (id == OpenRecord || (id == List && event == LBN_DBLCLK)))
             OpenSelected(w);
@@ -2058,7 +2782,10 @@ void Command(Window &w, int id, int event) {
         return;
     }
     if (w.mode == Mode::Reader) {
-        if (id == ReaderCrop || id == ReaderContext) {
+        if(id==ChatButton) {
+            auto history=chats->list(w.scope,w.record.id);
+            if(history.empty())OpenChat(w.record);else OpenChatHistory(w.record.id);
+        } else if (id == ReaderCrop || id == ReaderContext) {
             w.previewRole = id == ReaderContext ? L"context" : L"annotated";
             OpenImage(w);
         } else if (id == ReaderSource) {
@@ -2075,7 +2802,7 @@ void Command(Window &w, int id, int event) {
         int extent = 0;
         for (const auto &p : w.placements) {
             int control = GetDlgCtrlID(p.control);
-            if (control == Save || control == Cancel || control == Delete || control == Status)
+            if (control == Save || control == SaveChat || control == Cancel || control == Delete || control == Status)
                 continue;
             if (p.y >= 10000 && !w.moreOptions)
                 continue;
@@ -2123,6 +2850,8 @@ void Command(Window &w, int id, int event) {
     if (w.busy)
         return;
     if (w.mode == Mode::Settings) {
+        if(id==ChatModels)OpenChatModels();
+        if(id==ChatHistory)OpenChatHistory();
         if (id == ExportShares) {
             w.scope = library->account().scope;
             OpenMarkdown(w, true);
@@ -2265,15 +2994,15 @@ void Command(Window &w, int id, int event) {
         }
         return;
     }
-    if (id == Save)
-        SaveEditor(w);
+    if (id == Save || id == SaveChat)
+        SaveEditor(w,id==SaveChat);
     else if (id == Delete) {
-        if (MessageBoxW(w.hwnd, L"将这条记录移入回收站？登录后会同步删除其他设备上的记录。",
+        if (MessageBoxW(w.hwnd, L"将这条记录移入回收站？关联 AI 会话及资料快照会同时删除（恢复记录不会恢复聊天），登录后同步到其他设备。",
                         L"Mnote · 删除记录", MB_YESNO | MB_ICONQUESTION) != IDYES)
             return;
         auto scope = w.scope, recordId = w.record.id, baseline = w.baseline;
         Run(
-            w, [scope, recordId, baseline] { library->erase(scope, recordId, baseline); },
+            w, [scope, recordId, baseline] { library->erase(scope, recordId, baseline); chats->prune(scope); },
             [](Window &form) {
                 form.dirty = false;
                 notify(L"记录已移入回收站", false);
@@ -2640,6 +3369,7 @@ void DrawRecord(Window &w, const DRAWITEMSTRUCT &item) {
         auto sync = record.state == "synced" ? L"已同步" : record.state == "local" ? L"本机保存"
                    : record.state == "error" ? L"同步待处理" : L"等待同步";
         DrawTextLine(dc, r, sync, Muted, w.label);
+        if(w.chatCounts[record.id]>0)DrawTextLine(dc,r,L"AI · "+std::to_wstring(w.chatCounts[record.id]),Accent,w.label,DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
         if (item.itemState & ODS_FOCUS) {
             InflateRect(&card, -Scale(w, 3), -Scale(w, 3));
             DrawFocusRect(dc, &card);
@@ -2712,6 +3442,10 @@ void DrawRecord(Window &w, const DRAWITEMSTRUCT &item) {
 LRESULT Dispatch(Window &w, UINT message, WPARAM wp, LPARAM lp) {
     switch (message) {
     case WM_ACTIVATE:
+        if((w.mode==Mode::Chat||w.mode==Mode::ChatHistory||w.mode==Mode::ChatModels)&&LOWORD(wp)!=WA_INACTIVE) {
+            if(w.scope!=Scope()){if(w.chatStop)w.chatStop->store(true);PostMessageW(w.hwnd,WM_CLOSE,0,0);return 0;}
+            if(w.mode==Mode::Chat&&!w.chatReceiving)ChatProfileList(w);
+        }
         if ((w.mode == Mode::Shares || w.mode == Mode::ShareText ||
              (w.mode == Mode::Image && !w.shareId.empty())) &&
             LOWORD(wp) != WA_INACTIVE && w.scope != library->account().scope) {
@@ -2736,7 +3470,7 @@ LRESULT Dispatch(Window &w, UINT message, WPARAM wp, LPARAM lp) {
     case WM_GETMINMAXINFO: {
         auto info = reinterpret_cast<MINMAXINFO *>(lp);
         info->ptMinTrackSize = {Scale(w, w.mode == Mode::Library ? 780 : 680),
-                                Scale(w, w.mode == Mode::Shares || w.mode == Mode::Library ? 620 : 480)};
+                                Scale(w, w.mode == Mode::Shares || w.mode == Mode::Library || w.mode == Mode::Chat ? 620 : 480)};
         return 0;
     }
     case WM_DPICHANGED: {
@@ -2926,6 +3660,7 @@ LRESULT Dispatch(Window &w, UINT message, WPARAM wp, LPARAM lp) {
             ReleaseCapture();
         return 0;
     case WM_TIMER:
+        if(wp==7&&w.mode==Mode::Chat){KillTimer(w.hwnd,7);if(!w.chatReceiving){auto value=Utf8(Text(ControlOf(w,ChatInput)));if(w.chatId.empty())chats->scratch(w.scope,w.chatRecordId,value);else chats->draft(w.scope,w.chatId,value);}return 0;}
         if (wp == 4) {
             KillTimer(w.hwnd, 4);
             DestroyWindow(w.hwnd);
@@ -2981,6 +3716,10 @@ LRESULT Dispatch(Window &w, UINT message, WPARAM wp, LPARAM lp) {
         return 0;
     }
     case WM_CLOSE:
+        if(w.mode==Mode::Chat) {
+            if(w.chatStop)w.chatStop->store(true);
+            if(w.scope==Scope()&&!w.chatReceiving){auto value=Utf8(Text(ControlOf(w,ChatInput)));if(w.chatId.empty())chats->scratch(w.scope,w.chatRecordId,value);else chats->draft(w.scope,w.chatId,value);}
+        }
         if (w.mode == Mode::Library) {
             ShowWindow(w.hwnd, SW_HIDE);
             return 0;
@@ -3137,6 +3876,8 @@ void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> ca
         }
     };
     library = std::make_unique<Library>(root);
+    richEdit = LoadLibraryW(L"Msftedit.dll");
+    chats = std::make_unique<Ai::Store>(*library);
     backgroundBrush = CreateSolidBrush(Background);
     whiteBrush = CreateSolidBrush(Surface);
     defaultFont = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, 0, 0,
@@ -3172,6 +3913,9 @@ void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> ca
     for (auto value : {L"全部类型", L"想法", L"待办", L"稍后回顾", L"摘录"})
         SendMessageW(ControlOf(w, KindFilter), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(value));
     SendMessageW(ControlOf(w, KindFilter), CB_SETCURSEL, 0, 0);
+    Add(w,ChatFilter,L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_TABSTOP,0,214,300,200);
+    for(auto label:{L"全部聊天状态",L"已与 AI 聊过",L"尚未与 AI 聊过"})SendMessageW(ControlOf(w,ChatFilter),CB_ADDSTRING,0,reinterpret_cast<LPARAM>(label));
+    SendMessageW(ControlOf(w,ChatFilter),CB_SETCURSEL,0,0);
     Add(w, List, L"LISTBOX", L"",
         LBS_OWNERDRAWVARIABLE | LBS_HASSTRINGS | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL |
             WS_TABSTOP,
@@ -3230,6 +3974,7 @@ void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> ca
     Sync();
 }
 void Stop() {
+    for(auto &item:windows)if(item.second->chatStop)item.second->chatStop->store(true);
     if (library)
         library->interrupt();
     if (home)
@@ -3244,9 +3989,13 @@ void Stop() {
         worker.join();
     if (syncWorker.joinable())
         syncWorker.join();
+    for(auto &thread:chatWorkers)if(thread.joinable())thread.join();
+    chatWorkers.clear();
     while (!windows.empty())
         DestroyWindow(windows.begin()->first);
     home = nullptr;
+    chats.reset();
+    if(richEdit){FreeLibrary(richEdit);richEdit=nullptr;}
     library.reset();
     if (defaultFont)
         DeleteObject(defaultFont);
@@ -3323,6 +4072,7 @@ void Sync() {
         bool failed = false;
         try {
             int count = library->sync();
+            count += chats->sync(scope);
             result = L"同步完成 · 本轮处理 " + std::to_wstring(count) + L" 项变更";
         } catch (const std::exception &error) {
             result = ErrorText(error);
@@ -3345,6 +4095,7 @@ bool Translate(MSG &message) {
         return false;
     auto &w = *found->second;
     if (message.message == WM_KEYDOWN) {
+        if(message.wParam==VK_RETURN&&GetKeyState(VK_CONTROL)<0&&w.mode==Mode::Chat){try{SendChat(w);}catch(const std::exception &e){StatusText(w,Ai::Store::error(e));}return true;}
         if (message.wParam == VK_ESCAPE) {
             if (w.mode == Mode::Library && w.selecting) {
                 if (w.busy)

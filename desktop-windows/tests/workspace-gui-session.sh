@@ -58,6 +58,46 @@ assert not list(root.rglob('*.part'))
 print('GUI: screenshot, annotation, thought, tags, full context and source passed')
 PY
 drive show
+drive open
+until_drive editor
+drive ai-save-chat
+until_drive ai-ready
+drive ai-small
+until_drive ai-ready
+drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/ai-chat-small-preview.png" 'Mnote · 与 AI 聊聊'
+drive ai-large
+drive ai-draft
+drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/ai-chat-preview.png" 'Mnote · 与 AI 聊聊'
+drive ai-close
+drive open
+until_drive editor
+drive ai-save-chat
+until_drive ai-draft-ready
+drive settings
+until_drive settings-ready
+drive ai-models
+until_drive ai-models-ready
+drive ai-models-fill
+sleep 0.4
+drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/ai-models-preview.png" 'Mnote · AI 模型配置'
+drive ai-models-close
+drive ai-all-history
+until_drive ai-history-empty
+drive settings-close
+drive ai-send
+until_drive ai-consent-cancel
+drive ai-close
+until_drive count 1
+python3 - "${application_data}" <<'PY'
+import pathlib,sys
+root=pathlib.Path(sys.argv[1])/'ai-chat'/'guest'
+assert (root/'models.dpapi').is_file()
+assert b'sk_SYNTHETIC_GUI_ONLY' not in (root/'models.dpapi').read_bytes()
+assert not list(root.glob('*.json')), 'cancelled consent must not create a conversation'
+assert next(root.glob('draft-*')).read_text()=='Synthetic draft, never sent to a model.'
+print('GUI: save-before-chat, independent draft, module controls, DPAPI model form, empty history, explicit consent cancellation passed; no model calls')
+PY
+drive show
 drive tag 工作
 until_drive count 1
 drive open

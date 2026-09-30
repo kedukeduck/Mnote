@@ -79,6 +79,50 @@ int wmain(int argc, wchar_t **argv) {
     }
     if (action == L"ready")
         return main && home ? 0 : 10;
+    if (action == L"ai-save-chat") {
+        auto window = Editor(); if (!window) return 80;
+        Click(window, 29001); return 0;
+    }
+    if (action == L"ai-ready" || action == L"ai-draft" || action == L"ai-draft-ready" ||
+        action == L"ai-close" || action == L"ai-send" || action == L"ai-small" || action == L"ai-large") {
+        auto window = Window(L"Mnote · 与 AI 聊聊"); if (!window) return 81;
+        if(action==L"ai-small"||action==L"ai-large") {
+            SetWindowPos(window,nullptr,0,0,action==L"ai-small"?680:880,action==L"ai-small"?620:900,SWP_NOMOVE|SWP_NOZORDER);
+        }
+        auto input = GetDlgItem(window, 29008), transcript = GetDlgItem(window, 29009);
+        if (!input || !transcript || !IsWindowEnabled(GetDlgItem(window, 29005))) return 82;
+        RECT a{}, b{}; GetWindowRect(transcript, &a); GetWindowRect(input, &b);
+        if (a.bottom >= b.top) return 83;
+        if (action == L"ai-draft") SetWindowTextW(input,L"Synthetic draft, never sent to a model.");
+        if (action == L"ai-draft-ready") { wchar_t text[100]{};SendMessageW(input,WM_GETTEXT,100,reinterpret_cast<LPARAM>(text));if(std::wstring(text)!=L"Synthetic draft, never sent to a model.")return 84; }
+        if (action == L"ai-close") PostMessageW(window,WM_CLOSE,0,0);
+        if (action == L"ai-send") Click(window,29005);
+        return 0;
+    }
+    if (action == L"ai-models" || action == L"ai-all-history") {
+        auto settings=Window(L"Mnote · 设置");if(!settings)return 85;
+        Click(settings,action==L"ai-models"?29003:29004);return 0;
+    }
+    if (action == L"ai-models-ready" || action == L"ai-models-fill" || action == L"ai-models-close") {
+        auto window=Window(L"Mnote · AI 模型配置");if(!window)return 86;
+        if(!SendDlgItemMessageW(window,29023,EM_GETPASSWORDCHAR,0,0))return 87;
+        if(action==L"ai-models-fill"){
+            SetDlgItemTextW(window,29020,L"Synthetic model · not invoked");SetDlgItemTextW(window,29021,L"https://models.invalid/v1");
+            SetDlgItemTextW(window,29022,L"mock-vision");SetDlgItemTextW(window,29023,L"sk_SYNTHETIC_GUI_ONLY");
+            SendDlgItemMessageW(window,29024,BM_SETCHECK,BST_CHECKED,0);Click(window,2106);
+        }
+        if(action==L"ai-models-close")PostMessageW(window,WM_CLOSE,0,0);
+        return 0;
+    }
+    if (action == L"ai-consent-cancel") {
+        auto dialog=FindWindowW(L"#32770",L"Mnote · 确认资料与模型");if(!dialog)return 88;
+        PostMessageW(dialog,WM_COMMAND,IDNO,0);return 0;
+    }
+    if (action == L"ai-history-empty") {
+        auto window=Window(L"Mnote · 全部 AI 对话");if(!window)return 89;
+        if(SendDlgItemMessageW(window,2005,LB_GETCOUNT,0,0)!=0)return 90;
+        PostMessageW(window,WM_CLOSE,0,0);return 0;
+    }
     if (action == L"library-uncovered")
         return home && IsWindowVisible(home) && IsWindowEnabled(home) &&
                !Window(L"Mnote · 设置") && !Window(L"Mnote · 账号与同步") ? 0 : 68;

@@ -1,4 +1,19 @@
-# Mnote Windows 1.12.0-test
+# Mnote Windows 1.20.0-test
+
+## 针对单条记录与 AI 聊天
+
+- 记录时「保存并聊天」先保存本机记录再进入会话。详情页「本条 AI 对话」可继续历史或新建独立讨论。
+- 「设置 → AI 模型配置」填写 OpenAI-compatible HTTPS API 基址、模型 ID、密钥及图片能力；可保存多套配置。密钥使用当前 Windows 用户的 DPAPI，仅本机保存，不随账号同步。
+- 首次选择想法、摘录、原文、截图、来源/标签等模块；每次发送前明确显示服务商、资料范围、费用与同步提示。单会话授权不修改原记录的 AI/MCP 权限。
+- 资料快照冻结；截图按最长边 1600 像素缩小为 JPEG 并直接发送，不创建公开链接。超出上下文、消息或保存容量时明确阻止，不静默截断。
+- 支持流式多轮、停止、自动保存草稿、复制，以及「重试 / 同步」。发生跨设备冲突时需要明确读取云端历史，本机待同步内容保留为可在资料页查看的副本，不会偷偷合并进模型上下文。
+- 「设置 → 全部 AI 对话」支持搜索、重命名、删除；记录列表显示成功回复的 AI 会话数量，筛选中可选择「已聊过 / 未聊过」。
+- 聊天随笔记账号独立同步；无账号时仅本机保存。删除记录同时删除相关聊天；恢复记录不恢复聊天。第三方服务商的数据保留独立于 Mnote 删除操作。
+- 模型回复按安全原生富文本展示标题、列表、引用和代码，不执行 HTML、不加载远程 Markdown 图片。本轮不含工具调用、全库检索、网页自动抓取、语音和自动写回笔记。
+
+本机资料目录新增 `ai-chat/<account-scope>/`；记录、快照和历史不是端到端加密。模型连接测试只有在用户确认后才会发送固定合成内容，可能产生少量费用。开发自动化不调用真实模型。
+
+## 历史改进
 
 1.12.0：分享管理移到设置，卡片直接预览文字和图片，可展开全部文字。首页“选择导出”和长按一样原地多选，选完直接确认并保存，不再打开第二个选择窗口。旧分享没有保存历史文字，需重新导出才能保留文字快照。详见[本次说明](../docs/share-text-1.12.0-release-notes.md)。
 
@@ -76,6 +91,8 @@ Windows 10 / 11 x64 的原生客户端，与 Android 使用相同账号、记录
 bash desktop-windows/build-mingw.sh
 bash desktop-windows/tests/run-library-tests.sh
 bash desktop-windows/tests/run-library-live.sh
+bash desktop-windows/tests/run-ai-chat-tests.sh
+bash desktop-windows/tests/run-ai-chat-live.sh
 bash desktop-windows/tests/run-workspace-gui.sh
 bash desktop-windows/tests/run-sync-smoke.sh
 bash desktop-windows/tests/run-updater-tests.sh

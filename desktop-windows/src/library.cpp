@@ -864,6 +864,13 @@ void Library::erase(const std::string &scope, const std::string &id, const std::
             record.operation = "delete";
             record.state = scope == "guest" ? "local" : "pending";
             record.error.clear();
+            // Persist a deletion generation before the note tombstone. A restored note
+            // must never bring an older private chat snapshot back into view.
+            auto chatGeneration = root_ / L"ai-chat" / Wide(scope) / L"deleted-records";
+            fs::create_directories(chatGeneration);
+            AtomicWrite(chatGeneration / Wide(id), NewId());
+            auto chatDraft = root_ / L"ai-chat" / Wide(scope) / (L"draft-" + Wide(id));
+            if (fs::exists(chatDraft)) AtomicWrite(chatDraft, "");
             publish(scope, record);
             return;
         }

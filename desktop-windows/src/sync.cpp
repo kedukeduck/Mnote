@@ -392,7 +392,9 @@ Response Request(const Settings& settings,const std::wstring& method,const std::
         throw std::runtime_error("network_security");
     std::wstring headers=L"Content-Type: application/json\r\nCache-Control: no-store";
     if(!settings.writeToken.empty()) headers+=L"\r\nAuthorization: Bearer "+settings.writeToken;
-    if(revision>0) headers+=L"\r\nIf-Match: "+std::to_wstring(revision);
+    if(path.rfind(L"/v1/chat/conversations/",0)==0 && (method==L"PUT" || method==L"DELETE"))
+        headers+=L"\r\nIf-Match: revision:"+std::to_wstring(revision);
+    else if(revision>0) headers+=L"\r\nIf-Match: "+std::to_wstring(revision);
     DWORD bytes=static_cast<DWORD>(payload.size());
     if(!WinHttpSendRequest(request.get(),headers.c_str(),static_cast<DWORD>(-1),
         payload.empty() ? WINHTTP_NO_REQUEST_DATA : const_cast<char*>(payload.data()),bytes,bytes,0)
