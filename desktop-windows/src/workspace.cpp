@@ -1,6 +1,7 @@
 #include "workspace.hpp"
 #include "updater.hpp"
 #include "ai_chat.hpp"
+#include "chat_transcript.hpp"
 #include <cmath>
 #include <commctrl.h>
 #include <commdlg.h>
@@ -175,7 +176,6 @@ std::function<void()> exitForUpdateAction;
 std::function<void(const std::wstring &, bool)> notify;
 HBRUSH backgroundBrush = nullptr, whiteBrush = nullptr;
 HFONT defaultFont = nullptr;
-HMODULE richEdit = nullptr;
 std::thread worker, syncWorker;
 std::mutex queueMutex;
 std::condition_variable queueWake;
@@ -400,26 +400,57 @@ void Layout(Window &w) {
         return;
     }
     if (w.mode == Mode::Chat) {
+        Mnote::ChatTranscript::SetDpi(ControlOf(w, ChatTranscript), w.dpi);
         auto move = [&](int id, int x, int y, int ww, int hh) {
-            MoveWindow(ControlOf(w,id),Scale(w,x),Scale(w,y),Scale(w,ww),Scale(w,hh),TRUE);
+            MoveWindow(ControlOf(w, id), Scale(w, x), Scale(w, y), Scale(w, ww), Scale(w, hh),
+                       TRUE);
         };
-        move(Title,28,20,width-310,40); move(ChatHistory,width-274,22,116,36); move(ChatNew,width-146,22,118,36);
-        move(Subtitle,28,67,width-56,42); move(ChatProfile,28,112,width-230,220); move(ChatMaterials,width-186,112,158,36);
-        const int checks[]={ChatThought,ChatExcerpt,ChatOriginal,ChatImages,ChatMetadata};
-        for(int i=0;i<5;++i) { move(checks[i],28+i*(width-56)/5,158,(width-56)/5,28); ShowWindow(ControlOf(w,checks[i]),w.chatId.empty()?SW_SHOW:SW_HIDE); }
-        int top=w.chatId.empty()?196:158;
-        move(ChatTranscript,28,top,width-56,std::max(80,height-top-238));
-        move(ChatSuggestOne,28,height-222,146,32); move(ChatSuggestTwo,184,height-222,146,32); move(ChatSuggestThree,340,height-222,146,32);
-        move(ChatRetry,width-170,height-222,142,32);
-        move(ChatInput,28,height-178,width-192,112); move(ChatSend,width-150,height-178,122,48); move(ChatStop,width-150,height-120,122,38);
-        move(Status,28,height-52,width-56,38);
-        InvalidateRect(w.hwnd,nullptr,TRUE); return;
+        move(Title, 28, 20, width - 310, 40);
+        move(ChatHistory, width - 274, 22, 116, 36);
+        move(ChatNew, width - 146, 22, 118, 36);
+        move(Subtitle, 28, 67, width - 56, 42);
+        move(ChatProfile, 28, 112, width - 318, 220);
+        move(ChatMaterials, width - 278, 112, 146, 36);
+        move(ChatRefresh, width - 120, 112, 92, 36);
+        const int checks[] = {ChatThought, ChatExcerpt, ChatOriginal, ChatImages, ChatMetadata};
+        for (int i = 0; i < 5; ++i) {
+            move(checks[i], 28 + i * (width - 56) / 5, 158, (width - 56) / 5, 28);
+            ShowWindow(ControlOf(w, checks[i]), w.chatId.empty() ? SW_SHOW : SW_HIDE);
+        }
+        int top = w.chatId.empty() ? 196 : 158;
+        bool empty = w.conversation.data.value("messages", Json::array()).empty();
+        move(ChatTranscript, 28, top, width - 56, std::max(80, height - top - (empty ? 238 : 194)));
+        int suggestionWidth = (width - 80) / 3;
+        move(ChatSuggestOne, 28, height - 222, suggestionWidth, 32);
+        move(ChatSuggestTwo, 40 + suggestionWidth, height - 222, suggestionWidth, 32);
+        move(ChatSuggestThree, 52 + suggestionWidth * 2, height - 222, suggestionWidth, 32);
+        for (int id : {ChatSuggestOne, ChatSuggestTwo, ChatSuggestThree})
+            ShowWindow(ControlOf(w, id), empty ? SW_SHOW : SW_HIDE);
+        move(ChatInput, 28, height - 178, width - 192, 112);
+        move(ChatSend, width - 150, height - 178, 122, 48);
+        move(ChatStop, width - 150, height - 120, 122, 38);
+        move(Status, 28, height - 52, width - 56, 38);
+        InvalidateRect(w.hwnd, nullptr, TRUE);
+        return;
     }
     if (w.mode == Mode::ChatHistory) {
-        auto move = [&](int id,int x,int y,int ww,int hh){MoveWindow(ControlOf(w,id),Scale(w,x),Scale(w,y),Scale(w,ww),Scale(w,hh),TRUE);};
-        move(Title,28,22,width-56,42); move(Subtitle,28,74,width-56,34); move(Search,28,120,width-180,38); move(ChatRefresh,width-140,120,112,38);
-        move(List,28,172,width-56,height-340); move(ChatName,28,height-150,width-292,38); move(ChatRename,width-252,height-150,104,38); move(Delete,width-136,height-150,108,38);
-        move(ChatButton,28,height-96,134,38); move(ChatNew,176,height-96,132,38); move(Cancel,322,height-96,100,38); move(Status,28,height-44,width-56,34); return;
+        auto move = [&](int id, int x, int y, int ww, int hh) {
+            MoveWindow(ControlOf(w, id), Scale(w, x), Scale(w, y), Scale(w, ww), Scale(w, hh),
+                       TRUE);
+        };
+        move(Title, 28, 22, width - 56, 42);
+        move(Subtitle, 28, 74, width - 56, 34);
+        move(Search, 28, 120, width - 180, 38);
+        move(ChatRefresh, width - 140, 120, 112, 38);
+        move(List, 28, 172, width - 56, height - 340);
+        move(ChatName, 28, height - 150, width - 292, 38);
+        move(ChatRename, width - 252, height - 150, 104, 38);
+        move(Delete, width - 136, height - 150, 108, 38);
+        move(ChatButton, 28, height - 96, 134, 38);
+        move(ChatNew, 176, height - 96, 132, 38);
+        move(Cancel, 322, height - 96, 100, 38);
+        move(Status, 28, height - 44, width - 56, 34);
+        return;
     }
     if (w.mode == Mode::Library) {
         auto move = [&](int id, int x, int y, int ww, int hh) {
@@ -1735,132 +1766,23 @@ Json ChosenProfile(Window &w) {
         throw std::runtime_error("chat_model");
     return w.profiles.at(static_cast<std::size_t>(index));
 }
-struct ChatTextSpan {
-    LONG first, last;
-    bool bold = false, code = false;
-    COLORREF color = Ink;
-    int size = 240;
-};
-std::wstring ChatMarkdown(const std::wstring &input, std::vector<ChatTextSpan> &spans) {
-    // Native, inert text only. Markdown links/images are never loaded or executed.
-    std::wstring result;
-    std::size_t at = 0;
-    bool code = false;
-    while (at < input.size()) {
-        auto end = input.find(L'\n', at);
-        if (end == std::wstring::npos)
-            end = input.size();
-        auto line = input.substr(at, end - at);
-        if (!line.empty() && line.back() == L'\r')
-            line.pop_back();
-        if (line.rfind(L"```", 0) == 0) {
-            code = !code;
-            at = end + 1;
-            continue;
-        }
-        bool bold = false;
-        COLORREF color = Ink;
-        int size = 240;
-        if (!code) {
-            std::size_t heading = 0;
-            while (heading < line.size() && line[heading] == L'#')
-                ++heading;
-            if (heading > 0 && heading <= 6 && heading < line.size() && line[heading] == L' ') {
-                line.erase(0, heading + 1);
-                bold = true;
-                size = heading <= 2 ? 290 : 260;
-            }
-            if (line.rfind(L"> ", 0) == 0) {
-                line = L"│ " + line.substr(2);
-                color = Copper;
-            }
-            if (line.rfind(L"- ", 0) == 0 || line.rfind(L"* ", 0) == 0)
-                line = L"• " + line.substr(2);
-            if (line == L"你" || line.rfind(L"AI · ", 0) == 0) {
-                bold = true;
-                color = Accent;
-                size = 225;
-            }
-        }
-        auto start = static_cast<LONG>(result.size());
-        auto base = spans.size();
-        spans.push_back({start, start, bold, code, color, size});
-        if (!code) {
-            bool emphasis = false;
-            LONG emphasisStart = 0;
-            for (std::size_t i = 0; i < line.size(); ++i) {
-                if (i + 1 < line.size() && line[i] == L'*' && line[i + 1] == L'*') {
-                    if (emphasis)
-                        spans.push_back({emphasisStart, static_cast<LONG>(result.size()), true,
-                                         false, color, size});
-                    else
-                        emphasisStart = static_cast<LONG>(result.size());
-                    emphasis = !emphasis;
-                    ++i;
-                } else
-                    result += line[i];
-            }
-        } else
-            result += line;
-        // RichEdit uses one CR character per paragraph, avoiding selection offset drift.
-        result += L'\r';
-        spans[base].last = static_cast<LONG>(result.size());
-        at = end + 1;
+std::vector<Mnote::ChatTranscript::Message> ChatMessages(const Ai::Conversation &c) {
+    std::vector<Mnote::ChatTranscript::Message> messages;
+    for (const auto &m : c.data.value("messages", Json::array())) {
+        auto status = m.value("status", std::string());
+        messages.push_back({m.value("id", std::string()), m.value("role", std::string()) == "user",
+                            Field(m, "content"), Field(m, "model"), status,
+                            status == "failed" ? Ai::Store::error(std::runtime_error(
+                                                     m.value("error", std::string("chat_request"))))
+                                               : L""});
     }
-    return result;
+    return messages;
 }
 void ChatTranscriptText(Window &w, const Ai::Conversation &c) {
     w.conversation = c;
-    std::wstring text;
-    for (const auto &m : c.data.value("messages", Json::array())) {
-        bool user = m.value("role", std::string()) == "user";
-        text += (user ? L"你" : L"AI · " + Field(m, "model")) + L"\r\n";
-        auto status = m.value("status", std::string());
-        text += Field(m, "content");
-        if (status == "generating")
-            text += L"\r\n正在思考…";
-        else if (status == "stopped")
-            text += L"\r\n[已停止，已有内容保留]";
-        else if (status == "failed")
-            text +=
-                L"\r\n[未完成] " +
-                Ai::Store::error(std::runtime_error(m.value("error", std::string("chat_request"))));
-        text += L"\r\n\r\n────────────────────────\r\n\r\n";
-    }
-    if (text.empty())
-        text = L"从这一条记录出发。\r\n\r\n你可以让 AI "
-               L"帮你澄清想法、提出不同视角，或把启发变成一个行动。\r\n\r\n选好上方资料，再写下你的"
-               L"问题。只有点击发送并确认后才会调用模型。";
-    auto control = ControlOf(w, ChatTranscript);
-    SCROLLINFO scroll{sizeof(scroll), SIF_ALL, 0, 0, 0, 0, 0};
-    GetScrollInfo(control, SB_VERT, &scroll);
-    bool bottom = scroll.nPos + static_cast<int>(scroll.nPage) >= scroll.nMax - 3;
-    auto first = SendMessageW(control, EM_GETFIRSTVISIBLELINE, 0, 0);
-    std::vector<ChatTextSpan> spans;
-    if (richEdit)
-        text = ChatMarkdown(text, spans);
-    SetWindowTextW(control, text.c_str());
-    if (richEdit) {
-        for (const auto &span : spans) {
-            CHARRANGE range{span.first, span.last};
-            SendMessageW(control, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&range));
-            CHARFORMAT2W format{};
-            format.cbSize = sizeof(format);
-            format.dwMask = CFM_FACE | CFM_SIZE | CFM_COLOR | CFM_BOLD;
-            format.dwEffects = span.bold ? CFE_BOLD : 0;
-            format.crTextColor = span.color;
-            format.yHeight = span.size;
-            lstrcpynW(format.szFaceName, span.code ? L"Consolas" : L"Segoe UI", LF_FACESIZE);
-            SendMessageW(control, EM_SETCHARFORMAT, SCF_SELECTION,
-                         reinterpret_cast<LPARAM>(&format));
-        }
-    }
-    if (bottom) {
-        SendMessageW(control, EM_SETSEL, static_cast<WPARAM>(-1), static_cast<LPARAM>(-1));
-        SendMessageW(control, EM_SCROLLCARET, 0, 0);
-    } else
-        SendMessageW(control, EM_LINESCROLL, 0, first);
+    Mnote::ChatTranscript::Update(ControlOf(w, ChatTranscript), ChatMessages(c), w.chatReceiving);
     Set(w, Title, Field(c.data, "title").empty() ? L"与 AI 聊聊" : Field(c.data, "title"));
+    Layout(w);
 }
 void OpenChat(const Record &record, const std::string &id) {
     auto scope = library->account().scope;
@@ -1893,10 +1815,7 @@ void OpenChat(const Record &record, const std::string &id) {
         Add(w, m.first, L"BUTTON", m.second, BS_AUTOCHECKBOX | WS_TABSTOP, 28, 158, 120, 28);
         SendMessageW(ControlOf(w, m.first), BM_SETCHECK, BST_CHECKED, 0);
     }
-    auto transcript = richEdit ? Add(w,ChatTranscript,L"RICHEDIT50W",L"",WS_TABSTOP|WS_BORDER|ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL,28,194,660,400,true)
-                               : Edit(w, ChatTranscript, L"", 194, 400, 8388608);
-    if(richEdit){SendMessageW(transcript,EM_EXLIMITTEXT,0,8388608);SendMessageW(transcript,EM_SETBKGNDCOLOR,0,Paper);SendMessageW(transcript,EM_AUTOURLDETECT,0,0);}
-    SendMessageW(transcript, EM_SETREADONLY, TRUE, 0);
+    Mnote::ChatTranscript::Create(w.hwnd, ChatTranscript, ChatRetry, w.dpi);
     Edit(w, ChatInput, L"", 610, 110, 100000);
     SendMessageW(ControlOf(w, ChatInput), EM_SETCUEBANNER, TRUE,
                  reinterpret_cast<LPARAM>(L"针对这条记录，想聊些什么？"));
@@ -1906,7 +1825,7 @@ void OpenChat(const Record &record, const std::string &id) {
     Button(w, ChatSuggestOne, L"帮我梳理这条记录", 0, 0, 160);
     Button(w, ChatSuggestTwo, L"提出一个不同视角", 0, 0, 170);
     Button(w, ChatSuggestThree, L"转化成下一步行动", 0, 0, 166);
-    Button(w, ChatRetry, L"重试 / 同步", 0, 0, 142);
+    Button(w, ChatRefresh, L"同步会话", 0, 0, 92);
     Label(w, Status, L"Enter 换行；Ctrl + Enter 发送。回复仅作参考，不会自动执行。", 0);
     w.loading = true;
     if (!id.empty()) {
@@ -2165,6 +2084,7 @@ void SendChat(Window &w) {
             Post([hwnd, serial, scope] {
                 if (auto form = Find(hwnd, serial); form && Scope() == scope) {
                     form->chatReceiving = false;
+                    ChatTranscriptText(*form, form->conversation);
                     EnableWindow(ControlOf(*form, ChatSend), TRUE);
                     EnableWindow(ControlOf(*form, ChatStop), FALSE);
                     EnableWindow(ControlOf(*form, ChatProfile), TRUE);
@@ -2216,30 +2136,35 @@ void ChatCommand(Window &w, int id, int event) {
             OpenChat(ChatRecord(w.scope, w.chatRecordId));
         else if (id == ChatMaterials)
             ChatMaterialsPage(w);
-        else if (id == ChatRetry && !w.chatReceiving && !w.chatId.empty()) {
-            auto choice = MessageBoxW(w.hwnd,
-                                      L"“是”：同步最新历史（本机冲突内容保留为副本，可在资料页查看"
-                                      L"）。\n“否”：把上一问填入输入框，确认后重新发送。",
-                                      L"Mnote · 恢复对话", MB_YESNOCANCEL | MB_ICONQUESTION);
-            if (choice == IDYES) {
-                auto scope = w.scope, cid = w.chatId;
-                Run(
-                    w, [scope, cid] { chats->resolve(scope, cid); },
-                    [](Window &form) {
-                        auto c = chats->get(form.scope, form.chatId);
-                        ChatTranscriptText(form, c);
-                        Set(form, ChatInput, Wide(c.draft));
-                        StatusText(
-                            form,
-                            L"已读取云端历史。本机冲突副本（如有）保留在资料页，不会发送给模型。");
-                    });
-            } else if (choice == IDNO)
-                for (auto it = w.conversation.data["messages"].rbegin();
-                     it != w.conversation.data["messages"].rend(); ++it)
-                    if (it->value("role", std::string()) == "user") {
-                        Set(w, ChatInput, Field(*it, "content"));
-                        break;
-                    }
+        else if (id == ChatRefresh && !w.chatReceiving && !w.chatId.empty()) {
+            auto scope = w.scope, cid = w.chatId;
+            Run(
+                w, [scope, cid] { chats->resolve(scope, cid); },
+                [](Window &form) {
+                    auto c = chats->get(form.scope, form.chatId);
+                    ChatTranscriptText(form, c);
+                    Set(form, ChatInput, Wide(c.draft));
+                    StatusText(
+                        form,
+                        L"已读取云端历史。本机冲突副本（如有）保留在资料页，不会发送给模型。");
+                });
+        } else if (id == ChatRetry && !w.busy && !w.chatReceiving && !w.chatId.empty()) {
+            auto messages = ChatMessages(w.conversation);
+            if (messages.empty() ||
+                !Mnote::ChatTranscript::CanRetry(messages, messages.size() - 1, false))
+                return;
+            if (!Text(ControlOf(w, ChatInput)).empty() &&
+                MessageBoxW(w.hwnd, L"用上一问替换当前输入框中的草稿？", L"Mnote · 用上一问继续",
+                            MB_YESNO | MB_ICONQUESTION) != IDYES)
+                return;
+            for (auto it = w.conversation.data["messages"].rbegin();
+                 it != w.conversation.data["messages"].rend(); ++it)
+                if (it->value("role", std::string()) == "user") {
+                    Set(w, ChatInput, Field(*it, "content"));
+                    SetFocus(ControlOf(w, ChatInput));
+                    StatusText(w, L"上一问已填入输入框；检查后点击发送。已有回复不会删除。 ");
+                    break;
+                }
         } else if (id == ChatInput && event == EN_CHANGE && !w.loading)
             SetTimer(w.hwnd, 7, 600, nullptr);
         else if (id == ChatSuggestOne || id == ChatSuggestTwo || id == ChatSuggestThree)
@@ -3876,7 +3801,6 @@ void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> ca
         }
     };
     library = std::make_unique<Library>(root);
-    richEdit = LoadLibraryW(L"Msftedit.dll");
     chats = std::make_unique<Ai::Store>(*library);
     backgroundBrush = CreateSolidBrush(Background);
     whiteBrush = CreateSolidBrush(Surface);
@@ -3995,7 +3919,6 @@ void Stop() {
         DestroyWindow(windows.begin()->first);
     home = nullptr;
     chats.reset();
-    if(richEdit){FreeLibrary(richEdit);richEdit=nullptr;}
     library.reset();
     if (defaultFont)
         DeleteObject(defaultFont);

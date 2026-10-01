@@ -2,6 +2,7 @@
 #include <gdiplus.h>
 #include <iostream>
 #include <string>
+#include <vector>
 
 HWND Window(const wchar_t *title) { return FindWindowW(L"Mnote.Workspace", title); }
 HWND Editor() {
@@ -11,6 +12,23 @@ HWND Editor() {
 void Click(HWND window, int id) {
     PostMessageW(window, WM_COMMAND, MAKEWPARAM(id, BN_CLICKED),
                  reinterpret_cast<LPARAM>(GetDlgItem(window, id)));
+}
+std::wstring ControlText(HWND control) {
+    const auto length = SendMessageW(control, WM_GETTEXTLENGTH, 0, 0);
+    if (length < 0 || length > 200000)
+        return L"";
+    std::wstring text(static_cast<std::size_t>(length) + 1, L'\0');
+    const auto copied = SendMessageW(control, WM_GETTEXT, text.size(),
+                                     reinterpret_cast<LPARAM>(text.data()));
+    text.resize(static_cast<std::size_t>(copied));
+    return text;
+}
+BOOL CALLBACK CollectRichEdits(HWND child, LPARAM value) {
+    wchar_t className[64]{};
+    GetClassNameW(child, className, 64);
+    if (_wcsicmp(className, L"RICHEDIT50W") == 0)
+        reinterpret_cast<std::vector<HWND> *>(value)->push_back(child);
+    return TRUE;
 }
 int wmain(int argc, wchar_t **argv) {
     if (argc < 2)
@@ -83,6 +101,8 @@ int wmain(int argc, wchar_t **argv) {
         auto window = Editor(); if (!window) return 80;
         Click(window, 29001); return 0;
     }
+    if (action == L"ai-closed")
+        return Window(L"Mnote · 与 AI 聊聊") ? 100 : 0;
     if (action == L"ai-ready" || action == L"ai-draft" || action == L"ai-draft-ready" ||
         action == L"ai-close" || action == L"ai-send" || action == L"ai-small" || action == L"ai-large") {
         auto window = Window(L"Mnote · 与 AI 聊聊"); if (!window) return 81;
@@ -122,6 +142,67 @@ int wmain(int argc, wchar_t **argv) {
         auto window=Window(L"Mnote · 全部 AI 对话");if(!window)return 89;
         if(SendDlgItemMessageW(window,2005,LB_GETCOUNT,0,0)!=0)return 90;
         PostMessageW(window,WM_CLOSE,0,0);return 0;
+    }
+    if (action == L"ai-history-continue" || action == L"ai-history-close") {
+        auto window = Window(L"Mnote · 全部 AI 对话");
+        if (!window)
+            return 91;
+        if (action == L"ai-history-close") {
+            PostMessageW(window, WM_CLOSE, 0, 0);
+            return 0;
+        }
+        if (SendDlgItemMessageW(window, 2005, LB_GETCOUNT, 0, 0) != 1)
+            return 92;
+        SendDlgItemMessageW(window, 2005, LB_SETCURSEL, 0, 0);
+        Click(window, 29000);
+        return 0;
+    }
+    if (action == L"ai-bubbles-ready" || action == L"ai-bubbles-select") {
+        auto window = Window(L"Mnote · 与 AI 聊聊");
+        auto transcript = GetDlgItem(window, 29009), input = GetDlgItem(window, 29008);
+        if (!window || !transcript || !input)
+            return 93;
+        RECT transcriptBounds{}, inputBounds{};
+        GetWindowRect(transcript, &transcriptBounds);
+        GetWindowRect(input, &inputBounds);
+        if (transcriptBounds.bottom >= inputBounds.top || IsWindowVisible(GetDlgItem(window, 29033)))
+            return 94;
+        std::vector<HWND> bodies;
+        EnumChildWindows(transcript, CollectRichEdits, reinterpret_cast<LPARAM>(&bodies));
+        if (bodies.size() != 4)
+            return 95;
+        HWND own = nullptr, assistant = nullptr;
+        int ownCount = 0, assistantCount = 0;
+        for (auto body : bodies) {
+            const auto text = ControlText(body);
+            if (text.find(L"我想把收藏变成行动") != std::wstring::npos ||
+                text.find(L"先从这条记录开始") != std::wstring::npos) {
+                ++ownCount;
+                own = body;
+            }
+            if (text.find(L"给想法一个小小的出口") != std::wstring::npos ||
+                text.find(L"今天只做一件事") != std::wstring::npos) {
+                ++assistantCount;
+                assistant = body;
+            }
+            if (!(GetWindowLongPtrW(body, GWL_STYLE) & ES_READONLY))
+                return 96;
+        }
+        if (ownCount != 2 || assistantCount != 2 || !own || !assistant)
+            return 97;
+        RECT ownBounds{}, assistantBounds{};
+        GetWindowRect(own, &ownBounds);
+        GetWindowRect(assistant, &assistantBounds);
+        if (ownBounds.left <= assistantBounds.left || ownBounds.right <= assistantBounds.right)
+            return 98;
+        if (action == L"ai-bubbles-select") {
+            SendMessageW(assistant, EM_SETSEL, 0, 7);
+            const auto selection = SendMessageW(assistant, EM_GETSEL, 0, 0);
+            if (LOWORD(selection) != 0 || HIWORD(selection) != 7)
+                return 99;
+            SendMessageW(assistant, EM_SETSEL, 0, 0);
+        }
+        return 0;
     }
     if (action == L"library-uncovered")
         return home && IsWindowVisible(home) && IsWindowEnabled(home) &&

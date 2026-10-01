@@ -97,6 +97,57 @@ assert not list(root.glob('*.json')), 'cancelled consent must not create a conve
 assert next(root.glob('draft-*')).read_text()=='Synthetic draft, never sent to a model.'
 print('GUI: save-before-chat, independent draft, module controls, DPAPI model form, empty history, explicit consent cancellation passed; no model calls')
 PY
+# A local persisted conversation exercises the real history-to-chat UI. No provider is invoked.
+python3 - "${application_data}" <<'PY'
+import json,pathlib,sys
+root=pathlib.Path(sys.argv[1])
+record=json.loads(next((root/'Library/guest/records').glob('*.json')).read_text())['record']
+record_id=record['id']; timestamp='2026-10-01T10:00:00Z'
+def message(identifier,role,content,status='complete'):
+    return dict(id=identifier,role=role,content=content,status=status,created_at=timestamp,
+                request_id='gui-only',model='Mnote Demo',error='')
+conversation=dict(schema_version=1,id='gui-bubble-fixture',record_id=record_id,
+    title='让灵感慢慢变成行动',created_at=timestamp,updated_at=timestamp,
+    snapshot=dict(record_id=record_id,consent='record_chat_only',modules=['thought'],
+                  thought=record['comment'],images=[]),
+    model=dict(label='Synthetic model · not invoked',base_url='https://models.invalid/v1',
+               model='mock-vision',vision=True),
+    messages=[
+        message('gui-user-one','user','我想把收藏变成行动，而不只是越存越多。你会建议我从哪里开始？'),
+        message('gui-ai-one','assistant','**给想法一个小小的出口**\n\n不用整理整个知识库，可以先给这条记录一个具体动作。\n- 写下它触动你的原因\n- 选一件十分钟内能完成的小事\n\n> 回顾不是清空列表，而是重新遇见当时的自己。'),
+        message('gui-user-two','user','先从这条记录开始，帮我把第一步缩小一点。'),
+        message('gui-ai-two','assistant','**今天只做一件事**\n\n写下这句话：「这条记录让我想起了……」\n不用写完整，先保留最真实的那个念头。','stopped')])
+envelope=dict(conversation=conversation,revision=0,dirty=False,deleted=False,draft='',
+              consent='',conflict={},parent_generation='')
+(root/'ai-chat/guest/gui-bubble-fixture.json').write_text(json.dumps(envelope,ensure_ascii=False))
+PY
+drive settings
+until_drive settings-ready
+drive ai-all-history
+until_drive ai-history-continue
+until_drive ai-bubbles-ready
+drive ai-history-close
+drive settings-close
+drive ai-large
+until_drive ai-bubbles-ready
+drive ai-bubbles-select
+drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/ai-chat-bubbles-preview.png" 'Mnote · 与 AI 聊聊'
+drive ai-small
+until_drive ai-bubbles-ready
+drive ai-bubbles-select
+drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/ai-chat-bubbles-small-preview.png" 'Mnote · 与 AI 聊聊'
+drive ai-close
+until_drive ai-closed
+until_drive library-uncovered
+python3 - "${application_data}" <<'PY'
+import json,pathlib,sys
+path=pathlib.Path(sys.argv[1])/'ai-chat/guest/gui-bubble-fixture.json'
+envelope=json.loads(path.read_text())
+assert envelope['conversation']['id']=='gui-bubble-fixture'
+assert len(envelope['conversation']['messages'])==4, 'GUI fixture must not send a model request'
+path.unlink()
+print('GUI: persisted multi-turn IM bubbles, role alignment, selectable text, hidden inline actions, normal/narrow composer separation passed; no model calls')
+PY
 drive show
 drive tag 工作
 until_drive count 1
