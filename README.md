@@ -28,7 +28,7 @@ API Key 只保存在本机，需在每台设备分别配置；支持 HTTPS OpenA
 
 ## Windows 下载
 
-当前 Windows 测试版 **1.20.0-test**：[安装包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.20.0-test/Mnote-Windows-1.20.0-test-Setup.exe) · [便携包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.20.0-test/Mnote-Windows-1.20.0-test-Portable.zip)。使用 Android 上同一账号登录，自动同步；旧本机记录需要明确导入。
+当前 Windows 测试版 **1.20.1-test**：[安装包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.20.1-test/Mnote-Windows-1.20.1-test-Setup.exe) · [便携包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.20.1-test/Mnote-Windows-1.20.1-test-Portable.zip)。本次改进 AI 聊天气泡、长按/右键消息菜单与窄窗布局，详见 [版本说明](docs/ai-chat-im-1.20.1-release-notes.md)。使用 Android 上同一账号登录，自动同步；旧本机记录需要明确导入。
 
 双端 1.8.0 新增批量选择记录导出 Markdown：包含文档说明、AI 阅读提示、索引、想法、摘录、原文、来源和完整截图/圈选图/批注图在线链接。首页先筛选再选择，最多 100 条已同步记录；需明确确认分享图片，分享快照可在导出页独立撤销。详情见[批量导出说明](docs/markdown-batch-export.md)。
 
@@ -38,7 +38,7 @@ Windows 已补齐应用内查看 / 编辑 / 删除、标签 / 未分类筛选、
 
 ## Android 构建
 
-当前 Android 测试版：[1.20.0-test APK](https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.20.0-test/Mnote-Android-1.20.0-test.apk)。本版新增单条记录 AI 聊天，配套服务端已升级至 0.9.0；保留混合记录预览、分享卡片与扫码阅读页。1.9 及之后的测试版可从应用内检查更新；更早版本可手动下载覆盖安装。详见 [版本说明](docs/record-ai-chat-1.20.0-release-notes.md)、[测试及发布验证](docs/record-ai-chat-1.20.0-verification.md)。安装前保存草稿，覆盖安装，不要卸载旧版。Android 沿用测试签名，非正式商店版。
+当前 Android 测试版：[1.20.1-test APK](https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.20.1-test/Mnote-Android-1.20.1-test.apk)。本版将 AI 对话改为 IM 气泡布局，支持长按复制/选择文字，并改进流式滚动、输入区与大字号显示；既有记录与聊天保留，服务端保持 0.9.0。1.9 及之后的测试版可从应用内检查更新；更早版本可手动下载覆盖安装。详见 [版本说明](docs/ai-chat-im-1.20.1-release-notes.md)、[交互与验证](docs/ai-chat-im-ui.md)。安装前保存草稿，覆盖安装，不要卸载旧版。Android 沿用测试签名，非正式商店版。
 
 1.10.1 修复“分享管理”无法查看历史图片：点击历史分享即可查看当次导出的图片快照，兼容旧分享，不依赖原记录是否仍在本机。详见 [历史分享图片说明](docs/share-history-1.10.1-release-notes.md)。
 

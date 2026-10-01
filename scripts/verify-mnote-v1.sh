@@ -62,10 +62,11 @@ echo "[2/7] Windows x64 cross-build"
   fi
 )
 
-echo "[3/7] Windows frozen-overlay GUI smoke test"
+echo "[3/7] Windows capture, workspace, and chat GUI smoke tests"
 (
   cd "${repo_dir}"
   bash desktop-windows/tests/run-gui-smoke.sh
+  bash desktop-windows/tests/run-chat-transcript-tests.sh
 )
 
 echo "[4/7] Windows sync boundary and WinHTTP smoke test"
