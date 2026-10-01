@@ -14,4 +14,8 @@
     <item name="ai_model_url" type="id"/><item name="ai_model_name" type="id"/>
     <item name="ai_model_label" type="id"/><item name="ai_model_vision" type="id"/>
     <item name="ai_history_search" type="id"/><item name="ai_history_list" type="id"/>
+    <item name="ai_message_bubble" type="id"/><item name="ai_message_content" type="id"/>
+    <item name="ai_message_state" type="id"/><item name="ai_message_selection" type="id"/>
+    <item name="ai_message_copy" type="id"/><item name="ai_message_select" type="id"/>
+    <item name="ai_message_retry" type="id"/>
 </resources>

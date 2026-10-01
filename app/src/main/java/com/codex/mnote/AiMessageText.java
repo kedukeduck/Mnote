@@ -8,6 +8,9 @@ import android.text.style.*;
 /** A deliberately inert Markdown subset: no HTML, remote images, scripts or automatic links. */
 final class AiMessageText {
     static CharSequence render(String markdown) {
+        return render(markdown,0xff955530);
+    }
+    static CharSequence render(String markdown,int quoteColor) {
         SpannableStringBuilder out=new SpannableStringBuilder();boolean code=false;
         for(String line:markdown.split("\n",-1)) {
             if(line.trim().startsWith("```")){code=!code;continue;}
@@ -21,7 +24,7 @@ final class AiMessageText {
             if(end>start){
                 if(code)out.setSpan(new TypefaceSpan("monospace"),start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 if(heading){out.setSpan(new StyleSpan(Typeface.BOLD),start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);out.setSpan(new RelativeSizeSpan(1.12f),start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);}
-                if(quote)out.setSpan(new QuoteSpan(0xff955530),start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                if(quote)out.setSpan(new QuoteSpan(quoteColor),start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
             out.append('\n');
         }

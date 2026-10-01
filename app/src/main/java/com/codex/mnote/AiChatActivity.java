@@ -20,7 +20,7 @@ public final class AiChatActivity extends Activity {
     private JSONObject conversation;private CaptureStore.CaptureRecord record;
     private LinearLayout messages,starters;private ScrollView scroll;private EditText input;
     private TextView status;private Button context,model,send,stop,latest;
-    private boolean destroyed,busy,rendering,receiverRegistered,consentOpen,draftLoaded;private int loadGeneration;
+    private boolean destroyed,busy,rendering,receiverRegistered,consentOpen,draftLoaded,followNextLayout;private int loadGeneration;
     private String unsavedDraft="";private Runnable draftSave;
     private final BroadcastReceiver changed=new BroadcastReceiver(){public void onReceive(Context c,Intent i){if(valid()&&conversationId!=null)load();}};
 
@@ -46,14 +46,22 @@ public final class AiChatActivity extends Activity {
         model.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));model.setMaxLines(1);model.setEllipsize(TextUtils.TruncateAt.END);
         Button history=AiUi.button(actions,"本条会话",false,()->startActivity(AiUi.history(this,scope,recordId)));
         history.setId(R.id.ai_chat_history);history.setLayoutParams(new LinearLayout.LayoutParams(-2,-2));
+        Button fresh=AiUi.button(actions,"新建",false,()->startActivity(AiUi.chat(this,scope,recordId,null)));fresh.setId(R.id.ai_chat_new);fresh.setLayoutParams(new LinearLayout.LayoutParams(-2,-2));
+        history.setTextSize(13);fresh.setTextSize(13);model.setTextSize(13);
         context=AiUi.button(top,"查看本次资料",false,this::showContext);context.setId(R.id.ai_chat_context);context.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);context.setTextSize(13);
-        status=JournalUi.text(this,"正在准备记录…",13,R.color.ink_muted);status.setId(R.id.ai_chat_status);top.addView(status);
+        status=JournalUi.text(this,"正在准备记录…",12,R.color.ink_muted);status.setId(R.id.ai_chat_status);top.addView(status);
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);JournalUi.rule(root);
         scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setVerticalScrollBarEnabled(false);
-        messages=JournalUi.column(this);messages.setId(R.id.ai_chat_messages);messages.setPadding(AiUi.dp(this,22),AiUi.dp(this,18),AiUi.dp(this,22),AiUi.dp(this,18));
+        messages=JournalUi.column(this);messages.setId(R.id.ai_chat_messages);messages.setPadding(AiUi.dp(this,16),AiUi.dp(this,18),AiUi.dp(this,16),0);
         scroll.addView(messages);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        latest=AiUi.button(root,"回到最新",false,()->scroll.post(()->scroll.fullScroll(View.FOCUS_DOWN)));latest.setVisibility(View.GONE);
-        scroll.setOnScrollChangeListener((v,x,y,oldX,oldY)->latest.setVisibility(atBottom()?View.GONE:View.VISIBLE));
+        latest=AiUi.button(root,"回到最新 ↓",false,this::scrollToLatest);latest.setVisibility(View.GONE);
+        scroll.setOnScrollChangeListener((v,x,y,oldX,oldY)->{if(y<oldY)followNextLayout=false;latest.setVisibility(atBottom()?View.GONE:View.VISIBLE);});
+        messages.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{
+            if(followNextLayout){followNextLayout=false;scroll.scrollTo(0,Math.max(0,messages.getHeight()-scroll.getHeight()));}
+        });
+        scroll.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{
+            if(ob>ot&&b-t!=ob-ot&&messages.getHeight()-(ob-ot+scroll.getScrollY())<AiUi.dp(this,90))scrollToLatest();
+        });
         starters=JournalUi.column(this);starters.setPadding(AiUi.dp(this,18),0,AiUi.dp(this,18),0);root.addView(starters);
         // Suggestions are drafts, not hidden paid requests.
         String[] prompts={"梳理这条记录","提出不同看法","这对我有什么启发？","转化成行动"};
@@ -64,22 +72,26 @@ public final class AiChatActivity extends Activity {
                 suggestion.setTextSize(13);suggestion.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));
             }
         }
-        JournalUi.rule(root);LinearLayout composer=JournalUi.column(this);composer.setPadding(AiUi.dp(this,16),AiUi.dp(this,8),AiUi.dp(this,16),AiUi.dp(this,10));root.addView(composer);
-        input=new EditText(this);input.setId(R.id.ai_chat_input);input.setHint("从这条记录，继续想一想…");input.setTextSize(16);
+        JournalUi.rule(root);LinearLayout composer=new LinearLayout(this);composer.setGravity(Gravity.BOTTOM);composer.setPadding(AiUi.dp(this,12),AiUi.dp(this,10),AiUi.dp(this,12),AiUi.dp(this,10));root.addView(composer);
+        input=new EditText(this);input.setId(R.id.ai_chat_input);input.setHint("聊聊你的想法…");input.setTextSize(16);
         input.setTextColor(getColor(R.color.ink));input.setBackgroundResource(R.drawable.bg_input);
         input.setPadding(AiUi.dp(this,12),AiUi.dp(this,10),AiUi.dp(this,12),AiUi.dp(this,10));input.setMinLines(1);input.setMaxLines(5);
         input.setGravity(Gravity.TOP|Gravity.START);input.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE|android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         input.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);input.setSaveEnabled(false);
-        input.setImeOptions(android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);composer.addView(input,new LinearLayout.LayoutParams(-1,-2));
-        LinearLayout buttons=new LinearLayout(this);composer.addView(buttons);
-        Button fresh=AiUi.button(buttons,"新建",false,()->startActivity(AiUi.chat(this,scope,recordId,null)));fresh.setId(R.id.ai_chat_new);fresh.setLayoutParams(new LinearLayout.LayoutParams(-2,-2));
+        input.setImeOptions(android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);input.setMinimumHeight(AiUi.dp(this,48));composer.addView(input,new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout buttons=new LinearLayout(this);LinearLayout.LayoutParams buttonLayout=new LinearLayout.LayoutParams(-2,-2);buttonLayout.leftMargin=AiUi.dp(this,8);composer.addView(buttons,buttonLayout);
         stop=AiUi.button(buttons,"停止",false,()->{AiChatClient.Call call=AiChatClient.active(this,conversationId);if(call!=null)call.cancel();});stop.setId(R.id.ai_chat_stop);stop.setLayoutParams(new LinearLayout.LayoutParams(-2,-2));stop.setVisibility(View.GONE);
-        send=AiUi.button(buttons,"发送",true,this::send);send.setId(R.id.ai_chat_send);send.setLayoutParams(new LinearLayout.LayoutParams(0,-2,1));
+        send=AiUi.button(buttons,"发送",true,this::send);send.setId(R.id.ai_chat_send);send.setLayoutParams(new LinearLayout.LayoutParams(-2,-2));
+        send.setMinWidth(AiUi.dp(this,64));send.setMinimumWidth(AiUi.dp(this,64));send.setSingleLine(true);
         input.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int f){}public void afterTextChanged(Editable e){}
             public void onTextChanged(CharSequence s,int a,int before,int count){unsavedDraft=s.toString();starters.setVisibility(conversationId==null&&unsavedDraft.isEmpty()?View.VISIBLE:View.GONE);saveDraftLater();}});
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE|WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
     }
     private boolean atBottom(){return messages.getHeight()-(scroll.getHeight()+scroll.getScrollY())<AiUi.dp(this,90);}
+    private void scrollToLatest(){
+        followNextLayout=true;
+        scroll.post(()->{if(!destroyed&&followNextLayout)scroll.scrollTo(0,Math.max(0,messages.getHeight()-scroll.getHeight()));});
+    }
     private boolean valid(){return !destroyed&&!isFinishing()&&scope.equals(CaptureAccountSession.scope(this));}
     @Override protected void onResume(){super.onResume();if(!scope.equals(CaptureAccountSession.scope(this))){finish();return;}load();}
     private void load(){
@@ -113,32 +125,33 @@ public final class AiChatActivity extends Activity {
         }catch(Exception error){runOnUiThread(()->{if(valid()&&generation==loadGeneration){status.setText(AiUi.error(error.getMessage()));send.setEnabled(false);}});}});
     }
     private void renderChat(JSONObject c){
-        boolean follow=atBottom();conversation=c;messages.removeAllViews();starters.setVisibility(View.GONE);
+        boolean follow=atBottom();followNextLayout=follow;conversation=c;starters.setVisibility(View.GONE);
         JSONObject m=c.optJSONObject("model");model.setText(m==null?"模型配置":m.optString("label")+" · "+m.optString("model"));
         JSONObject snapshot=c.optJSONObject("snapshot");context.setText("查看本会话的记录版本与资料  ›");
         boolean changed=AiUi.snapshotChanged(snapshot,record);
-        status.setText(changed?"记录可能已有更新。此会话保留原资料；可新建对话使用最新版。":"会话资料固定 · 不读取其他记录或其他会话");
+        status.setText(changed?"记录已有更新 · 本会话仍使用原资料":"仅围绕本条记录 · 长按气泡可复制或选择文字");
         JSONArray entries=c.optJSONArray("messages");
+        int position=0;
         if(entries!=null)for(int i=0;i<entries.length();i++){
             JSONObject message=entries.optJSONObject(i);if(message==null)continue;
-            boolean own="user".equals(message.optString("role"));String state=message.optString("status");
-            LinearLayout block=JournalUi.column(this);block.setPadding(own?AiUi.dp(this,14):0,AiUi.dp(this,12),own?AiUi.dp(this,14):0,AiUi.dp(this,12));
-            if(own)block.setBackgroundResource(R.drawable.bg_record_excerpt);
-            LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(-1,-2);layout.topMargin=AiUi.dp(this,16);if(own)layout.leftMargin=AiUi.dp(this,24);messages.addView(block,layout);
-            block.addView(JournalUi.text(this,own?"我":"AI",12,own?R.color.copper:R.color.ink_muted));
-            String text=message.optString("content");TextView content=JournalUi.text(this,"",17,R.color.ink);content.setTextIsSelectable(true);
-            content.setText(AiMessageText.render(text.isEmpty()&&"generating".equals(state)?"正在思考…":text));block.addView(content);
-            if(!own){
-                if("failed".equals(state)||"stopped".equals(state))block.addView(JournalUi.text(this,"failed".equals(state)?AiUi.error(message.optString("error")):"已停止 · 回复未完成",12,R.color.ink_muted));
-                if(!text.isEmpty())AiUi.button(block,"复制",false,()->{android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);clipboard.setPrimaryClip(ClipData.newPlainText("AI 回复",text));Toast.makeText(this,"已复制",Toast.LENGTH_SHORT).show();});
-                if(i==entries.length()-1&&("failed".equals(state)||"stopped".equals(state)))AiUi.button(block,"重试本轮",false,this::retry);
+            boolean own="user".equals(message.optString("role"));String id=message.optString("id");
+            View existing=messages.getChildAt(position);AiChatMessageView row;
+            if(existing instanceof AiChatMessageView&&id.equals(((AiChatMessageView)existing).messageId)&&own==((AiChatMessageView)existing).own){
+                row=(AiChatMessageView)existing;
+            }else{
+                // Only replace changed structure. Streaming must not detach the pressed bubble/menu.
+                if(position<messages.getChildCount())messages.removeViews(position,messages.getChildCount()-position);
+                row=new AiChatMessageView(this,id,own,this::retry);messages.addView(row,new LinearLayout.LayoutParams(-1,-2));
             }
+            row.bind(message,i==entries.length()-1);position++;
         }
-        if(follow)scroll.post(()->scroll.fullScroll(View.FOCUS_DOWN));setBusy(false);
+        if(position<messages.getChildCount())messages.removeViews(position,messages.getChildCount()-position);
+        if(follow)scrollToLatest();setBusy(false);
     }
     private void setBusy(boolean preparing){
         busy=preparing;boolean generating=conversationId!=null&&AiChatClient.active(this,conversationId)!=null;
         send.setEnabled(!preparing&&!generating&&record!=null);stop.setVisibility(generating?View.VISIBLE:View.GONE);
+        send.setVisibility(generating?View.GONE:View.VISIBLE);
         send.setText(preparing?"准备中…":"发送");
     }
     private void chooseModel(){
