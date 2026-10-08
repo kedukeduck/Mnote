@@ -103,8 +103,9 @@ public class PrivateJournalAuxiliaryUiTest {
         try (var controller = Robolectric.buildActivity(CapturePermissionsActivity.class).setup()) {
             var activity = controller.get();
             View root = SettingsActivityTest.layout(activity, 390, 844);
-            assertNotNull(findText(root, "添加单次摘录"));
-            assertNotNull(findText(root, "添加随手记"));
+            assertNotNull(findText(root, "添加「记录」快捷按钮"));
+            assertNull(findText(root, "添加单次摘录"));
+            assertNull(findText(root, "添加随手记"));
             assertNull(shadowOf(activity).getNextStartedActivity());
             SettingsActivityTest.render(root, "journal-permissions.png");
             findText(root, "打开系统无障碍设置").performClick();
