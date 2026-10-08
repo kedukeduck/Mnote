@@ -28,17 +28,17 @@ API Key 只保存在本机，需在每台设备分别配置；支持 HTTPS OpenA
 
 ## Windows 下载
 
-当前 Windows 测试版 **1.20.1-test**：[安装包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.20.1-test/Mnote-Windows-1.20.1-test-Setup.exe) · [便携包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.20.1-test/Mnote-Windows-1.20.1-test-Portable.zip)。本次改进 AI 聊天气泡、长按/右键消息菜单与窄窗布局，详见 [版本说明](docs/ai-chat-im-1.20.1-release-notes.md)。使用 Android 上同一账号登录，自动同步；旧本机记录需要明确导入。
+当前 Windows 测试版 **1.21.0-test**：[安装包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.21.0-test/Mnote-Windows-1.21.0-test-Setup.exe) · [便携包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.21.0-test/Mnote-Windows-1.21.0-test-Portable.zip)。本次统一记录入口，先截图再按模块编辑，可从原图圈选批注，详见 [版本说明](docs/unified-capture-1.21.0-release-notes.md)。使用 Android 上同一账号登录，自动同步；旧本机记录需要明确导入。
 
 双端 1.8.0 新增批量选择记录导出 Markdown：包含文档说明、AI 阅读提示、索引、想法、摘录、原文、来源和完整截图/圈选图/批注图在线链接。首页先筛选再选择，最多 100 条已同步记录；需明确确认分享图片，分享快照可在导出页独立撤销。详情见[批量导出说明](docs/markdown-batch-export.md)。
 
 双端 1.9.0 将账号和更新统一收到首页右上角“设置”，并重做导出入口与卡片勾选页。更新元数据与安装包直接由自有服务器提供，不再依赖 GitHub 可见性，也不用填写 URL / Token。**先覆盖安装 1.9.0，再将仓库设为私有**；旧版仅认识 GitHub，仓库已私有时请使用上述链接手动安装。详见[1.9.0 功能与自托管发布说明](docs/settings-1.9.0-selfhosted-updates.md)。
 
-Windows 已补齐应用内查看 / 编辑 / 删除、标签 / 未分类筛选、两步截图与完整上下文、随手记的可选剪贴板和独立页面上下文，并统一 A 风格。Ctrl+Shift+F9 截图，Ctrl+Shift+F8 随手记。安装包不需要管理员权限，升级和卸载保留数据。未做 Authenticode 签名，尚需真实 Windows 多屏、输入法与浏览器读取能力验收。[使用说明](desktop-windows/README.md) · [功能与测试](docs/windows-1.6.0-android-parity.md) · [交付校验](docs/windows-1.6.0-release-verification.md)。
+Windows 已补齐应用内查看 / 编辑 / 删除、标签 / 未分类筛选、截图与完整上下文、可选剪贴板和独立页面上下文，并统一 A 风格。Ctrl+Shift+F9 进入统一记录流程，旧 Ctrl+Shift+F8 保留为同一入口的别名。安装包不需要管理员权限，升级和卸载保留数据。未做 Authenticode 签名，尚需真实 Windows 多屏、输入法与浏览器读取能力验收。[使用说明](desktop-windows/README.md) · [功能与测试](docs/windows-1.6.0-android-parity.md) · [交付校验](docs/windows-1.6.0-release-verification.md)。
 
 ## Android 构建
 
-当前 Android 测试版：[1.20.1-test APK](https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.20.1-test/Mnote-Android-1.20.1-test.apk)。本版将 AI 对话改为 IM 气泡布局，支持长按复制/选择文字，并改进流式滚动、输入区与大字号显示；既有记录与聊天保留，服务端保持 0.9.0。1.9 及之后的测试版可从应用内检查更新；更早版本可手动下载覆盖安装。详见 [版本说明](docs/ai-chat-im-1.20.1-release-notes.md)、[交互与验证](docs/ai-chat-im-ui.md)。安装前保存草稿，覆盖安装，不要卸载旧版。Android 沿用测试签名，非正式商店版。
+当前 Android 测试版：[1.21.0-test APK](https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.21.0-test/Mnote-Android-1.21.0-test.apk)。本版将快捷入口合并为「记录」，先截图再按模块选择保存内容，支持原图独立保留与可选圈选批注；既有记录与聊天保留，服务端保持 0.9.0。1.9 及之后的测试版可从应用内检查更新；更早版本可手动下载覆盖安装。详见 [版本说明](docs/unified-capture-1.21.0-release-notes.md)、[交互与验证](docs/unified-capture-editor.md)。安装前保存草稿，覆盖安装，不要卸载旧版。Android 沿用测试签名，非正式商店版。
 
 1.10.1 修复“分享管理”无法查看历史图片：点击历史分享即可查看当次导出的图片快照，兼容旧分享，不依赖原记录是否仍在本机。详见 [历史分享图片说明](docs/share-history-1.10.1-release-notes.md)。
 
@@ -46,7 +46,7 @@ Windows 已补齐应用内查看 / 编辑 / 删除、标签 / 未分类筛选、
 
 Android 页面及应用弹窗采用「私人刊物」主题；首页默认全部记录，支持搜索、类型/标签筛选和原地多选。账号登录后自动同步，支持刷新拉取和删除记录。来源与无障碍说明位于设置中的“快捷方式与权限”。
 
-本分支新增的统一记录流程尚未发布：快捷按钮统一为「记录」，先截图再进入模块编辑页；想法、摘录、原文、来源、原始页面截图、圈选批注及标签分别选择保留。圈选直接编辑本次冻结原图，不重新截屏；原图和结果独立保存。取消勾选不清草稿，保存只包含所选内容。剪贴板与页面文字仅主动读取，页面上下文不一定是剪贴板摘录的出处，也不保证可读取全文。原有安装包仍采用各自版本的交互，详见 [统一记录说明](docs/unified-capture-editor.md)。系统权限页和键盘保留系统样式。
+1.21.0 的快捷按钮统一为「记录」，先截图再进入模块编辑页；想法、摘录、原文、来源、原始页面截图、圈选批注及标签分别选择保留。圈选直接编辑本次冻结原图，不重新截屏；原图和结果独立保存。取消勾选不清草稿，保存只包含所选内容。剪贴板与页面文字仅主动读取，页面上下文不一定是剪贴板摘录的出处，也不保证可读取全文。旧安装包仍采用各自版本的交互，详见 [统一记录说明](docs/unified-capture-editor.md)。系统权限页和键盘保留系统样式。
 
 记录时素材与想法优先，其他选项按需展开；详情连续展示想法、摘录、圈选截图、完整页面和原文，不再靠预览切换隐藏内容。点击“编辑”可修改想法、摘录文字和原文，并按账号同步。详见[私人刊物交互说明](docs/private-journal-ui.md)。覆盖安装前先保存草稿，不要卸载；此包沿用测试签名。
 ```bash

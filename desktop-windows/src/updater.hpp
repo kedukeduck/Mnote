@@ -2,7 +2,7 @@
 #include "library.hpp"
 #include <optional>
 namespace Mnote::Updater {
-inline constexpr wchar_t Current[] = L"1.20.1-test";
+inline constexpr wchar_t Current[] = L"1.21.0-test";
 inline constexpr wchar_t Page[] = L"https://chenyu.online/heartnote-capture/updates/";
 struct Release {
     std::string version, url, sha256, notes;
