@@ -131,6 +131,7 @@ for component in \
   CaptureQuickSettingsTileService \
   CaptureTriggerActivity \
   CaptureEditorActivity \
+  UnifiedCaptureActivity \
   AppUpdateActivity \
   SettingsActivity \
   AiChatActivity \
