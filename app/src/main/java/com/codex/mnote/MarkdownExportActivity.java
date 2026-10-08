@@ -184,7 +184,7 @@ public final class MarkdownExportActivity extends Activity {
                     String hay = r.comment + "\n" + r.sourceText + "\n"
                         + CaptureRecordEdits.original(r) + "\n" + r.sourceUrl + "\n"
                         + CaptureTags.input(r.tags);
-                    boolean kind = type == 1 ? r.hasImage || !r.sourceText.isEmpty()
+                    boolean kind = type == 1 ? r.hasImage || r.contextFile != null || !r.sourceText.isEmpty()
                             || !CaptureRecordEdits.original(r).isEmpty()
                         : type == 2 ? "thought".equals(r.kind)
                         : type == 3 ? "todo".equals(r.kind)

@@ -38,7 +38,10 @@ public final class CaptureRecordEditActivity extends Activity {
                 synchronized(CaptureAccountSession.LOCK) {record=CaptureRecordEdits.latest(this,scope,id);}
                 String fingerprint=CaptureRecordEdits.fingerprint(record);
                 android.graphics.Bitmap image = null;
-                try { if(record.hasImage) image=CaptureStore.decodeReviewBitmap(record.annotatedFile); }
+                try {
+                    java.io.File asset = record.hasImage ? record.annotatedFile : record.contextFile;
+                    if(asset != null) image=CaptureStore.decodeReviewBitmap(asset);
+                }
                 catch(RuntimeException | OutOfMemoryError ignored) { }
                 final android.graphics.Bitmap preview=image;
                 runOnUiThread(()->{

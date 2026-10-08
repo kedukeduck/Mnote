@@ -52,10 +52,10 @@ public class QuickNoteFlowTest {
     }
 
     @Test
-    public void noteTileLaunchesFreshEditorWithoutScreenshotPayload() {
+    public void legacyNoteTileLaunchesTheSameCaptureFirstEntry() {
         Context context = RuntimeEnvironment.getApplication();
         Intent intent = QuickNoteTileService.noteIntent(context);
-        assertEquals(new ComponentName(context, QuickNoteActivity.class), intent.getComponent());
+        assertEquals(new ComponentName(context, CaptureTriggerActivity.class), intent.getComponent());
         assertNull(intent.getAction());
         assertNull(intent.getExtras());
         assertTrue((intent.getFlags() & Intent.FLAG_ACTIVITY_NEW_TASK) != 0);
@@ -65,18 +65,18 @@ public class QuickNoteFlowTest {
     }
 
     @Test
-    public void noteTileIsSystemProtectedAndSeparateFromScreenshotTile() throws Exception {
+    public void legacyTileRemainsProtectedAndRoutesToTheUnifiedPendingIntent() throws Exception {
         Context context = RuntimeEnvironment.getApplication();
         ServiceInfo info = context.getPackageManager().getServiceInfo(
                 new ComponentName(context, QuickNoteTileService.class), 0);
         assertTrue(info.exported);
         assertEquals("android.permission.BIND_QUICK_SETTINGS_TILE", info.permission);
-        assertEquals("随手记", info.loadLabel(context.getPackageManager()).toString());
+        assertEquals("记录", info.loadLabel(context.getPackageManager()).toString());
         PendingIntent note = QuickNoteTileService.notePendingIntent(context);
         assertTrue(shadowOf(note).isImmutable());
-        assertEquals(new ComponentName(context, QuickNoteActivity.class),
+        assertEquals(new ComponentName(context, CaptureTriggerActivity.class),
                 shadowOf(note).getSavedIntent().getComponent());
-        assertNotEquals(note, CaptureQuickSettingsTileService.capturePendingIntent(context));
+        assertEquals(note, CaptureQuickSettingsTileService.capturePendingIntent(context));
         if (Build.VERSION.SDK_INT >= 35) {
             ActivityOptions options = ReflectionHelpers.callStaticMethod(
                     ActivityOptions.class, "fromBundle", ReflectionHelpers.ClassParameter.from(
@@ -173,7 +173,7 @@ public class QuickNoteFlowTest {
             assertNull(activity.findViewById(R.id.capture_action_dock));
             assertNull(activity.findViewById(R.id.capture_quick_note_button));
             Intent intent = QuickNoteTileService.noteIntent(activity);
-            assertEquals(new ComponentName(activity, QuickNoteActivity.class), intent.getComponent());
+            assertEquals(new ComponentName(activity, CaptureTriggerActivity.class), intent.getComponent());
             assertNull(intent.getExtras());
             assertEquals(0, CaptureTileFlowTest.ScreenshotServiceShadow.requests);
         }

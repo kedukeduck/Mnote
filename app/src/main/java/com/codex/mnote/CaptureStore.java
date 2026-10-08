@@ -242,7 +242,7 @@ final class CaptureStore {
         if ((originalCrop == null) != (annotatedCrop == null)) {
             throw new IOException("Incomplete capture image pair");
         }
-        if (!hasImage && safeText(sourceText, 100_000).isEmpty()
+        if (!hasImage && !retainImageContext && safeText(sourceText, 100_000).isEmpty()
                 && safeText(comment, 20_000).isEmpty() && safeUrl.isEmpty()
                 && (textContext == null || textContext.optString("full_text", "").trim().isEmpty())) {
             throw new IOException("Capture record has no content");
@@ -267,6 +267,8 @@ final class CaptureStore {
             if (hasImage) {
                 writeBitmap(originalCrop, original);
                 writeBitmap(annotatedCrop, annotatedFile);
+            }
+            if (hasImage || retainImageContext) {
                 if (annotationLayer != null && annotationLayer.has("sourceWidth")) {
                     int width = annotationLayer.getInt("sourceWidth"), height = annotationLayer.getInt("sourceHeight");
                     if (retainImageContext) {
@@ -278,7 +280,16 @@ final class CaptureStore {
                         java.nio.file.Files.copy(safeDraft.toPath(),new File(directory,"context.png").toPath());
                         try (FileOutputStream persisted = new FileOutputStream(new File(directory,"context.png"),true)) { persisted.getFD().sync(); }
                     }
-                    captureContext.put("image",CaptureContext.image(annotationLayer,width,height,retainImageContext));
+                    JSONObject imageContext = CaptureContext.image(annotationLayer,width,height,retainImageContext);
+                    if (!hasImage) {
+                        // A full page alone is evidence, not an invented selected region.
+                        imageContext.put("selected_asset_role", JSONObject.NULL)
+                                .put("purpose", "page_context")
+                                .put("relation_to_quote", "unverified")
+                                .put("selection_meaning", "full_viewport_not_quote_location");
+                        imageContext.remove("selection");
+                    }
+                    captureContext.put("image", imageContext);
                 } else if (retainImageContext) throw new IOException("context_coordinates_missing");
             }
             JSONObject object = new JSONObject()
@@ -295,7 +306,7 @@ final class CaptureStore {
                     .put("sourceUrl", safeUrl)
                     .put("sourceUrlOrigin", safeUrl.isEmpty() ? ""
                             : cleanUrlOrigin(sourceUrlOrigin))
-                    .put("fidelityLevel", fidelityLevel(sourceType, hasImage))
+                    .put("fidelityLevel", fidelityLevel(sourceType, hasImage || retainImageContext))
                     .put("hasImage", hasImage)
                     .put("originalFile", hasImage ? ORIGINAL_FILENAME : JSONObject.NULL)
                     .put("annotatedFile", hasImage ? ANNOTATED_FILENAME : JSONObject.NULL)

@@ -189,6 +189,29 @@ public class CaptureTileFlowTest {
         }
     }
 
+    @Test public void deniedCaptureOffersTheSameEditorWithoutAnyImageOrBackgroundRead() {
+        ScreenshotServiceShadow.ready=false;ScreenshotServiceShadow.configured=false;
+        try(ActivityController<CaptureTriggerActivity> controller=resumedTrigger()) {
+            controller.get().onWindowFocusChanged(true);idle(350);
+            android.app.AlertDialog dialog=ShadowAlertDialog.getLatestAlertDialog();
+            dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).performClick();
+            idle(0);
+            Intent editor=shadowOf(controller.get()).getNextStartedActivity();
+            assertEquals(new ComponentName(controller.get(),UnifiedCaptureActivity.class),editor.getComponent());
+            assertNull(editor.getStringExtra("com.codex.mnote.extra.CAPTURE_DRAFT_PATH"));
+            assertEquals(0,ScreenshotServiceShadow.requests);assertEquals(0,ScreenshotServiceShadow.selectionReads);
+        }
+    }
+
+    @Test public void onlyOneRecordingTileIsAdvertisedAndTheUnifiedEditorIsPrivate() throws Exception {
+        Context context=RuntimeEnvironment.getApplication();
+        java.util.List<android.content.pm.ResolveInfo> tiles=context.getPackageManager().queryIntentServices(
+                new Intent("android.service.quicksettings.action.QS_TILE").setPackage(context.getPackageName()),0);
+        assertEquals(1,tiles.size());
+        assertEquals(CaptureQuickSettingsTileService.class.getName(),tiles.get(0).serviceInfo.name);
+        assertFalse(context.getPackageManager().getActivityInfo(new ComponentName(context,UnifiedCaptureActivity.class),0).exported);
+    }
+
     @Test
     public void leavingBeforeTimerExpiresDoesNotCaptureInBackground() {
         try (ActivityController<CaptureTriggerActivity> controller = resumedTrigger()) {
@@ -201,7 +224,7 @@ public class CaptureTileFlowTest {
     }
 
     @Test
-    public void overlayStartsOnlyAfterScreenshotArrivesWithoutOpeningAnEditorActivity() throws Exception {
+    public void unifiedEditorStartsOnlyAfterScreenshotArrivesAndDoesNotStartCropOverlay() throws Exception {
         try (ActivityController<CaptureTriggerActivity> controller = resumedTrigger()) {
             CaptureTriggerActivity activity = controller.get();
             activity.onWindowFocusChanged(true);
@@ -210,8 +233,11 @@ public class CaptureTileFlowTest {
             assertEquals(1, ScreenshotServiceShadow.sourceReads);
             File draft = File.createTempFile("tile-test", ".png", activity.getCacheDir());
             ScreenshotServiceShadow.callback.onCaptured(draft);
-            assertEquals(1, ScreenshotServiceShadow.overlayRequests);
-            assertEquals("https://example.com/post", ScreenshotServiceShadow.overlaidSource.url);
+            assertEquals(0, ScreenshotServiceShadow.overlayRequests);
+            Intent editor = shadowOf(activity).getNextStartedActivity();
+            assertEquals(new ComponentName(activity, UnifiedCaptureActivity.class), editor.getComponent());
+            assertEquals("https://example.com/post", editor.getStringExtra("capture_source_url"));
+            assertEquals(draft.getAbsolutePath(), editor.getStringExtra("com.codex.mnote.extra.CAPTURE_DRAFT_PATH"));
             assertEquals(activity.getString(R.string.capture_screenshot_ready),
                     org.robolectric.shadows.ShadowToast.getTextOfLatestToast());
             assertNull(shadowOf(activity).getNextStartedActivity());
@@ -234,7 +260,7 @@ public class CaptureTileFlowTest {
     }
 
     @Test
-    public void rejectedOverlayFallsBackToEditorWithTheSameDraft() throws Exception {
+    public void unifiedEditorDoesNotDependOnOverlayPermissionAndReceivesTheOriginalDraft() throws Exception {
         ScreenshotServiceShadow.overlayAccepted = false;
         try (ActivityController<CaptureTriggerActivity> controller = resumedTrigger()) {
             controller.get().onWindowFocusChanged(true);
@@ -242,7 +268,8 @@ public class CaptureTileFlowTest {
             File draft = File.createTempFile("overlay-fallback", ".png", controller.get().getCacheDir());
             ScreenshotServiceShadow.callback.onCaptured(draft);
             Intent fallback = shadowOf(controller.get()).getNextStartedActivity();
-            assertEquals(new ComponentName(controller.get(), CaptureEditorActivity.class), fallback.getComponent());
+            assertEquals(new ComponentName(controller.get(), UnifiedCaptureActivity.class), fallback.getComponent());
+            assertEquals(0, ScreenshotServiceShadow.overlayRequests);
             assertEquals(draft.getAbsolutePath(), fallback.getStringExtra("com.codex.mnote.extra.CAPTURE_DRAFT_PATH"));
             assertEquals("com.android.chrome", fallback.getStringExtra("capture_source_package"));
             assertEquals("https://example.com/post", fallback.getStringExtra("capture_source_url"));
@@ -284,7 +311,7 @@ public class CaptureTileFlowTest {
             idle(350);
             File draft = File.createTempFile("source-fallback", ".png", controller.get().getCacheDir());
             ScreenshotServiceShadow.callback.onCaptured(draft);
-            assertEquals("com.sina.weibo", ScreenshotServiceShadow.overlaidSource.appPackage);
+            assertEquals("com.sina.weibo", shadowOf(controller.get()).getNextStartedActivity().getStringExtra("capture_source_package"));
             Files.deleteIfExists(draft.toPath());
         }
         ScreenshotServiceShadow.source = new CaptureSourceContext("com.android.chrome", "https://example.com/new", "browser_address_bar");
@@ -294,8 +321,9 @@ public class CaptureTileFlowTest {
             idle(350);
             File draft = File.createTempFile("source-current", ".png", controller.get().getCacheDir());
             ScreenshotServiceShadow.callback.onCaptured(draft);
-            assertEquals("com.android.chrome", ScreenshotServiceShadow.overlaidSource.appPackage);
-            assertEquals("https://example.com/new", ScreenshotServiceShadow.overlaidSource.url);
+            Intent editor = shadowOf(controller.get()).getNextStartedActivity();
+            assertEquals("com.android.chrome", editor.getStringExtra("capture_source_package"));
+            assertEquals("https://example.com/new", editor.getStringExtra("capture_source_url"));
             Files.deleteIfExists(draft.toPath());
         }
     }

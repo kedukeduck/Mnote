@@ -71,7 +71,7 @@ public final class ShareCardActivity extends Activity {
                         return;
                     int defaults = (!record.sourceText.isEmpty() ? 1 : 0)
                         | (!record.comment.isEmpty() ? 2 : 0)
-                        | (annotatedImage != null || originalImage != null ? 4 : 0) | 64;
+                        | (annotatedImage != null || originalImage != null ? 4 : contextImage != null ? 8 : 0) | 64;
                     mask = state == null || state.getBoolean("loading")
                         ? defaults
                         : state.getInt("mask", defaults);

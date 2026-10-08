@@ -89,6 +89,26 @@ public class CaptureRecordPageTest {
         }
     }
 
+    @Test public void inboxLoadsStandaloneContextThroughTheRealDetailEntry() throws Exception {
+        CaptureContextTest fixture=new CaptureContextTest();fixture.setup();
+        CaptureStore.CaptureRecord record=fixture.contextOnly();
+        try(var controller=Robolectric.buildActivity(CaptureInboxActivity.class).setup()) {
+            CaptureInboxActivity activity=controller.get();
+            ReflectionHelpers.callInstanceMethod(activity,"showRecordDetail",
+                    ReflectionHelpers.ClassParameter.from(CaptureStore.CaptureRecord.class,record),
+                    ReflectionHelpers.ClassParameter.from(String.class,CaptureAccountSession.scope(activity)));
+            ReflectionHelpers.<java.util.concurrent.ExecutorService>getField(activity,"thumbnailExecutor")
+                    .submit(()->{}).get(10,java.util.concurrent.TimeUnit.SECONDS);
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            AlertDialog dialog=org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+            assertNotNull(dialog);CaptureContextPreview image=dialog.findViewById(R.id.capture_selection_preview);
+            assertNotNull(image);assertNotNull(image.getDrawable());
+            assertTrue(image.getContentDescription().toString().startsWith("完整页面截图"));
+            assertTrue(ReflectionHelpers.<RectF>getField(image,"selection").isEmpty());
+            dialog.dismiss();
+        }
+    }
+
     private static void layout(AlertDialog dialog,int width,int height) {
         View root=dialog.getWindow().getDecorView();
         root.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),

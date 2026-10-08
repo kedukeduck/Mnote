@@ -125,6 +125,18 @@ public class ShareCardTest {
     CheckBox choice(ShareCardActivity a, int flag) {
         return a.<LinearLayout>findViewById(R.id.share_card_modules).findViewWithTag(flag);
     }
+    @Test public void standalonePageScreenshotIsIncludedInInitialSharePreview() throws Exception {
+        CaptureContextTest fixture=new CaptureContextTest();fixture.setup();
+        CaptureStore.CaptureRecord page=fixture.contextOnly();
+        Intent open=new Intent(context,ShareCardActivity.class)
+                .putExtra(CaptureRecordEditActivity.ID,page.id)
+                .putExtra(CaptureRecordEditActivity.SCOPE,CaptureAccountSession.scope(context));
+        try(var c=Robolectric.buildActivity(ShareCardActivity.class,open).setup()) {
+            drain(c.get());
+            assertTrue(choice(c.get(),8).isChecked());
+            assertFalse(choice(c.get(),4).isChecked());
+        }
+    }
     @Test
     public void allModuleCombinationsFitAndRealQrDecodes() throws Exception {
         Bitmap image = Bitmap.createBitmap(800, 400, Bitmap.Config.ARGB_8888);

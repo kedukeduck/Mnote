@@ -1,0 +1,35 @@
+<resources>
+    <item name="unified_root" type="id" />
+    <item name="unified_scroll" type="id" />
+    <item name="unified_status" type="id" />
+    <item name="unified_thought_toggle" type="id" />
+    <item name="unified_excerpt_toggle" type="id" />
+    <item name="unified_original_toggle" type="id" />
+    <item name="unified_source_toggle" type="id" />
+    <item name="unified_context_toggle" type="id" />
+    <item name="unified_crop_toggle" type="id" />
+    <item name="unified_tags_toggle" type="id" />
+    <item name="unified_thought" type="id" />
+    <item name="unified_excerpt" type="id" />
+    <item name="unified_original" type="id" />
+    <item name="unified_url" type="id" />
+    <item name="unified_clipboard" type="id" />
+    <item name="unified_read_page" type="id" />
+    <item name="unified_context_preview" type="id" />
+    <item name="unified_crop_preview" type="id" />
+    <item name="unified_edit_image" type="id" />
+    <item name="unified_kind" type="id" />
+    <item name="unified_kind_thought" type="id" />
+    <item name="unified_kind_todo" type="id" />
+    <item name="unified_save" type="id" />
+    <item name="unified_save_chat" type="id" />
+    <item name="unified_canvas" type="id" />
+    <item name="unified_markup" type="id" />
+    <item name="unified_crop_confirm" type="id" />
+    <item name="unified_crop_cancel" type="id" />
+    <item name="unified_tool_select" type="id" />
+    <item name="unified_tool_pen" type="id" />
+    <item name="unified_tool_highlighter" type="id" />
+    <item name="unified_tool_undo" type="id" />
+    <item name="unified_tool_whole" type="id" />
+</resources>

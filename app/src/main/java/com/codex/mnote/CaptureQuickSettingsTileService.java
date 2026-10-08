@@ -10,7 +10,7 @@ import android.os.Build;
 import android.service.quicksettings.Tile;
 import android.service.quicksettings.TileService;
 
-/** Quick Settings entry: screenshot only. */
+/** Unified recording entry: capture first, then choose independent record modules. */
 public final class CaptureQuickSettingsTileService extends TileService {
     static void requestRefresh(Context context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -31,6 +31,7 @@ public final class CaptureQuickSettingsTileService extends TileService {
         if (tile == null) {
             return;
         }
+        tile.setLabel(getString(R.string.capture_tile_label));
         tile.setState(
                 CaptureAccessibilityService.isReady()
                         ? Tile.STATE_ACTIVE
@@ -92,7 +93,7 @@ public final class CaptureQuickSettingsTileService extends TileService {
         return capturePendingIntent(context, captureIntent(context));
     }
 
-    private static PendingIntent capturePendingIntent(Context context, Intent intent) {
+    static PendingIntent capturePendingIntent(Context context, Intent intent) {
         ActivityOptions options = ActivityOptions.makeBasic();
         if (Build.VERSION.SDK_INT >= 35) {
             // Only SystemUI receives this immutable, explicit, user-clicked

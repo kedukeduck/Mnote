@@ -166,6 +166,54 @@ public final class CaptureMarkupView extends View {
                 .put("strokes", encodedStrokes);
     }
 
+    /** Restore only our bounded source-pixel format, atomically, without altering the bitmap. */
+    void restoreAnnotationLayer(JSONObject layer) throws JSONException {
+        if (source == null || layer == null
+                || layer.getInt("sourceWidth") != source.getWidth()
+                || layer.getInt("sourceHeight") != source.getHeight()) {
+            throw new JSONException("Annotation source dimensions do not match");
+        }
+        JSONObject selection = layer.getJSONObject("selection");
+        float left = finite(selection.getDouble("left")), top = finite(selection.getDouble("top"));
+        float right = finite(selection.getDouble("right")), bottom = finite(selection.getDouble("bottom"));
+        if (left < 0 || top < 0 || right > source.getWidth() || bottom > source.getHeight()
+                || right <= left || bottom <= top) throw new JSONException("Invalid selection");
+        JSONArray encoded = layer.getJSONArray("strokes");
+        if (encoded.length() > 4096) throw new JSONException("Too many strokes");
+        List<Stroke> restored = new ArrayList<>();
+        int totalPoints = 0;
+        for (int i = 0; i < encoded.length(); i++) {
+            JSONObject item = encoded.getJSONObject(i);
+            String name = item.getString("tool");
+            if (!"pen".equals(name) && !"highlighter".equals(name)) throw new JSONException("Unknown annotation tool");
+            float width = finite(item.getDouble("width"));
+            if (width <= 0 || width > Math.max(source.getWidth(), source.getHeight()))
+                throw new JSONException("Invalid stroke width");
+            Stroke stroke = new Stroke("pen".equals(name) ? Tool.PEN : Tool.HIGHLIGHTER, width);
+            JSONArray points = item.getJSONArray("points");
+            totalPoints += points.length();
+            if (totalPoints > 100000) throw new JSONException("Too many annotation points");
+            for (int j = 0; j < points.length(); j++) {
+                JSONArray point = points.getJSONArray(j);
+                float x = finite(point.getDouble(0)), y = finite(point.getDouble(1));
+                if (x < 0 || y < 0 || x > source.getWidth() || y > source.getHeight())
+                    throw new JSONException("Invalid annotation point");
+                stroke.add(new PointF(x, y));
+            }
+            restored.add(stroke);
+        }
+        cropRect.set(left, top, right, bottom);
+        strokes.clear(); strokes.addAll(restored);
+        activeStroke = null; selectionStart = null;
+        invalidate(); notifyChanged();
+    }
+
+    private static float finite(double value) throws JSONException {
+        if (Double.isNaN(value) || Double.isInfinite(value) || Math.abs(value) > Float.MAX_VALUE)
+            throw new JSONException("Non-finite annotation coordinate");
+        return (float)value;
+    }
+
     @Override
     protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
         super.onSizeChanged(width, height, oldWidth, oldHeight);

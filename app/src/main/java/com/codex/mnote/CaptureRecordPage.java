@@ -51,7 +51,7 @@ final class CaptureRecordPage {
             JournalUi.section(body,"我的想法");
             TextView thought=readable(activity,record.comment,18);
             thought.setId(R.id.journal_review_thought);body.addView(thought);
-            if(!record.sourceText.isEmpty() || record.hasImage) { space(body,24);JournalUi.rule(body); }
+            if(!record.sourceText.isEmpty() || record.hasImage || record.contextFile!=null) { space(body,24);JournalUi.rule(body); }
         }
         if(!record.sourceText.isEmpty()) {
             space(body,24);
@@ -77,7 +77,7 @@ final class CaptureRecordPage {
             image(body,pageImage,imageMetadata,
                 excerptImage==null?R.id.capture_selection_preview:R.id.journal_review_context,"完整页面截图");
         }
-        if(crop==null && full==null && record.hasImage) {
+        if(crop==null && full==null && (record.hasImage || record.contextFile!=null)) {
             JournalUi.section(body,"截图");
             body.addView(JournalUi.text(activity,"截图暂时无法显示，原记录仍保留。可返回刷新后重试。",14,R.color.ink_muted));
         }

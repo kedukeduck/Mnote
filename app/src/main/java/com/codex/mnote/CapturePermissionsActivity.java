@@ -13,7 +13,7 @@ import android.widget.*;
 /** Settings-only guidance. System permissions remain owned by Android. */
 public final class CapturePermissionsActivity extends Activity {
     private TextView status;
-    private Button capture, screenshotTile, noteTile;
+    private Button capture, screenshotTile;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -45,8 +45,9 @@ public final class CapturePermissionsActivity extends Activity {
         action(root, "打开系统无障碍设置", this::disclose);
         JournalUi.section(root, "快捷设置按钮");
         root.addView(JournalUi.text(this, "在其他应用中下拉快捷设置，即可开始记录。", 13, R.color.ink_muted));
-        screenshotTile = action(root, "添加单次摘录", () -> requestTile(false));
-        noteTile = action(root, "添加随手记", () -> requestTile(true));
+        screenshotTile = action(root, "添加「记录」快捷按钮", this::requestTile);
+        root.addView(JournalUi.text(this, "先截取当前页面，再选择保留想法、摘录、原文或截图。旧版两个按钮均进入同一流程；可从系统快捷设置中移除重复按钮。", 13, R.color.ink_muted));
+        action(root, "仅记录文字", () -> startActivity(UnifiedCaptureActivity.forText(this)));
         JournalUi.rule(root);
         JournalUi.section(root, "权限说明");
         root.addView(JournalUi.text(this, "截图与页面文字读取需要系统无障碍授权；没有授权也可以先记录自己的想法。页面文字可能不完整，来源识别没有独立的系统开关。", 14, R.color.ink_muted));
@@ -77,7 +78,7 @@ public final class CapturePermissionsActivity extends Activity {
                 catch (RuntimeException error) { Toast.makeText(this, R.string.capture_error_open_accessibility_settings, Toast.LENGTH_LONG).show(); }
             }).show();
     }
-    private void requestTile(boolean note) {
+    private void requestTile() {
         if (Build.VERSION.SDK_INT < 33) {
             Toast.makeText(this, R.string.capture_add_tile_manual, Toast.LENGTH_LONG).show(); return;
         }
@@ -85,22 +86,22 @@ public final class CapturePermissionsActivity extends Activity {
         if (manager == null) {
             Toast.makeText(this, R.string.capture_add_tile_manual, Toast.LENGTH_LONG).show(); return;
         }
-        screenshotTile.setEnabled(false); noteTile.setEnabled(false);
+        screenshotTile.setEnabled(false);
         try {
-            manager.requestAddTileService(new ComponentName(this, note ? QuickNoteTileService.class : CaptureQuickSettingsTileService.class),
-                getString(note ? R.string.quick_note_tile_label : R.string.capture_tile_label),
-                Icon.createWithResource(this, note ? R.drawable.ic_quick_note : R.drawable.ic_capture_tile), getMainExecutor(), result -> {
+            manager.requestAddTileService(new ComponentName(this, CaptureQuickSettingsTileService.class),
+                getString(R.string.capture_tile_label),
+                Icon.createWithResource(this, R.drawable.ic_capture_tile), getMainExecutor(), result -> {
                     if (isFinishing() || isDestroyed()) return;
-                    screenshotTile.setEnabled(true); noteTile.setEnabled(true);
+                    screenshotTile.setEnabled(true);
                     int message = result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED
-                        ? (note ? R.string.quick_note_tile_added : R.string.capture_tile_added)
+                        ? R.string.capture_tile_added
                         : result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED
-                        ? (note ? R.string.quick_note_tile_already_added : R.string.capture_tile_already_added)
+                        ? R.string.capture_tile_already_added
                         : R.string.capture_tile_not_added;
                     Toast.makeText(this, message, Toast.LENGTH_LONG).show();
                 });
         } catch (RuntimeException error) {
-            screenshotTile.setEnabled(true); noteTile.setEnabled(true);
+            screenshotTile.setEnabled(true);
             Toast.makeText(this, R.string.capture_add_tile_manual, Toast.LENGTH_LONG).show();
         }
     }

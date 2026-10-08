@@ -57,6 +57,9 @@
         <activity android:name=".QuickNoteActivity" android:exported="false"
             android:label="随手记" android:taskAffinity="" android:excludeFromRecents="true"
             android:theme="@style/Theme.QuickNote" android:windowSoftInputMode="adjustResize|stateAlwaysVisible" />
+        <activity android:name=".UnifiedCaptureActivity" android:exported="false"
+            android:label="记录" android:taskAffinity="" android:excludeFromRecents="true"
+            android:theme="@style/Theme.QuickNote" android:windowSoftInputMode="adjustResize|stateAlwaysHidden" />
 
         <activity
             android:name=".CaptureTriggerActivity"
@@ -121,9 +124,8 @@
             android:icon="@drawable/ic_quick_note"
             android:label="@string/quick_note_tile_label"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
-            <intent-filter>
-                <action android:name="android.service.quicksettings.action.QS_TILE" />
-            </intent-filter>
+            <!-- Keep the protected explicit component for existing pinned tiles,
+                 but do not advertise a second tile in the add-tile catalogue. -->
             <meta-data
                 android:name="android.service.quicksettings.TOGGLEABLE_TILE"
                 android:value="false" />

@@ -631,7 +631,7 @@ public final class CaptureInboxActivity extends Activity {
 
     private void showRecordDetail(CaptureStore.CaptureRecord record, String ownerScope) {
         if (!ownerScope.equals(CaptureAccountSession.scope(this))) return;
-        if (!record.hasImage) {
+        if (!record.hasImage && record.contextFile == null) {
             presentRecordDetail(record, null, null, ownerScope);
             return;
         }
@@ -641,7 +641,7 @@ public final class CaptureInboxActivity extends Activity {
                 Toast.LENGTH_SHORT
         ).show();
         thumbnailExecutor.execute(() -> {
-            Bitmap image = CaptureStore.decodeReviewBitmap(record.annotatedFile);
+            Bitmap image = record.annotatedFile == null ? null : CaptureStore.decodeReviewBitmap(record.annotatedFile);
             Bitmap full = record.contextFile == null ? null : CaptureStore.decodeReviewBitmap(record.contextFile);
             runOnUiThread(() -> {
                 if (destroyed || isFinishing() || !ownerScope.equals(CaptureAccountSession.scope(this))) {

@@ -62,6 +62,11 @@ public final class CaptureTriggerActivity extends Activity {
             finish();
             return;
         }
+        if (UnifiedCaptureActivity.resumeExisting(this)) {
+            // Reopen the same draft, never capture our own editor or reset its modules.
+            finish();
+            return;
+        }
         resumeTime = SystemClock.uptimeMillis();
         scheduleCapture();
     }
@@ -143,23 +148,17 @@ public final class CaptureTriggerActivity extends Activity {
                             }
                             return;
                         }
-                        boolean overlaid = false;
                         try {
-                            overlaid = CaptureAccessibilityService.showOverlay(draft, source);
+                            startActivity(UnifiedCaptureActivity.forScreenshot(
+                                    CaptureTriggerActivity.this, draft, source));
                         } catch (RuntimeException error) {
-                            // Preserve the screenshot if a device rejects the overlay.
+                            CaptureStore.discardDraft(CaptureTriggerActivity.this, draft);
+                            captureRequested = false;
+                            showBlockingMessage(R.string.capture_overlay_error, false);
+                            return;
                         }
-                        if (!overlaid) {
-                            Toast.makeText(CaptureTriggerActivity.this,
-                                    R.string.capture_overlay_fallback, Toast.LENGTH_LONG).show();
-                            startActivity(CaptureEditorActivity.forScreenshot(CaptureTriggerActivity.this, draft)
-                                    .putExtra("capture_source_package", source.appPackage)
-                                    .putExtra("capture_source_url", source.url)
-                                    .putExtra("capture_source_origin", source.origin));
-                        } else {
-                            CaptureAccessibilityService.showFeedback(CaptureTriggerActivity.this,
-                                    R.string.capture_screenshot_ready);
-                        }
+                        Toast.makeText(CaptureTriggerActivity.this,
+                                R.string.capture_screenshot_ready, Toast.LENGTH_SHORT).show();
                         finish();
                         overridePendingTransition(0, 0);
                     }
@@ -207,6 +206,7 @@ public final class CaptureTriggerActivity extends Activity {
                         }
                 )
                 .setNegativeButton(R.string.capture_cancel, (dialog, which) -> finish())
+                .setNeutralButton("仅记录文字", (dialog, which) -> openTextEditor())
                 .setOnCancelListener(dialog -> finish())
                 .show();
     }
@@ -225,12 +225,23 @@ public final class CaptureTriggerActivity extends Activity {
         }
     }
 
+    private void openTextEditor() {
+        try {
+            startActivity(UnifiedCaptureActivity.forText(this));
+            finish();
+        } catch (RuntimeException error) {
+            Toast.makeText(this, R.string.capture_selection_launch_failed, Toast.LENGTH_LONG).show();
+            finish();
+        }
+    }
+
     private void showBlockingMessage(int message, boolean offerSettings) {
         dialogShowing = true;
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
                 .setTitle(R.string.capture_failed_title)
                 .setMessage(message)
                 .setPositiveButton(R.string.capture_confirm, (dialog, which) -> finish())
+                .setNegativeButton("仅记录文字", (dialog, which) -> openTextEditor())
                 .setOnCancelListener(dialog -> finish());
         if (offerSettings) {
             builder.setNeutralButton(

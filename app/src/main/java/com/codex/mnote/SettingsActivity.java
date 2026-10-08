@@ -53,7 +53,7 @@ public final class SettingsActivity extends Activity {
         }
         row(root, "版本与更新", "当前 " + version + " · 从 Mnote 服务器获取", R.id.settings_updates,
             () -> startActivity(new Intent(this, AppUpdateActivity.class)));
-        row(root, "快捷方式与权限", "设置单次摘录、随手记与截图权限", View.NO_ID,
+        row(root, "快捷方式与权限", "添加统一记录按钮与设置截图权限", View.NO_ID,
             () -> startActivity(new Intent(this, CapturePermissionsActivity.class)));
         row(root, "帮助与诊断", "使用说明与本机异常诊断", View.NO_ID, this::showHelp);
         text(root, "本机保存成功后，登录状态下自动同步。", 13, R.color.ink_muted)
@@ -88,7 +88,7 @@ public final class SettingsActivity extends Activity {
     }
     private void showHelp() {
         new android.app.AlertDialog.Builder(this).setTitle("帮助与诊断")
-            .setMessage("单次摘录：切换到需要记录的页面，从快捷设置启动，圈选截图后写下想法。\n\n随手记：随时记录；剪贴板摘录和页面上下文都由你决定是否保留。\n\n分享与导出：长按列表记录即可多选；公开链接可在分享管理撤销。\n\n诊断仅包含运行信息，不包含笔记正文或账号凭证。")
+            .setMessage("记录：切换到需要记录的页面，从快捷设置启动。先保存一份临时全屏图，再在编辑页选择想法、摘录、原文、来源或截图。\n\n圈选与批注：从本次原始截图编辑，原图与圈选结果独立保留。取消勾选不清空本次草稿，保存只包含选中模块。剪贴板和页面文字只在主动点击后读取。\n\n分享与导出：长按列表记录即可多选；公开链接可在分享管理撤销。\n\n诊断仅包含运行信息，不包含笔记正文或账号凭证。")
             .setPositiveButton("查看异常诊断", (d, which) -> MnoteApplication.showDiagnostic(this))
             .setNegativeButton("关闭", null).show();
     }

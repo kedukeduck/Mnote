@@ -45,7 +45,7 @@ final class CaptureRecordEdits {
             if(!fingerprint(current).equals(baseline)) throw new IOException("record_changed");
             if(comment.length()>20_000 || quote.length()>100_000 || original.length()>CaptureContext.MAX_TEXT)
                 throw new IOException("text_too_long");
-            if(!current.hasImage && comment.trim().isEmpty() && quote.trim().isEmpty()
+            if(!current.hasImage && current.contextFile==null && comment.trim().isEmpty() && quote.trim().isEmpty()
                     && original.trim().isEmpty() && current.sourceUrl.isEmpty()) throw new IOException("empty_record");
             if(comment.equals(current.comment) && quote.equals(current.sourceText) && original.equals(original(current))
                     && normalizedTags.toString().equals(current.tags.toString())) return current;

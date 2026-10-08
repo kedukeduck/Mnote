@@ -78,6 +78,50 @@ public class CaptureContextTest {
         CaptureStore.CaptureRecord record=screenshot(true); assertTrue(record.contextFile.delete());
         assertNull(CaptureStore.readRecord(record.metadataFile.getParentFile()));
     }
+    CaptureStore.CaptureRecord contextOnly() throws Exception {
+        Bitmap full=Bitmap.createBitmap(200,300,Bitmap.Config.ARGB_8888); full.eraseColor(Color.BLUE);
+        File draft=CaptureStore.writeDraftBitmap(context,full);
+        CaptureMarkupView view=new CaptureMarkupView(context,null); view.setSourceBitmap(full);
+        JSONObject layer=view.annotationLayer().put("purpose","page_context");
+        CaptureStore.CaptureRecord record=CaptureStore.save(context,draft,null,null,layer,
+                "thought","","screen","","","","",true,null);
+        full.recycle();assertFalse(draft.exists());return record;
+    }
+    @Test public void fullPageAloneIsValidEvidenceWithoutInventingACrop() throws Exception {
+        CaptureStore.CaptureRecord record=contextOnly();
+        assertFalse(record.hasImage);assertNull(record.originalFile);assertNull(record.annotatedFile);
+        assertNotNull(record.contextFile);assertTrue(record.contextFile.isFile());assertEquals("L2",record.fidelityLevel);
+        assertEquals(2,Objects.requireNonNull(record.metadataFile.getParentFile().listFiles()).length);
+        JSONObject image=record.captureContext.getJSONObject("image");
+        assertTrue(image.getBoolean("retained"));assertTrue(image.isNull("selected_asset_role"));
+        assertFalse(image.has("selection"));assertEquals("page_context",image.getString("purpose"));
+        assertNotNull(CaptureStore.find(context,record.id));
+    }
+    @Test public void fullPageAloneUploadsAndPullsExactlyOneAssetAndCanEditTags() throws Exception {
+        CaptureStore.CaptureRecord record=contextOnly();
+        CaptureStore.CaptureRecord edited=CaptureRecordEdits.save(context,CaptureAccountSession.scope(context),record.id,
+                CaptureRecordEdits.fingerprint(record),"","","",new JSONArray().put("页面"));
+        assertArrayEquals(Files.readAllBytes(record.contextFile.toPath()),Files.readAllBytes(edited.contextFile.toPath()));
+        File payload=ReflectionHelpers.callStaticMethod(CaptureSyncUploader.class,"createPayload",
+                ReflectionHelpers.ClassParameter.from(Context.class,context),
+                ReflectionHelpers.ClassParameter.from(CaptureStore.CaptureRecord.class,edited));
+        JSONObject canonical=new JSONObject(new String(Files.readAllBytes(payload.toPath()),java.nio.charset.StandardCharsets.UTF_8));payload.delete();
+        JSONObject assets=canonical.getJSONObject("assets");assertEquals(1,assets.length());
+        byte[] bytes=android.util.Base64.decode(assets.getJSONObject("context").getString("data_base64"),0);
+        canonical.put("assets",new JSONObject().put("context",new JSONObject().put("size",bytes.length)
+                .put("sha256",CaptureRemoteCache.digest(bytes)))).put("revision",1);
+        byte[] feed=CaptureRemoteCacheTest.page(1,false,CaptureRemoteCacheTest.change(1,"upsert",edited.id,canonical));
+        String vault="c".repeat(64);
+        CaptureRemoteCache.pull(context,vault,(path,limit)->path.startsWith("/v1/changes")?feed:bytes,()->true);
+        CaptureStore.CaptureRecord remote=CaptureRemoteCache.merged(context,vault,Collections.emptyList()).get(0);
+        assertFalse(remote.hasImage);assertArrayEquals(bytes,Files.readAllBytes(remote.contextFile.toPath()));
+        assertFalse(remote.captureContext.getJSONObject("image").has("selection"));
+    }
+    @Test public void retainingMissingFullPageFailsAtomicallyInsteadOfSavingBlankRecord() {
+        assertThrows(IOException.class,()->CaptureStore.save(context,null,null,null,null,
+                "thought","","screen","","","","",true,null));
+        assertTrue(CaptureStore.list(context,10).isEmpty());
+    }
     @Test public void textOffsetsAreHonestForUniqueAmbiguousAndAbsentSelections() throws Exception {
         JSONObject unique=CaptureContext.text("😀前文选中后文","user_supplied","选中");
         assertEquals(4,unique.getInt("start")); assertEquals(6,unique.getInt("end"));
