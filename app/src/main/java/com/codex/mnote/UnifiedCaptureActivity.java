@@ -121,11 +121,17 @@ public final class UnifiedCaptureActivity extends Activity {
 
     private void build() {
         root=new FrameLayout(this) {
+            private int previousHeight;
             @Override protected void onLayout(boolean changed,int left,int top,int right,int bottom) {
+                int height=bottom-top;
+                boolean viewportShrank=previousHeight>0&&height<previousHeight;
+                previousHeight=height;
                 super.onLayout(changed,left,top,right,bottom);
-                // IME resize happens after focus is acquired. Reveal the caret again
-                // against the new viewport, including the field's own long-text scroll.
-                if(compose!=null&&compose.getVisibility()==View.VISIBLE&&findFocus() instanceof EditText) {
+                // Reveal the caret after the IME shrinks the viewport, not on every
+                // content layout. Expanding/selecting tags must not pull the user
+                // back to an off-screen input that still owns touch-mode focus.
+                if(viewportShrank&&compose!=null&&compose.getVisibility()==View.VISIBLE
+                        &&findFocus() instanceof EditText&&findFocus().isShown()) {
                     EditText input=(EditText)findFocus();
                     input.bringPointIntoView(Math.max(0,input.getSelectionEnd()));
                     CaptureReadingLayout.revealCursor(input);
@@ -207,7 +213,9 @@ public final class UnifiedCaptureActivity extends Activity {
         field.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE|InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         field.setMinLines(Math.min(2,lines));field.setMaxLines(lines);field.setMinimumHeight(dp(48));
         field.setSaveEnabled(false);field.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);CaptureLongText.enableScrolling(field);
-        field.setOnFocusChangeListener((v,focused)->{if(focused)field.post(()->CaptureReadingLayout.revealCursor(field));});
+        field.setOnFocusChangeListener((v,focused)->{if(focused)field.post(()->{
+            if(field.isFocused()&&field.isShown())CaptureReadingLayout.revealCursor(field);
+        });});
         parent.addView(field,new LinearLayout.LayoutParams(-1,-2));return field;
     }
     private Button button(LinearLayout parent,String text,int id,boolean primary,Runnable action) {

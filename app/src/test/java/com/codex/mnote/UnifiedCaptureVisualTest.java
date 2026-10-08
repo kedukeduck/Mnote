@@ -18,6 +18,62 @@ import static org.junit.Assert.*;
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
 public class UnifiedCaptureVisualTest {
+    @Test public void expandingTagsDoesNotJumpBackToPreviouslyFocusedThought()throws Exception {
+        new QuickNoteActivityTest().reset();
+        try(var c=UnifiedCaptureActivityTest.open(null,CaptureSourceContext.EMPTY)) {
+            UnifiedCaptureActivity a=c.get();
+            EditText thought=a.findViewById(R.id.unified_thought);
+            thought.requestFocus();
+            layout(a,844);
+            ScrollView scroll=a.findViewById(R.id.unified_scroll);
+            scroll.setSmoothScrollingEnabled(false);
+            scroll.fullScroll(View.FOCUS_DOWN);
+            // Touching a checkbox does not transfer focus away from an EditText.
+            thought.requestFocus();layout(a,844);
+            scroll.scrollTo(0,scroll.getChildAt(0).getHeight()-scroll.getHeight());
+            int before=scroll.getScrollY();assertTrue(before>0);
+            a.<CompoundButton>findViewById(R.id.unified_tags_toggle).performClick();
+            layout(a,844);
+            assertEquals("Expanding tags must not reveal an off-screen thought",before,scroll.getScrollY());
+            assertTrue(a.<CompoundButton>findViewById(R.id.unified_tags_toggle).isChecked());
+        }
+    }
+
+    @Test public void openingAndSelectingExistingTagsKeepsThePickerInPlace()throws Exception {
+        new QuickNoteActivityTest().reset();
+        CaptureStore.save(RuntimeEnvironment.getApplication(),null,null,null,null,"thought","fixture","quick_note","","","","",false,null,
+                CaptureTags.parse("阅读，工作，灵感"));
+        try(var c=UnifiedCaptureActivityTest.open(null,CaptureSourceContext.EMPTY)) {
+            UnifiedCaptureActivity a=c.get();
+            a.<CompoundButton>findViewById(R.id.unified_tags_toggle).setChecked(true);
+            EditText thought=a.findViewById(R.id.unified_thought);thought.requestFocus();
+            layout(a,844);
+            ScrollView scroll=a.findViewById(R.id.unified_scroll);scroll.setSmoothScrollingEnabled(false);
+            scroll.scrollTo(0,scroll.getChildAt(0).getHeight()-scroll.getHeight());
+            int before=scroll.getScrollY();
+            a.findViewById(R.id.capture_tags_choose).performClick();
+            layout(a,844);
+            assertEquals("Opening the picker must preserve the viewport",before,scroll.getScrollY());
+            CaptureTags.TAG_WORKER.submit(()->{}).get(5,java.util.concurrent.TimeUnit.SECONDS);
+            layout(a,844);
+            assertEquals("Loading existing tags must not reveal stale input focus",before,scroll.getScrollY());
+            LinearLayout options=a.findViewById(R.id.capture_tags_options);assertEquals(3,options.getChildCount());
+            Rect target=new Rect();options.getChildAt(0).getDrawingRect(target);
+            scroll.offsetDescendantRectToMyCoords(options.getChildAt(0),target);
+            scroll.scrollTo(0,target.top-80);before=scroll.getScrollY();
+            options.getChildAt(0).performClick();layout(a,844);
+            assertEquals("Selecting an existing tag must leave the picker visible",before,scroll.getScrollY());
+            assertEquals(1,CaptureTags.parse(a.<EditText>findViewById(R.id.capture_tags_input).getText().toString()).length());
+        }
+    }
+
+    private static void layout(UnifiedCaptureActivity a,int height) {
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+        View view=a.getWindow().getDecorView();
+        view.measure(View.MeasureSpec.makeMeasureSpec(390,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(height,View.MeasureSpec.EXACTLY));
+        view.layout(0,0,390,height);
+    }
+
     @Test public void recordCanvasAndKeyboardSizedLongTextScreens()throws Exception {
         new QuickNoteActivityTest().reset();
         Bitmap page=Bitmap.createBitmap(600,900,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(page);canvas.drawColor(0xfff4f0e7);
