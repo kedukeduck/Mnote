@@ -2,6 +2,7 @@
 #include "updater.hpp"
 #include "ai_chat.hpp"
 #include "chat_transcript.hpp"
+#include "draft_modules.hpp"
 #include <cmath>
 #include <commctrl.h>
 #include <commdlg.h>
@@ -37,6 +38,8 @@ enum Control {
     AccountButton,
     Trash,
     OpenRecord,
+    IncludeThought = 30000, IncludeExcerpt, IncludeOriginal, IncludeLink, IncludeCrop,
+    Annotate, PagePreview, IncludeTags,
     Note = 2100,
     Quote,
     Original,
@@ -134,6 +137,7 @@ struct Window {
     bool busy = false, dirty = false, loading = false, showTrash = false, editing = false;
     std::string scope, baseline;
     Draft draft;
+    std::shared_ptr<Gdiplus::Bitmap> pagePreview;
     Record record;
     std::vector<Record> records, filtered;
     bool selecting = false;
@@ -172,6 +176,7 @@ std::vector<std::thread> chatWorkers;
 std::map<HWND, std::unique_ptr<Window>> windows;
 std::uint64_t nextSerial = 0;
 std::function<void()> captureAction;
+AnnotationAction annotationAction;
 std::function<void()> exitForUpdateAction;
 std::function<void(const std::wstring &, bool)> notify;
 HBRUSH backgroundBrush = nullptr, whiteBrush = nullptr;
@@ -184,6 +189,7 @@ bool stopping = false, syncing = false;
 LRESULT CALLBACK Procedure(HWND, UINT, WPARAM, LPARAM);
 void Load();
 void Layout(Window &);
+void ModuleControls(Window &);
 void OpenEditor(Draft, const Record *record = nullptr);
 void OpenAccount();
 void OpenChat(const Record &, const std::string &id = "");
@@ -242,9 +248,11 @@ void Busy(Window &w, bool value) {
                    MultiAll,  MultiDelete,    ImageRole,      ExportPreview, TagsPicker,
                    ShareText, SaveChat, ChatSend, ChatProfile, ChatRefresh, ChatRename, ModelLabel,
                    ModelEndpoint, ModelId, ModelKey, ModelVision, ModelLimit, ModelTest,
-                   ModelImageTest, ModelDelete, ModelNew})
+                   ModelImageTest, ModelDelete, ModelNew, IncludeThought, IncludeExcerpt,
+                   IncludeOriginal, IncludeLink, IncludeCrop, IncludeTags, Annotate})
         if (auto c = ControlOf(w, id))
             EnableWindow(c, !value);
+    if (w.mode == Mode::Editor && !value) ModuleControls(w);
 }
 void Failure(HWND hwnd, std::uint64_t serial, const std::wstring &error) {
     if (auto w = Find(hwnd, serial)) {
@@ -321,7 +329,9 @@ void LoadPreview(Window &w) {
     }
     auto &assets = w.mode == Mode::Image ? w.record.assets : w.draft.assets;
     auto found = assets.find(role);
-    if (found == assets.end() && !assets.empty())
+    if (w.mode == Mode::Editor && role == "annotated" && found == assets.end())
+        found = assets.find("original");
+    if (found == assets.end() && !assets.empty() && w.mode != Mode::Editor)
         found = assets.begin();
     if (found != assets.end()) {
         auto image =
@@ -485,11 +495,10 @@ void Layout(Window &w) {
         move(MultiDelete, left + listWidth - 102, 25, 102, 36);
         move(OpenRecord, wide ? split + 24 : left, height - 82, 100, 38);
         move(ReaderTitle, split + 24, 28, 100, 36);
-        move(Capture, wide ? width - 354 : 12, wide ? 28 : 218,
-             wide ? 88 : sidebar - 24, 38);
-        move(NewNote, wide ? width - 256 : 12, wide ? 28 : 264,
+        ShowWindow(ControlOf(w,Capture),SW_HIDE);
+        move(NewNote, wide ? width - 256 : 12, wide ? 28 : 218,
              wide ? 108 : sidebar - 24, 38);
-        move(Refresh, wide ? width - 138 : 12, wide ? 28 : 310,
+        move(Refresh, wide ? width - 138 : 12, wide ? 28 : 264,
              wide ? 114 : sidebar - 24, 38);
         move(Subtitle, 24, height - 32, sidebar - 36, 22);
         move(Status, left, height - 34, width - left - 24, 24);
@@ -644,7 +653,7 @@ void RefreshReader(Window &from) {
     w.scope = from.scope;
     if (!record) {
         Add(w, ReaderEmpty, L"STATIC",
-            from.records.empty() ? L"留住一个想法\r\n\r\n从随手记或截图开始，记录会出现在这里。"
+            from.records.empty() ? L"留住一个想法\r\n\r\n点击记录，留下想法和当时的页面。"
                                   : L"没有匹配的记录\r\n\r\n试试其他关键词，或清除筛选条件。",
             SS_LEFT, 24, 22, 500, 120);
         Layout(w);
@@ -1027,6 +1036,7 @@ void OpenImage(Window &from) {
     w.record.assets = from.draft.assets;
     w.draft = from.draft;
     Add(w, ImageRole, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, 24, 14, 240, 240);
+    int selectedRole=0;
     for (auto role : {L"annotated", L"original", L"context"})
         if (w.record.assets.count(Utf8(role)) ||
             (std::wstring(role) == L"context" && w.draft.fullImage)) {
@@ -1037,10 +1047,11 @@ void OpenImage(Window &from) {
                                       reinterpret_cast<LPARAM>(label));
             SendMessageW(ControlOf(w, ImageRole), CB_SETITEMDATA, static_cast<WPARAM>(index),
                          reinterpret_cast<LPARAM>(role));
+            if(from.previewRole==role) selectedRole=static_cast<int>(index);
         }
-    SendMessageW(ControlOf(w, ImageRole), CB_SETCURSEL, 0, 0);
+    SendMessageW(ControlOf(w, ImageRole), CB_SETCURSEL, selectedRole, 0);
     w.previewRole = reinterpret_cast<const wchar_t *>(
-        SendMessageW(ControlOf(w, ImageRole), CB_GETITEMDATA, 0, 0));
+        SendMessageW(ControlOf(w, ImageRole), CB_GETITEMDATA, selectedRole, 0));
     Button(w, ZoomReset, L"适应窗口", 284, 14, 148);
     LoadPreview(w);
     Layout(w);
@@ -1150,6 +1161,7 @@ void OpenEditor(Draft draft, const Record *record) {
     auto &w = Create(Mode::Editor, record ? L"Mnote · 查看与修改" : L"Mnote · 记下想法", 760, 900);
     editor = w.hwnd;
     w.draft = std::move(draft);
+    if(w.draft.staging.empty()) w.draft.staging=Staging();
     if (!w.draft.data["evidence"].is_object())
         w.draft.data["evidence"] = Json::object();
     if (!w.draft.data["evidence"]["context"].is_object())
@@ -1163,29 +1175,39 @@ void OpenEditor(Draft draft, const Record *record) {
     }
     auto data = w.draft.data;
     auto source = Object(data, "source");
-    Label(w, Title, w.editing ? L"回看，也继续想" : L"记下这一刻", 24);
-    // Heading uses a larger line box than normal section labels.
+    Label(w, Title, w.editing ? L"回看，也继续想" : L"记录这一刻", 24);
     w.placements.back().h = 42;
     if(w.editing){w.placements.back().stretch=false;w.placements.back().w=420;Button(w,ChatButton,L"本条 AI 对话",490,24,180);}
-    Label(w, Subtitle,
-          Field(source, "app_name").empty()
-              ? L"只记录你选择保留的内容"
-              : L"来源：" + Field(source, "app_name") + L"  ·  " + Field(source, "window_title"),
-          76);
-    Add(w, Preview, L"BUTTON", L"截图预览 · 点击放大", BS_OWNERDRAW | WS_TABSTOP, 28, 112, 660, 188,
-        true);
-    LoadPreview(w);
-    if (!w.preview)
-        w.placements.back().h = 0;
-    int y = w.preview ? 320 : 124;
-    Label(w, 2400, L"我的想法", y);
-    Edit(w, Note, Field(data, "comment"), y + 30, 210, 20000);
-    y += 258;
-    Button(w, MoreOptions, L"更多选项 · 摘录、标签与上下文", 28, y, 340);
-    y += 58;
-    int moreStart = y;
-    w.moreOptions = w.editing;
-    Label(w, 2401, L"标签 · 选择已有，也可输入新标签", y);
+    Label(w, Subtitle, w.editing?L"已有记录：文字可修改，截图保持不变；模块勾选用于新建记录。":L"勾选要保存的模块 · 取消勾选不会清空草稿", 76);
+    auto module = [&](int id, const wchar_t *label, int y, bool checked) {
+        Add(w,id,L"BUTTON",label,BS_AUTOCHECKBOX|WS_TABSTOP,28,y,450,32,true);
+        SendMessageW(ControlOf(w,id),BM_SETCHECK,checked?BST_CHECKED:BST_UNCHECKED,0);
+    };
+    module(IncludeThought,L"我的想法 · 加入记录",114,true);
+    w.placements.back().stretch=false;
+    Button(w,Annotate,L"圈选与批注",500,110,164);
+    Edit(w,Note,Field(data,"comment"),156,144,20000);
+    module(IncludeExcerpt,L"摘录 · 加入记录",328,w.editing || !Field(source,"text").empty());
+    w.placements.back().stretch=false;
+    Button(w,Clipboard,L"读取剪贴板",500,326,164);
+    Edit(w,Quote,Field(source,"text"),370,112,100000);
+    module(IncludeOriginal,L"页面原文 · 加入记录",508,w.editing || !OriginalText(data).empty());
+    w.placements.back().stretch=false;
+    Button(w,ReadContext,L"尝试读取页面文字",500,506,164);
+    Edit(w,Original,OriginalText(data),550,156,40000);
+    auto originLabel=L"来源应用与链接 · "+(Field(source,"app_name").empty()?L"未知应用":Field(source,"app_name"));
+    module(IncludeLink,originLabel.c_str(),732,true);
+    Edit(w,Url,Field(source,"url"),774,38,8192,false);
+    module(Full,L"原始页面截图 · 加入记录",840,w.draft.fullImage || w.draft.assets.count("context"));
+    Add(w,PagePreview,L"BUTTON",L"原始页面截图 · 点击查看",BS_OWNERDRAW|WS_TABSTOP,28,882,660,172,true);
+    module(IncludeCrop,L"圈选与批注结果 · 加入记录",1082,
+           w.draft.assets.count("original") || w.draft.assets.count("annotated"));
+    Add(w,Preview,L"BUTTON",L"尚未圈选 · 可点击顶部圈选与批注",BS_OWNERDRAW|WS_TABSTOP,28,1124,660,172,true);
+    w.previewRole=L"context"; LoadPreview(w); w.pagePreview=w.preview;
+    w.previewRole=L"annotated"; LoadPreview(w);
+    int y=1328;
+    w.moreOptions=true;
+    module(IncludeTags,L"标签 · 加入记录（可选择已有标签）",y,true);
     Edit(w, TagsInput, TagText(data), y + 30, 38, 4096, false);
     auto picker =
         Add(w, TagsPicker, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, 28, y + 76, 380, 220);
@@ -1212,7 +1234,7 @@ void OpenEditor(Draft draft, const Record *record) {
                     SendMessageW(control, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(value.c_str()));
                 }
                 SendMessageW(control, CB_SETCURSEL, 0, 0);
-                EnableWindow(control, !form->busy && !tags.empty());
+                EnableWindow(control, !form->busy && !tags.empty() && Checked(*form,IncludeTags));
             });
         } catch (const std::exception &) {
             Post([editorHwnd, editorSerial] {
@@ -1247,40 +1269,10 @@ void OpenEditor(Draft draft, const Record *record) {
                                                  : 0,
                  0);
     y += 94;
-    if (!w.editing && w.draft.assets.empty()) {
-        Add(w, Clipboard, L"BUTTON", L"摘录剪贴板的当前第一条文字（主动读取一次）",
-            BS_AUTOCHECKBOX | WS_TABSTOP, 28, y, 660, 32, true);
-        y += 44;
-        Button(w, ReadContext, L"读取页面文字", 28, y, 180);
-        Button(w, ScreenContext, L"保存页面截图", 222, y, 180);
-        Button(w, RemoveContext, L"不保留上下文", 416, y, 180);
-        y += 52;
-        Label(w, 2403, L"上下文可独立保留；不代表摘录来自该页面。读取结果可能不完整。", y);
-        y += 44;
-    }
-    if (w.draft.fullImage && !w.editing) {
-        Add(w, Full, L"BUTTON", L"同时保留完整截图，让 AI 知道圈选位置",
-            BS_AUTOCHECKBOX | WS_TABSTOP, 28, y, 660, 32, true);
-        y += 52;
-    }
-    Label(w, 2404, L"摘录 · 可编辑", y);
-    Edit(w, Quote, Field(source, "text"), y + 30, 130, 100000);
-    y += 182;
-    Label(w, 2405, L"页面原文 · 可编辑，框内可滚动", y);
-    Edit(w, Original, OriginalText(data), y + 30, 180, 40000);
-    y += 232;
-    Label(w, 2406, L"来源链接", y);
-    Edit(w, Url, Field(source, "url"), y + 30, 38, 8192, false);
-    y += 84;
-    Button(w, OpenUrl, L"打开网页", 28, y, 140);
-    Button(w, Export, L"复制记录 JSON", 182, y, 180);
+    Button(w, OpenUrl, L"打开来源链接", 28, y, 160);
+    Button(w, Export, L"复制选中模块 JSON", 202, y, 210);
     y += 56;
     w.extent = y;
-    for (auto &p : w.placements)
-        if (p.y >= moreStart)
-            p.y += 10000;
-    if (!w.moreOptions)
-        w.extent = moreStart;
     Button(w, Save, L"保存记录", 28, 0, 148);
     Button(w, SaveChat, L"保存并聊天", 190, 0, 142);
     Button(w, Cancel, L"取消", 348, 0, 86);
@@ -1294,6 +1286,7 @@ void OpenEditor(Draft draft, const Record *record) {
     Layout(w);
     ShowWindow(w.hwnd, SW_SHOW);
     SetForegroundWindow(w.hwnd);
+    ModuleControls(w);
     SetFocus(ControlOf(w, Note));
     if (!w.editing && Field(source, "url").empty() && Context::Same(w.draft.source)) {
         auto app = Field(w.draft.source.metadata, "app_name");
@@ -1381,12 +1374,6 @@ void PutClipboard(HWND hwnd, const std::wstring &text) {
     CloseClipboard();
 }
 void ReadClipboard(Window &w) {
-    if (!Checked(w, Clipboard)) {
-        if (MessageBoxW(w.hwnd, L"移除当前摘录文字？你可以保留已经编辑的内容。", L"Mnote",
-                        MB_YESNO | MB_ICONQUESTION) == IDYES)
-            Set(w, Quote, L"");
-        return;
-    }
     std::wstring text;
     try {
         if (!IsClipboardFormatAvailable(CF_UNICODETEXT) || !OpenClipboard(w.hwnd))
@@ -1422,10 +1409,65 @@ void ReadClipboard(Window &w) {
         return;
     }
     Set(w, Quote, text);
+    SendMessageW(ControlOf(w,IncludeExcerpt),BM_SETCHECK,BST_CHECKED,0);
+    ModuleControls(w);
     w.draft.data["source"]["text_origin"] = "clipboard";
     w.draft.data["source"]["text"] = Utf8(text);
     w.draft.data["evidence"]["exact_text"] = {{"text", Utf8(text)}, {"delivered_by", "clipboard"}};
     StatusText(w, L"已读取本次剪贴板文字。不会继续监听剪贴板。");
+}
+void ModuleControls(Window &w) {
+    if(w.mode!=Mode::Editor || w.busy) return;
+    for(auto pair: {std::pair<int,int>{IncludeThought,Note},{IncludeExcerpt,Quote},
+                    {IncludeOriginal,Original},{IncludeLink,Url},{IncludeTags,TagsInput}})
+        EnableWindow(ControlOf(w,pair.second),Checked(w,pair.first));
+    bool page=w.draft.fullImage || w.draft.assets.count("context");
+    bool crop=w.draft.assets.count("original") || w.draft.assets.count("annotated");
+    EnableWindow(ControlOf(w,Full),page);
+    EnableWindow(ControlOf(w,PagePreview),page);
+    EnableWindow(ControlOf(w,IncludeCrop),crop);
+    EnableWindow(ControlOf(w,Preview),crop);
+    EnableWindow(ControlOf(w,Annotate),page && bool(annotationAction));
+    EnableWindow(ControlOf(w,ReadContext),Context::Same(w.draft.source));
+    EnableWindow(ControlOf(w,TagsPicker),Checked(w,IncludeTags));
+    if(w.editing) {
+        for(auto id:{IncludeThought,IncludeExcerpt,IncludeOriginal,IncludeLink,IncludeTags,Full,IncludeCrop,Annotate})
+            EnableWindow(ControlOf(w,id),FALSE);
+    }
+}
+void AnnotateDraft(Window &w) {
+    if(w.busy || w.editing || !annotationAction || w.scope!=Scope()) return;
+    if(!w.draft.fullImage) {
+        auto role=w.previewRole;
+        auto preview=w.preview;
+        w.previewRole=L"context"; LoadPreview(w);
+        w.draft.fullImage=w.preview;
+        w.preview=preview; w.previewRole=role;
+    }
+    if(!w.draft.fullImage) throw std::runtime_error("image_unavailable");
+    auto hwnd=w.hwnd; auto serial=w.serial; auto scope=w.scope;
+    Busy(w,true); ShowWindow(w.hwnd,SW_HIDE);
+    try {
+        annotationAction(w.draft,[hwnd,serial,scope](std::optional<Draft> result) {
+            auto form=Find(hwnd,serial);
+            if(!form) return;
+            if(scope!=Scope()) {DestroyWindow(hwnd);return;}
+            if(result) {
+                for(auto role:{"original","annotated"})
+                    if(result->assets.count(role)) form->draft.assets[role]=result->assets.at(role);
+                for(auto key:{"annotations","capture"})
+                    if(result->data.contains(key)) form->draft.data[key]=result->data[key];
+                form->draft.data["evidence"]["context"]["image"]=
+                    result->data["evidence"]["context"]["image"];
+                form->previewRole=L"annotated"; LoadPreview(*form);
+                SendMessageW(ControlOf(*form,IncludeCrop),BM_SETCHECK,BST_CHECKED,0);
+                form->dirty=true;
+            }
+            Busy(*form,false); Layout(*form); ShowWindow(hwnd,SW_SHOW); SetForegroundWindow(hwnd);
+            StatusText(*form,result?L"圈选与批注已加入草稿，原始页面截图未改变。":L"已返回原草稿，圈选取消，已有内容未改变。");
+            InvalidateRect(ControlOf(*form,Preview),nullptr,TRUE);
+        });
+    } catch(...) {Busy(w,false);ShowWindow(hwnd,SW_SHOW);SetForegroundWindow(hwnd);throw;}
 }
 Json Edited(Window &w) {
     Json data = w.draft.data;
@@ -1435,7 +1477,7 @@ Json Edited(Window &w) {
                         : access == 3 ? "remote_memory"
                                       : "local_only";
     data["comment"] = Utf8(Text(ControlOf(w, Note)));
-    data["tags"] = Mnote::Tags(Text(ControlOf(w, TagsInput)));
+    data["tags"] = Checked(w,IncludeTags)?Mnote::Tags(Text(ControlOf(w, TagsInput))):Json::array();
     int kind = static_cast<int>(SendMessageW(ControlOf(w, Kind), CB_GETCURSEL, 0, 0));
     data["kind"] = kind == 1 ? "todo" : kind == 2 ? "later" : "thought";
     auto quote = Text(ControlOf(w, Quote)), original = Text(ControlOf(w, Original));
@@ -1455,7 +1497,7 @@ Json Edited(Window &w) {
         text["relation_to_quote"] = "unverified";
         data["evidence"]["context"]["text"] = text;
     }
-    if (!w.editing && !quote.empty()) {
+    if (!quote.empty()) {
         auto before = Field(Object(w.draft.data, "source"), "text");
         bool changed = before != quote;
         auto delivered = changed
@@ -1464,6 +1506,10 @@ Json Edited(Window &w) {
         data["evidence"]["exact_text"] = {{"text", Utf8(quote)}, {"delivered_by", delivered}};
         data["source"]["text_origin"] = delivered;
     }
+    auto assets=w.draft.assets;
+    if (w.draft.fullImage && !assets.count("context")) assets["context"]=w.draft.staging/L"context.png";
+    ProjectModules(data,assets,{Checked(w,IncludeThought),Checked(w,IncludeExcerpt),Checked(w,IncludeOriginal),
+                               Checked(w,IncludeLink),Checked(w,Full),Checked(w,IncludeCrop),Checked(w,IncludeTags)});
     return data;
 }
 void SaveEditor(Window &w, bool startChat = false) {
@@ -1483,6 +1529,10 @@ void SaveEditor(Window &w, bool startChat = false) {
     auto full = w.draft.fullImage;
     auto staging = w.draft.staging;
     auto saved = std::make_shared<Record>();
+    DraftModules modules{Checked(w,IncludeThought),Checked(w,IncludeExcerpt),Checked(w,IncludeOriginal),
+                         Checked(w,IncludeLink),Checked(w,Full),Checked(w,IncludeCrop),Checked(w,IncludeTags)};
+    ProjectModules(data,assets,{Checked(w,IncludeThought),Checked(w,IncludeExcerpt),Checked(w,IncludeOriginal),
+                               Checked(w,IncludeLink),Checked(w,Full),Checked(w,IncludeCrop),Checked(w,IncludeTags)});
     bool retain = full && (ControlOf(w, Full) ? Checked(w, Full)
                                               : data.value("evidence", Json::object())
                                                     .value("context", Json::object())
@@ -1490,18 +1540,19 @@ void SaveEditor(Window &w, bool startChat = false) {
                                                     .value("retained", false));
     Run(
         w,
-        [data, assets, scope, baseline, full, retain, staging, saved]() mutable {
-            if (full && !baseline.size()) {
+        [data, assets, scope, baseline, full, retain, staging, saved,modules]() mutable {
+            if (full) {
                 data["evidence"]["context"]["image"]["retained"] = retain;
                 data["evidence"]["context"]["image"]["asset_role"] =
                     retain ? Json("context") : Json(nullptr);
                 if (retain) {
                     auto path = staging / L"context.png";
-                    Context::SavePng(*full, path);
+                    if(!fs::exists(path)) Context::SavePng(*full, path);
                     assets["context"] = path;
                 } else
                     assets.erase("context");
             }
+            ProjectModules(data,assets,modules);
             *saved=library->save(scope, data, assets, baseline);
         },
         [saved,startChat](Window &form) {
@@ -1513,24 +1564,16 @@ void SaveEditor(Window &w, bool startChat = false) {
             if(startChat) OpenChat(*saved);
         });
 }
-void CaptureContext(Window &w, bool screenshot) {
+void CaptureContext(Window &w) {
     if (!Context::Same(w.draft.source))
         throw std::runtime_error("source_changed");
-    if ((!Text(ControlOf(w, Original)).empty() || w.draft.fullImage) &&
-        MessageBoxW(w.hwnd, L"替换当前保留的页面上下文？摘录和想法不变。", L"Mnote",
+    if (!Text(ControlOf(w, Original)).empty() &&
+        MessageBoxW(w.hwnd, L"用这次读取结果替换页面原文？截图、摘录和想法不变。", L"Mnote",
                     MB_YESNO | MB_ICONQUESTION) != IDYES)
         return;
     auto hwnd = w.hwnd;
     auto serial = w.serial;
     auto source = w.draft.source;
-    if (screenshot) {
-        Busy(w, true);
-        ShowWindow(w.hwnd, SW_HIDE);
-        Hide();
-        SetForegroundWindow(source.window);
-        SetTimer(w.hwnd, 3, 240, nullptr);
-        return;
-    }
     auto result = std::make_shared<Json>();
     Run(
         w, [result, source] { *result = Context::ReadPage(source, library->root()); },
@@ -1542,9 +1585,9 @@ void CaptureContext(Window &w, bool screenshot) {
                 StatusText(form, L"这个应用没有提供可读文字。请手动粘贴原文，或保存页面截图。");
                 return;
             }
-            form.draft.fullImage.reset();
-            form.draft.data["evidence"]["context"].erase("image");
             Set(form, Original, text);
+            SendMessageW(ControlOf(form,IncludeOriginal),BM_SETCHECK,BST_CHECKED,0);
+            ModuleControls(form);
             auto context = TextContext(text, "windows_accessibility", Text(ControlOf(form, Quote)));
             context["extent"] = "accessible_page_partial";
             context["relation_to_quote"] = "unverified";
@@ -2935,18 +2978,24 @@ void Command(Window &w, int id, int event) {
                 Load();
                 Sync();
             });
-    } else if (id == Preview && w.preview)
-        OpenImage(w);
+    } else if (id == Preview && w.preview) {
+        w.previewRole=L"annotated"; OpenImage(w);
+    } else if (id == PagePreview && w.pagePreview) {
+        w.previewRole=L"context"; OpenImage(w); w.previewRole=L"annotated";
+    } else if (id == Annotate) AnnotateDraft(w);
+    else if (id==IncludeThought || id==IncludeExcerpt || id==IncludeOriginal || id==IncludeLink || id==IncludeCrop || id==IncludeTags) {
+        w.dirty=true; ModuleControls(w); StatusText(w,L"只保存勾选的模块；未勾选内容继续留在当前草稿。");
+    }
     else if (id == Clipboard)
         ReadClipboard(w);
     else if (id == ReadContext)
-        CaptureContext(w, false);
+        CaptureContext(w);
     else if (id == ScreenContext)
-        CaptureContext(w, true);
+        StatusText(w,L"原始页面截图保持不变；需要记录另一个页面时请新建记录。");
     else if (id == Full) {
         w.dirty = true;
-        StatusText(w, Checked(w, Full) ? L"将同时保留完整截图和圈选坐标。"
-                                       : L"仅保留圈选截图和批注。");
+        StatusText(w, Checked(w, Full) ? L"保存时保留最初原始页面截图。"
+                                       : L"保存时不包含原始页面截图；草稿截图仍可用于圈选。");
     } else if (id == RemoveContext) {
         w.draft.fullImage.reset();
         w.draft.data["evidence"]["context"].erase("image");
@@ -3444,6 +3493,9 @@ LRESULT Dispatch(Window &w, UINT message, WPARAM wp, LPARAM lp) {
             } else
                 DrawTextLine(item.hDC, item.rcItem, Text(item.hwndItem), Muted, w.font,
                              DT_WORDBREAK | DT_VCENTER);
+        } else if (item.CtlID == PagePreview) {
+            auto image=w.preview; w.preview=w.pagePreview;
+            DrawImage(w,item.hDC,item.rcItem); w.preview=image;
         } else if (item.CtlID == Preview)
             DrawImage(w, item.hDC, item.rcItem);
         else
@@ -3595,36 +3647,6 @@ LRESULT Dispatch(Window &w, UINT message, WPARAM wp, LPARAM lp) {
             Sync();
             return 0;
         }
-        if (wp == 3) {
-            KillTimer(w.hwnd, 3);
-            try {
-                auto image = Context::Screenshot(w.draft.source);
-                w.draft.fullImage = image;
-                w.draft.data["evidence"]["context"].erase("text");
-                Set(w, Original, L"");
-                w.draft.data["evidence"]["context"]["image"] = {
-                    {"retained", true},
-                    {"asset_role", "context"},
-                    {"width", image->GetWidth()},
-                    {"height", image->GetHeight()},
-                    {"coordinate_space", "context_image_pixels"},
-                    {"purpose", "page_context"},
-                    {"relation_to_quote", "unverified"},
-                    {"selection_meaning", "full_viewport_not_quote_location"}};
-                w.previewRole = L"context";
-                LoadPreview(w);
-                w.dirty = true;
-                StatusText(w, L"完整页面截图已准备，将在保存记录时一起保存。");
-            } catch (const std::exception &error) {
-                StatusText(w, ErrorText(error));
-                notify(L"无法捕获原应用：请回到原页面后重新打开随手记。", true);
-            }
-            Busy(w, false);
-            ShowWindow(w.hwnd, SW_SHOW);
-            SetForegroundWindow(w.hwnd);
-            InvalidateRect(ControlOf(w, Preview), nullptr, TRUE);
-            return 0;
-        }
         break;
     case Complete: {
         std::deque<std::function<void()>> callbacks;
@@ -3692,6 +3714,20 @@ LRESULT CALLBACK Procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         // Remove only this draft's explicitly allocated staging files, never the
         // library or Inbox.
         if (w->mode == Mode::Editor && !w->draft.staging.empty()) {
+            // Only files in this editor's own non-recursive staging directory.
+            // Unique crop attempts include failed/older confirmations, never library assets.
+            std::error_code scanError;
+            for(const auto &entry:fs::directory_iterator(w->draft.staging,scanError)) {
+                auto name=entry.path().filename().wstring();
+                for(const auto *suffix:{L"-original.png",L"-annotated.png"}) {
+                    auto length=wcslen(suffix);
+                    if(name.rfind(L"crop-",0)==0 && name.size()>5+length &&
+                       name.compare(name.size()-length,length,suffix)==0 &&
+                       SafeId(Utf8(name.substr(5,name.size()-5-length)))) {
+                        std::error_code error;fs::remove(entry.path(),error);
+                    }
+                }
+            }
             for (auto name : {L"original.png", L"annotated.png", L"context.png"}) {
                 std::error_code error;
                 fs::remove(w->draft.staging / name, error);
@@ -3789,7 +3825,8 @@ void Toast(const std::wstring &text, bool error) {
 }
 void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> capture,
            std::function<void(const std::wstring &, bool)> notice,
-           std::function<void()> exitForUpdate) {
+           std::function<void()> exitForUpdate, AnnotationAction annotate) {
+    annotationAction=std::move(annotate);
     instance = appInstance;
     captureAction = std::move(capture);
     exitForUpdateAction = std::move(exitForUpdate);
@@ -3826,7 +3863,7 @@ void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> ca
     Button(w, AccountButton, L"登录账号", 12, 0, 156);
     Button(w, FilterToggle, L"筛选", 0, 84, 78);
     Button(w, SettingsButton, L"设置", 0, 0, 100);
-    Button(w, NewNote, L"随手记", 28, 110, 132);
+    Button(w, NewNote, L"记录", 28, 110, 132);
     Button(w, Capture, L"截图", 170, 110, 132);
     Button(w, Refresh, L"刷新与同步", 0, 110, 124);
     Add(w, Search, L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 28, 174, 360, 38);
@@ -3852,7 +3889,7 @@ void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> ca
     Button(w, MultiAll, L"全选当前", 140, 0, 130);
     Button(w, MultiDelete, L"删除已选", 0, 0, 148);
     SetWindowSubclass(ControlOf(w, List), LibraryListProc, 1, 0);
-    Label(w, Status, L"Ctrl+Shift+F8 随手记  ·  Ctrl+Shift+F9 截图摘录", 0);
+    Label(w, Status, L"Ctrl+Shift+F9 记录  ·  Ctrl+Shift+F8 兼容快捷键（相同功能）", 0);
     auto readerState = std::make_unique<Window>();
     readerState->serial = ++nextSerial;
     readerState->mode = Mode::Reader;
@@ -3966,19 +4003,7 @@ void QuickNote() {
         SetForegroundWindow(editor);
         return;
     }
-    Draft draft;
-    draft.source = Context::Foreground();
-    draft.data = {{"schema_version", 1},
-                  {"id", NewId()},
-                  {"created_at", Timestamp()},
-                  {"kind", "thought"},
-                  {"comment", ""},
-                  {"source", draft.source.metadata},
-                  {"tags", Json::array()},
-                  {"ai_access", "local_only"}};
-    draft.staging = Staging();
-    draft.scope = Scope();
-    OpenEditor(std::move(draft));
+    if(captureAction) captureAction();
 }
 void Compose(Draft draft) { OpenEditor(std::move(draft)); }
 void Sync() {

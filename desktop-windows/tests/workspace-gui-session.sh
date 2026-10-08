@@ -25,6 +25,18 @@ wine "${driver}" source >"${test_dir}/source.log" 2>&1 &
 until_drive focus-source
 sleep 0.3
 drive capture
+until_drive unified-ready
+application_data="$(find "${WINEPREFIX}/drive_c/users" -type d -path '*/AppData/Local/PersonalCapture' -print -quit)"
+frozen_context="$(find "${application_data}/Drafts" -name context.png -print -quit)"
+frozen_sha="$(sha256sum "${frozen_context}" | cut -d' ' -f1)"
+drive fill
+drive module-roundtrip
+drive annotate
+until_drive pen
+drive cancel-capture
+until_drive draft-preserved
+[[ -z "$(find "${application_data}/Drafts" -name 'crop-*' -print -quit)" ]]
+drive annotate
 overlay=""
 for _ in $(seq 1 100); do overlay="$(xdotool search --onlyvisible --name 'Mnote -' 2>/dev/null | tail -n 1 || true)"; [[ -n "${overlay}" ]] && break; sleep 0.15; done
 [[ -n "${overlay}" ]]
@@ -34,6 +46,18 @@ sleep 0.2
 xdotool mousemove --window "${overlay}" 300 300 mousedown 1 mousemove --sync --window "${overlay}" 700 500 mouseup 1
 drive next
 until_drive editor
+until_drive draft-preserved
+[[ "$(sha256sum "${frozen_context}" | cut -d' ' -f1)" == "${frozen_sha}" ]]
+drive annotate
+until_drive pen
+drive next
+until_drive draft-preserved
+drive annotate
+until_drive pen
+drive cancel-capture
+until_drive draft-preserved
+[[ "$(find "${application_data}/Drafts" -name 'crop-*' | wc -l)" == 4 ]]
+drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/unified-record-editor.png" 'Mnote · 记下想法'
 drive fill
 drive full
 drive screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/editor-preview.png"
@@ -41,8 +65,8 @@ drive save
 until_drive count 1
 application_data="$(find "${WINEPREFIX}/drive_c/users" -type d -path '*/AppData/Local/PersonalCapture' -print -quit)"
 [[ -n "${application_data}" ]]
-python3 - "${application_data}" <<'PY'
-import json, pathlib, struct, sys
+python3 - "${application_data}" "${frozen_sha}" <<'PY'
+import hashlib, json, pathlib, struct, sys
 root=pathlib.Path(sys.argv[1]); path=next((root/'Library/guest/records').glob('*.json')); envelope=json.loads(path.read_text()); r=envelope['record']
 assert r['comment']=='wine-smoke-note' and r['tags']==['工作','灵感']
 assert envelope['state']=='local' and r['ai_access']=='local_only'
@@ -51,11 +75,13 @@ assert len(r['annotations'])==1 and r['annotations'][0]['tool']=='pen'
 assert len(r['annotations'][0]['points'])>=2
 assert r['evidence']['context']['image']['retained'] is True
 assert r['evidence']['context']['image']['selection']==dict(left=180,top=150,right=900,bottom=620)
+assert 'purpose' not in r['evidence']['context']['image']
+assert hashlib.sha256((root/'Library/guest/assets'/envelope['assets']['context']).read_bytes()).hexdigest()==sys.argv[2]
 for role, dimensions in [('original',(720,470)),('annotated',(720,470)),('context',(1280,1000))]:
     data=(root/'Library/guest/assets'/envelope['assets'][role]).read_bytes()
     assert data[:8]==b'\x89PNG\r\n\x1a\n' and struct.unpack('>II',data[16:24])==dimensions
 assert not list(root.rglob('*.part'))
-print('GUI: screenshot, annotation, thought, tags, full context and source passed')
+print('GUI: unified capture before editor, module roundtrip, annotation cancel/return, immutable full context, selected crop, thought, tags and source passed')
 PY
 drive show
 drive open
@@ -330,7 +356,11 @@ until_drive count 3
 before="$(find "${application_data}/Library" -type f -name '*.json' | wc -l)"
 drive focus-source
 drive capture
+until_drive unified-ready
+drive annotate
 until_drive cancel-capture
+until_drive editor
+until_drive discard-editor
 sleep 0.3
 after="$(find "${application_data}/Library" -type f -name '*.json' | wc -l)"
 [[ "${before}" == "${after}" ]]

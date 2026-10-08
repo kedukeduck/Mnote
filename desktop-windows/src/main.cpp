@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cwchar>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -116,8 +117,8 @@ bool g_selecting = false;
 bool g_drawing = false;
 std::vector<Stroke> g_strokes;
 std::atomic<unsigned long> g_fileSequence{0};
-std::string g_captureScope;
-Mnote::Context::Source g_captureSource;
+std::optional<Mnote::Workspace::Draft> g_annotationDraft;
+Mnote::Workspace::AnnotationDone g_annotationDone;
 
 LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK OverlayWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -571,19 +572,75 @@ void CreateOverlayControls(HWND parent) {
         0,0,0,0,parent,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),g_instance,nullptr);ApplyDefaultFont(control);return control;};
     g_controls.select=button(kControlSelect,L"框选 · 1");g_controls.pen=button(kControlPen,L"自由笔 · 2");
     g_controls.highlighter=button(kControlHighlighter,L"高亮 · 3");g_controls.undo=button(kControlUndo,L"撤销");
-    g_controls.save=button(kControlSave,L"下一步");g_controls.cancel=button(kControlCancel,L"取消 · Esc");
+    g_controls.save=button(kControlSave,L"完成批注");g_controls.cancel=button(kControlCancel,L"取消 · Esc");
     SetTool(Tool::Select);UpdateSaveAvailability();
 }
-void LayoutOverlayControls(HWND window) {
-    RECT client{};GetClientRect(window,&client);
-    // A compact floating tool row follows the selection, never a full-width sheet.
-    int width=660,x=std::max(8,static_cast<int>((client.right-width)/2)),y=16;
-    if(HasSelection()) {
-        x=std::clamp(static_cast<int>(g_selection.left),8,std::max(8,static_cast<int>(client.right)-width-8));
-        y=g_selection.bottom+58<client.bottom ? static_cast<int>(g_selection.bottom)+12 : std::max(8,static_cast<int>(g_selection.top)-56);
+struct ToolbarArea {
+    RECT image{};
+    RECT visible{};
+    std::int64_t area = 0;
+};
+BOOL CALLBACK FindToolbarMonitor(HMONITOR, HDC, LPRECT monitor, LPARAM parameter) {
+    auto &candidate = *reinterpret_cast<ToolbarArea *>(parameter);
+    RECT visible{};
+    if (IntersectRect(&visible, &candidate.image, monitor) &&
+        visible.right - visible.left >= 230 && visible.bottom - visible.top >= 150) {
+        const auto area = static_cast<std::int64_t>(visible.right - visible.left) *
+                          (visible.bottom - visible.top);
+        if (area > candidate.area) {
+            candidate.visible = visible;
+            candidate.area = area;
+        }
     }
-    HWND buttons[]={g_controls.select,g_controls.pen,g_controls.highlighter,g_controls.undo,g_controls.save,g_controls.cancel};
-    for(auto control:buttons){MoveWindow(control,x,y,102,38,TRUE);x+=110;}
+    return TRUE;
+}
+bool FindToolbarArea(const RECT &image, POINT anchor, RECT &visible) {
+    MONITORINFO monitor{sizeof(MONITORINFO), {}, {}, 0};
+    if (GetMonitorInfoW(MonitorFromPoint(anchor, MONITOR_DEFAULTTONEAREST), &monitor) &&
+        IntersectRect(&visible, &image, &monitor.rcMonitor) &&
+        visible.right - visible.left >= 230 && visible.bottom - visible.top >= 150)
+        return true;
+    ToolbarArea candidate{image, {}, 0};
+    EnumDisplayMonitors(nullptr, nullptr, FindToolbarMonitor,
+                        reinterpret_cast<LPARAM>(&candidate));
+    visible = candidate.visible;
+    return candidate.area > 0;
+}
+void LayoutOverlayControls(HWND window) {
+    RECT client{};
+    GetClientRect(window, &client);
+    // Keep the entire tool group inside one real monitor, including on virtual
+    // desktops with gaps between monitors and on narrower retained screenshots.
+    RECT screen = client;
+    MapWindowPoints(window, nullptr, reinterpret_cast<POINT *>(&screen), 2);
+    POINT anchor{screen.left + (HasSelection() ? g_selection.left : client.right / 2),
+                 screen.top + (HasSelection() ? g_selection.bottom : 16)};
+    RECT visible{};
+    if (FindToolbarArea(screen, anchor, visible)) {
+        MapWindowPoints(nullptr, window, reinterpret_cast<POINT *>(&visible), 2);
+        client = visible;
+    }
+    const int available = static_cast<int>(client.right - client.left) - 16;
+    const int columns = std::clamp((available + 8) / 110, 1, 6);
+    const int rows = (6 + columns - 1) / columns;
+    const int width = columns * 110 - 8, height = rows * 46 - 8;
+    const int left = static_cast<int>(client.left) + 8;
+    const int top = static_cast<int>(client.top) + 8;
+    int x = static_cast<int>(client.left) + (available - width) / 2 + 8;
+    int y = top + 8;
+    if (HasSelection()) {
+        x = static_cast<int>(g_selection.left);
+        y = g_selection.bottom + height + 12 < client.bottom
+                ? static_cast<int>(g_selection.bottom) + 12
+                : static_cast<int>(g_selection.top) - height - 12;
+    }
+    x = std::clamp(x, left, std::max(left, static_cast<int>(client.right) - width - 8));
+    y = std::clamp(y, top, std::max(top, static_cast<int>(client.bottom) - height - 8));
+    HWND buttons[] = {g_controls.select, g_controls.pen, g_controls.highlighter,
+                      g_controls.undo, g_controls.save, g_controls.cancel};
+    for (int i = 0; i < 6; ++i)
+        MoveWindow(buttons[i], x + (i % columns) * 110, y + (i / columns) * 46,
+                   102, 38, TRUE);
 }
 
 void ShowTrayNotice(const wchar_t* title, const wchar_t* message, DWORD flags) {
@@ -618,75 +675,278 @@ void CloseOverlay() {
 }
 
 void CancelCapture() {
+    auto done = std::move(g_annotationDone);
+    g_annotationDone = {};
+    g_annotationDraft.reset();
     CloseOverlay();
+    if (done)
+        done(std::nullopt);
 }
 
 void SaveCurrentCapture() {
-    if(!HasSelection() || !g_capture.bitmap)return;
+    if (!HasSelection() || !g_capture.bitmap || !g_annotationDraft)
+        return;
+    if (g_annotationDraft->scope != Mnote::Workspace::Scope()) {
+        ShowTrayNotice(L"批注未应用", L"账号已经切换，请在当前账号重新打开记录。", NIIF_WARNING);
+        CancelCapture();
+        return;
+    }
     try {
-        Mnote::Workspace::Draft draft;draft.scope=g_captureScope;draft.source=g_captureSource;draft.staging=Mnote::Workspace::Staging();
-        int width=g_selection.right-g_selection.left,height=g_selection.bottom-g_selection.top;
-        Gdiplus::Bitmap source(g_capture.bitmap,nullptr),original(width,height,PixelFormat32bppARGB),annotated(width,height,PixelFormat32bppARGB);
+        auto draft = *g_annotationDraft;
+        const int width = g_selection.right - g_selection.left;
+        const int height = g_selection.bottom - g_selection.top;
+        Gdiplus::Bitmap original(width, height, PixelFormat32bppARGB);
+        Gdiplus::Bitmap annotated(width, height, PixelFormat32bppARGB);
+        if (original.GetLastStatus() != Gdiplus::Ok ||
+            annotated.GetLastStatus() != Gdiplus::Ok)
+            throw std::runtime_error("invalid_image");
         {
             Gdiplus::Graphics graphics(&original);
-            if(graphics.DrawImage(&source,Gdiplus::Rect(0,0,width,height),g_selection.left,g_selection.top,width,height,Gdiplus::UnitPixel)!=Gdiplus::Ok)
+            // Crop the immutable retained bitmap, not the live screen or its
+            // HBITMAP display copy. Repeated annotation never loses context.
+            if (graphics.DrawImage(draft.fullImage.get(), Gdiplus::Rect(0, 0, width, height),
+                                   g_selection.left, g_selection.top, width, height,
+                                   Gdiplus::UnitPixel) != Gdiplus::Ok)
                 throw std::runtime_error("invalid_image");
         }
         {
-            Gdiplus::Graphics graphics(&annotated);graphics.DrawImage(&original,0,0,width,height);
-            Gdiplus::Rect clip(0,0,width,height);DrawAllStrokes(graphics,g_selection.left,g_selection.top,&clip);
+            Gdiplus::Graphics graphics(&annotated);
+            if (graphics.DrawImage(&original, 0, 0, width, height) != Gdiplus::Ok)
+                throw std::runtime_error("invalid_image");
+            Gdiplus::Rect clip(0, 0, width, height);
+            DrawAllStrokes(graphics, g_selection.left, g_selection.top, &clip);
         }
-        auto originalPath=draft.staging/L"original.png",annotatedPath=draft.staging/L"annotated.png";
-        Mnote::Context::SavePng(original,originalPath);Mnote::Context::SavePng(annotated,annotatedPath);
-        draft.assets={{"original",originalPath},{"annotated",annotatedPath}};
-        draft.fullImage.reset(source.Clone(0,0,g_capture.width,g_capture.height,PixelFormat32bppARGB));
-        if(!draft.fullImage || draft.fullImage->GetLastStatus()!=Gdiplus::Ok)throw std::runtime_error("invalid_image");
-        auto id=Mnote::Wide(Mnote::NewId());
-        draft.data=Mnote::Parse(BuildJson(id,L"",L"",L"","thought",FormatUtcTimestamp(),"local_only",false,"",L"",nullptr,nullptr));
-        draft.data["tags"]=Mnote::Json::array();
-        draft.data["evidence"]["context"]["image"]={
-            {"retained",false},{"asset_role",nullptr},{"width",g_capture.width},{"height",g_capture.height},
-            {"editor_width",width},{"editor_height",height},{"annotation_coordinate_space","selected_image_pixels"},
-            {"coordinate_space","context_image_pixels"},{"selected_asset_role","original"},
-            {"selection",{{"left",g_selection.left},{"top",g_selection.top},{"right",g_selection.right},{"bottom",g_selection.bottom}}}};
-        Mnote::Workspace::Compose(std::move(draft));CloseOverlay();
-    } catch(const std::exception& error) {MessageBoxW(g_overlayWindow,Mnote::ErrorText(error).c_str(),kAppName,MB_OK|MB_ICONWARNING);}
+        const auto capture = Mnote::Parse(BuildJson(
+            Mnote::Wide(draft.data.at("id").get<std::string>()), L"", L"", L"", "thought",
+            FormatUtcTimestamp(), "local_only", false, "", L"", nullptr, nullptr));
+        draft.data["annotations"] = capture.at("annotations");
+        draft.data["capture"] = capture.at("capture");
+        const bool retainContext = draft.assets.count("context") != 0;
+        draft.data["evidence"]["context"]["image"] = {
+            {"retained", retainContext},
+            {"asset_role", retainContext ? Mnote::Json("context") : Mnote::Json(nullptr)},
+            {"width", g_capture.width}, {"height", g_capture.height},
+            {"editor_width", width}, {"editor_height", height},
+            {"annotation_coordinate_space", "selected_image_pixels"},
+            {"coordinate_space", "context_image_pixels"}, {"selected_asset_role", "original"},
+            {"selection", {{"left", g_selection.left}, {"top", g_selection.top},
+                           {"right", g_selection.right}, {"bottom", g_selection.bottom}}}};
+        if (draft.staging.empty())
+            throw std::runtime_error("storage_write");
+        if (draft.scope != Mnote::Workspace::Scope())
+            throw std::runtime_error("account_changed");
+        // Every confirmation writes a new pair. A failed second encode must never
+        // overwrite the crop pair already accepted by the live editor draft.
+        const auto attempt = L"crop-" + Mnote::Wide(Mnote::NewId());
+        const auto originalPath = draft.staging / (attempt + L"-original.png");
+        const auto annotatedPath = draft.staging / (attempt + L"-annotated.png");
+        Mnote::Context::SavePng(original, originalPath);
+        Mnote::Context::SavePng(annotated, annotatedPath);
+        draft.assets["original"] = originalPath;
+        draft.assets["annotated"] = annotatedPath;
+        auto done = std::move(g_annotationDone);
+        g_annotationDone = {};
+        g_annotationDraft.reset();
+        CloseOverlay();
+        if (done) {
+            if (draft.scope == Mnote::Workspace::Scope())
+                done(std::move(draft));
+            else
+                done(std::nullopt);
+        }
+    } catch (const std::exception &error) {
+        MessageBoxW(g_overlayWindow, Mnote::ErrorText(error).c_str(), kAppName,
+                    MB_OK | MB_ICONWARNING);
+    }
 }
 
 void BeginCapture() {
-    if(Mnote::Workspace::HasEditor()){MessageBoxW(g_mainWindow,L"请先保存或关闭正在编辑的记录。",kAppName,MB_OK);return;}
-    g_captureScope=Mnote::Workspace::Scope();
     if (g_overlayWindow != nullptr) {
         SetForegroundWindow(g_overlayWindow);
         return;
     }
-
-    HWND sourceWindow = GetForegroundWindow();
-    g_captureSource=Mnote::Context::Foreground();
-    if (sourceWindow == g_mainWindow) {
-        sourceWindow = nullptr;
-    } else if (sourceWindow != nullptr) {
-        HWND rootWindow = GetAncestor(sourceWindow, GA_ROOT);
-        if (rootWindow != nullptr) {
-            sourceWindow = rootWindow;
-        }
-    }
-    std::wstring error;
-    Mnote::Workspace::Hide();
-    DwmFlush();
-    if (!CaptureVirtualDesktop(sourceWindow, error)) {
-        MessageBoxW(g_mainWindow, error.c_str(), kAppName, MB_OK | MB_ICONERROR);
+    if (Mnote::Workspace::HasEditor()) {
+        MessageBoxW(g_mainWindow, L"请先保存或关闭正在编辑的记录。", kAppName, MB_OK);
         return;
     }
+    try {
+        Mnote::Workspace::Draft draft;
+        draft.scope = Mnote::Workspace::Scope();
+        draft.source = Mnote::Context::Foreground();
+        const auto timestamp = Mnote::Timestamp();
+        draft.data = {{"schema_version", 1}, {"id", Mnote::NewId()},
+                      {"created_at", timestamp}, {"updated_at", timestamp},
+                      {"kind", "thought"}, {"comment", ""},
+                      {"source", draft.source.metadata}, {"tags", Mnote::Json::array()},
+                      {"ai_access", "local_only"}};
+        // Freeze before the composer appears. No selection or annotation is
+        // fabricated for a full-page snapshot.
+        Mnote::Workspace::Hide();
+        DwmFlush();
+        std::wstring captureError;
+        if (CaptureVirtualDesktop(draft.source.window, captureError)) {
+            Gdiplus::Bitmap captured(g_capture.bitmap, nullptr);
+            draft.fullImage.reset(captured.Clone(0, 0, g_capture.width, g_capture.height,
+                                                PixelFormat32bppARGB));
+            if (!draft.fullImage || draft.fullImage->GetLastStatus() != Gdiplus::Ok) {
+                draft.fullImage.reset();
+                captureError = L"无法保留本次截图，截图缓冲区不可用。";
+            } else {
+                draft.data["capture"] = {
+                    {"virtual_screen", {{"x", g_capture.virtualX}, {"y", g_capture.virtualY},
+                                        {"width", g_capture.width}, {"height", g_capture.height}}},
+                    {"coordinate_space", "windows_virtual_desktop_physical_pixels"}};
+                draft.data["evidence"]["context"]["image"] = {
+                    {"retained", true}, {"asset_role", "context"},
+                    {"width", g_capture.width}, {"height", g_capture.height},
+                    {"coordinate_space", "context_image_pixels"}, {"purpose", "page_context"},
+                    {"relation_to_quote", "unverified"},
+                    {"selection_meaning", "full_viewport_not_quote_location"}};
+            }
+        }
+        ResetCaptureFrame();
+        if (!draft.fullImage &&
+            MessageBoxW(g_mainWindow,
+                        (captureError + L"\n\n是否继续创建纯文字记录？不会再次尝试截取受保护内容。")
+                            .c_str(),
+                        L"Mnote · 无法截图", MB_YESNO | MB_DEFBUTTON2 | MB_ICONWARNING) != IDYES)
+            return;
+        if (draft.scope != Mnote::Workspace::Scope())
+            throw std::runtime_error("account_changed");
+        draft.staging = Mnote::Workspace::Staging();
+        if (draft.fullImage) {
+            const auto path = draft.staging / L"context.png";
+            Mnote::Context::SavePng(*draft.fullImage, path);
+            draft.assets["context"] = path;
+        }
+        Mnote::Workspace::Compose(std::move(draft));
+    } catch (const std::exception &error) {
+        ResetCaptureFrame();
+        MessageBoxW(g_mainWindow, Mnote::ErrorText(error).c_str(), kAppName,
+                    MB_OK | MB_ICONWARNING);
+    }
+}
 
+void BeginAnnotate(Mnote::Workspace::Draft draft, Mnote::Workspace::AnnotationDone done) {
+    if (g_overlayWindow != nullptr) {
+        SetForegroundWindow(g_overlayWindow);
+        if (done)
+            done(std::nullopt);
+        return;
+    }
+    if (draft.scope != Mnote::Workspace::Scope() || !draft.fullImage ||
+        draft.fullImage->GetLastStatus() != Gdiplus::Ok) {
+        MessageBoxW(g_mainWindow, L"完整截图不可用或账号已经切换，无法进入批注。", kAppName,
+                    MB_OK | MB_ICONWARNING);
+        if (done)
+            done(std::nullopt);
+        return;
+    }
+    const auto width = draft.fullImage->GetWidth(), height = draft.fullImage->GetHeight();
+    const int desktopWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    const int desktopHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    const POINT overlayOrigin{GetSystemMetrics(SM_XVIRTUALSCREEN),
+                              GetSystemMetrics(SM_YVIRTUALSCREEN)};
+    if (desktopWidth <= 0 || desktopHeight <= 0 || width < 240 || height < 180 ||
+        width > static_cast<UINT>(desktopWidth) || height > static_cast<UINT>(desktopHeight) ||
+        static_cast<std::uint64_t>(width) * height > 32000000) {
+        MessageBoxW(g_mainWindow,
+                    L"这张截图的尺寸不适合当前屏幕进行原尺寸批注。请恢复截图时的显示器布局或分辨率后重试；原图和已有记录不会修改。",
+                    L"Mnote · 暂时无法批注", MB_OK | MB_ICONINFORMATION);
+        if (done)
+            done(std::nullopt);
+        return;
+    }
+    RECT toolbarArea{};
+    const RECT imageArea{overlayOrigin.x, overlayOrigin.y,
+                         overlayOrigin.x + static_cast<LONG>(width),
+                         overlayOrigin.y + static_cast<LONG>(height)};
+    if (!FindToolbarArea(imageArea, overlayOrigin, toolbarArea)) {
+        MessageBoxW(g_mainWindow,
+                    L"当前显示器布局没有足够空间放置批注工具，请恢复截图时的显示器布局后重试。原图和已有记录不会修改。",
+                    L"Mnote · 暂时无法批注", MB_OK | MB_ICONINFORMATION);
+        if (done)
+            done(std::nullopt);
+        return;
+    }
+    ResetCaptureFrame();
     ResetOverlayState();
+    g_capture.width = static_cast<int>(width);
+    g_capture.height = static_cast<int>(height);
+    g_capture.virtualX = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    g_capture.virtualY = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    try {
+        const auto screen = draft.data.value("capture", Mnote::Json::object())
+                                .value("virtual_screen", Mnote::Json::object());
+        g_capture.virtualX = screen.value("x", g_capture.virtualX);
+        g_capture.virtualY = screen.value("y", g_capture.virtualY);
+        g_capture.sourceWindowTitle = GetWindowCaption(draft.source.window);
+        g_capture.sourceProcessPath = GetWindowProcessPath(draft.source.window);
+        // Display the already-retained image. GetHBITMAP only copies that bitmap
+        // into a GDI surface; it never captures a live window or the desktop.
+        if (draft.fullImage->GetHBITMAP(Gdiplus::Color(255, 255, 255, 255), &g_capture.bitmap) !=
+                Gdiplus::Ok ||
+            !g_capture.bitmap)
+            throw std::runtime_error("invalid_image");
+        g_capture.memoryDc = CreateCompatibleDC(nullptr);
+        if (!g_capture.memoryDc)
+            throw std::runtime_error("invalid_image");
+        g_capture.previousBitmap = SelectObject(g_capture.memoryDc, g_capture.bitmap);
+        if (!g_capture.previousBitmap || g_capture.previousBitmap == HGDI_ERROR) {
+            g_capture.previousBitmap = nullptr;
+            throw std::runtime_error("invalid_image");
+        }
+    } catch (const std::exception &error) {
+        ResetCaptureFrame();
+        MessageBoxW(g_mainWindow, Mnote::ErrorText(error).c_str(), kAppName,
+                    MB_OK | MB_ICONWARNING);
+        if (done)
+            done(std::nullopt);
+        return;
+    }
+    g_annotationDraft = std::move(draft);
+    g_annotationDone = std::move(done);
+    try {
+        const auto image=g_annotationDraft->data.value("evidence",Mnote::Json::object())
+                .value("context",Mnote::Json::object()).value("image",Mnote::Json::object());
+        if(image.contains("selection")) {
+            const auto box=image.at("selection");
+            RECT selection{box.at("left").get<LONG>(),box.at("top").get<LONG>(),
+                           box.at("right").get<LONG>(),box.at("bottom").get<LONG>()};
+            if(selection.left<0 || selection.top<0 || selection.right>g_capture.width ||
+               selection.bottom>g_capture.height || selection.right<=selection.left || selection.bottom<=selection.top)
+                throw std::runtime_error("invalid_image");
+            std::vector<Stroke> restored;
+            const auto annotations=g_annotationDraft->data.value("annotations",Mnote::Json::array());
+            if(!annotations.is_array() || annotations.size()>4096)throw std::runtime_error("invalid_image");
+            std::size_t count=0;
+            for(const auto &annotation:annotations) {
+                const auto tool=annotation.at("tool").get<std::string>();
+                if(tool!="pen" && tool!="highlighter")throw std::runtime_error("invalid_image");
+                Stroke stroke;stroke.tool=tool=="pen"?Tool::Pen:Tool::Highlighter;
+                const auto points=annotation.at("points");
+                if(!points.is_array() || (count+=points.size())>100000)throw std::runtime_error("invalid_image");
+                for(const auto &point:points) {
+                    const auto x=point.at("x").get<std::int64_t>()+selection.left;
+                    const auto y=point.at("y").get<std::int64_t>()+selection.top;
+                    if(x<0 || y<0 || x>g_capture.width || y>g_capture.height)throw std::runtime_error("invalid_image");
+                    stroke.points.push_back({static_cast<LONG>(x),static_cast<LONG>(y)});
+                }
+                restored.push_back(std::move(stroke));
+            }
+            g_selection=selection;g_strokes=std::move(restored);
+        }
+    } catch(const std::exception &) {
+        MessageBoxW(g_mainWindow,L"无法恢复已有批注；已确认的结果仍保留，请返回记录页检查。",kAppName,MB_OK|MB_ICONWARNING);
+        CancelCapture();return;
+    }
     g_overlayWindow = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
         kOverlayWindowClass,
         L"Mnote - 冻结画面",
         WS_POPUP,
-        g_capture.virtualX,
-        g_capture.virtualY,
+        overlayOrigin.x,
+        overlayOrigin.y,
         g_capture.width,
         g_capture.height,
         g_mainWindow,
@@ -694,8 +954,8 @@ void BeginCapture() {
         g_instance,
         nullptr);
     if (g_overlayWindow == nullptr) {
-        ResetCaptureFrame();
         MessageBoxW(g_mainWindow, L"无法创建截图编辑窗口。", kAppName, MB_OK | MB_ICONERROR);
+        CancelCapture();
         return;
     }
 
@@ -706,8 +966,8 @@ void BeginCapture() {
     SetWindowPos(
         g_overlayWindow,
         HWND_TOPMOST,
-        g_capture.virtualX,
-        g_capture.virtualY,
+        overlayOrigin.x,
+        overlayOrigin.y,
         g_capture.width,
         g_capture.height,
         SWP_SHOWWINDOW);
@@ -820,8 +1080,7 @@ void ShowTrayMenu(HWND window) {
     if (menu == nullptr) {
         return;
     }
-    AppendMenuW(menu, MF_STRING, kCommandNewCapture, L"单次摘录\tCtrl+Shift+F9");
-    AppendMenuW(menu, MF_STRING, kCommandQuickNote, L"随手记\tCtrl+Shift+F8");
+    AppendMenuW(menu, MF_STRING, kCommandNewCapture, L"记录\tCtrl+Shift+F9");
     AppendMenuW(menu, MF_STRING, kCommandSyncPending, L"刷新与同步");
     AppendMenuW(menu, MF_STRING, kCommandOpenInbox, L"我的知识库");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
@@ -854,7 +1113,7 @@ bool AddTrayIcon() {
     g_trayIcon.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
     lstrcpynW(
         g_trayIcon.szTip,
-        L"Mnote - Ctrl+Shift+F9",
+        L"Mnote · 记录 - Ctrl+Shift+F9 / F8",
         static_cast<int>(sizeof(g_trayIcon.szTip) / sizeof(wchar_t)));
     return Shell_NotifyIconW(NIM_ADD, &g_trayIcon) != FALSE;
 }
@@ -1012,7 +1271,7 @@ LRESULT CALLBACK OverlayWindowProc(HWND window, UINT message, WPARAM wParam, LPA
         return 0;
 
     case WM_DISPLAYCHANGE:
-        ShowTrayNotice(L"采集已取消", L"显示器布局在采集过程中发生变化，请重新截图。", NIIF_WARNING);
+        ShowTrayNotice(L"批注已取消", L"显示器布局发生变化，原始截图和记录草稿仍然保留。", NIIF_WARNING);
         CancelCapture();
         return 0;
 
@@ -1043,7 +1302,7 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         if (RegisterHotKey(window, kHotkeyId, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_F9) == FALSE) {
             MessageBoxW(
                 window,
-                L"Ctrl+Shift+F9 已被其他程序占用。你仍可双击托盘图标开始采集。",
+                L"Ctrl+Shift+F9 已被其他程序占用。你仍可使用托盘菜单中的“记录”。",
                 kAppName,
                 MB_OK | MB_ICONWARNING);
         }
@@ -1051,8 +1310,8 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         return 0;
 
     case WM_HOTKEY:
-        if (wParam == kHotkeyId) BeginCapture();
-        else if(wParam==kQuickHotkeyId) Mnote::Workspace::QuickNote();
+        if (wParam == kHotkeyId || wParam == kQuickHotkeyId)
+            BeginCapture();
         return 0;
 
     case kTrayMessage:
@@ -1076,7 +1335,7 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
             Mnote::Workspace::Sync();
             break;
         case kCommandQuickNote:
-            Mnote::Workspace::QuickNote();
+            BeginCapture();
             break;
         case kCommandExit:
             if(Mnote::Workspace::CanExit())DestroyWindow(window);
@@ -1093,6 +1352,8 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         }
         ResetCaptureFrame();
         ResetOverlayState();
+        g_annotationDone = {};
+        g_annotationDraft.reset();
         UnregisterHotKey(window, kHotkeyId);
         UnregisterHotKey(window, kQuickHotkeyId);
         RemoveTrayIcon();
@@ -1202,7 +1463,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         std::wstring root;if(!GetApplicationDirectory(root))throw std::runtime_error("storage_write");
         Mnote::Workspace::Start(instance,root,[]{BeginCapture();},[](const std::wstring& text,bool error){
             ShowTrayNotice(error ? L"Mnote · 操作提示" : L"Mnote · 已保存",text.c_str(),error ? NIIF_WARNING : NIIF_INFO);
-        },[]{DestroyWindow(g_mainWindow);});
+        },[]{DestroyWindow(g_mainWindow);}, BeginAnnotate);
     } catch(const std::exception& error) {MessageBoxW(nullptr,Mnote::ErrorText(error).c_str(),kAppName,MB_OK|MB_ICONERROR);return 1;}
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {

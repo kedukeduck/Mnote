@@ -505,6 +505,35 @@ int wmain(int argc, wchar_t **argv) {
     }
     if (action == L"editor")
         return Editor() ? 0 : 12;
+    if (action == L"discard-editor") {
+        auto w=Editor();if(!w)return 0;
+        auto dialog=FindWindowW(L"#32770",L"Mnote");
+        if(dialog && GetWindow(dialog,GW_OWNER)==w)
+            PostMessageW(dialog,WM_COMMAND,IDYES,0);
+        else if(IsWindowEnabled(w)) PostMessageW(w,WM_CLOSE,0,0);
+        return 12;
+    }
+    if (action == L"unified-ready") {
+        auto w=Editor();
+        if(!w || !IsWindowVisible(w) || FindWindowW(L"PersonalCapture.CaptureOverlay",nullptr)) return 100;
+        if(!GetDlgItem(w,30005) || !GetDlgItem(w,30006) || !GetDlgItem(w,30007)) return 101;
+        return SendDlgItemMessageW(w,2110,BM_GETCHECK,0,0)==BST_CHECKED?0:102;
+    }
+    if (action == L"annotate") {auto w=Editor();if(!w)return 12;Click(w,30005);return 0;}
+    if (action == L"draft-preserved" || action == L"module-roundtrip") {
+        auto w=Editor();if(!w||!IsWindowVisible(w))return 12;
+        wchar_t text[128]{};GetDlgItemTextW(w,2100,text,128);
+        if(std::wstring(text)!=L"wine-smoke-note")return 103;
+        if(action==L"module-roundtrip") {
+            SendDlgItemMessageW(w,30000,BM_SETCHECK,BST_UNCHECKED,0);
+            SendMessageW(w,WM_COMMAND,MAKEWPARAM(30000,BN_CLICKED),reinterpret_cast<LPARAM>(GetDlgItem(w,30000)));
+            if(IsWindowEnabled(GetDlgItem(w,2100)))return 104;
+            GetDlgItemTextW(w,2100,text,128);if(std::wstring(text)!=L"wine-smoke-note")return 105;
+            SendDlgItemMessageW(w,30000,BM_SETCHECK,BST_CHECKED,0);
+            SendMessageW(w,WM_COMMAND,MAKEWPARAM(30000,BN_CLICKED),reinterpret_cast<LPARAM>(GetDlgItem(w,30000)));
+        }
+        return 0;
+    }
     if (action == L"fill") {
         auto window = Editor();
         if (!window)
@@ -655,7 +684,9 @@ int wmain(int argc, wchar_t **argv) {
         auto w = Editor();
         if (!w)
             return 12;
-        SendDlgItemMessageW(w, 2111, BM_SETCHECK, BST_CHECKED, 0);
+        // A text-only record is now an explicit module choice in the unified editor.
+        SendDlgItemMessageW(w,2110,BM_SETCHECK,BST_UNCHECKED,0);
+        Click(w,2110);
         Click(w, 2111);
         return 0;
     }

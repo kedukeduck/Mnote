@@ -1,4 +1,5 @@
 #include "../src/library.hpp"
+#include "../src/draft_modules.hpp"
 #include <cassert>
 #include <iostream>
 #include <chrono>
@@ -67,7 +68,61 @@ struct FakeServer {
     }
     Transport transport() {return [this](const auto& a,const auto& m,const auto& p,const auto& b,std::size_t n,int r){return call(a,m,p,b,n,r);};}
 };
+void ModuleCases(const fs::path& folder) {
+    auto draft=Note(NewId());
+    draft["source"]["text"]="excerpt private";
+    draft["source"]["url"]="https://example.invalid/private";
+    draft["source"]["selectors"]={{"quote","excerpt private"}};
+    draft["evidence"]["exact_text"]={{"text","excerpt private"}};
+    draft["evidence"]["context"]["text"]={{"full_text","original private"},{"source_url","https://example.invalid/private"}};
+    draft["evidence"]["context"]["image"]={{"retained",true},{"asset_role","context"},
+        {"selected_asset_role","original"},{"selection",{{"left",2},{"top",3},{"right",12},{"bottom",13}}}};
+    draft["annotations"]=Json::array({{{"tool","pen"}}});
+    FakeServer fixture;
+    AtomicWrite(folder/L"fixture.png",fixture.bytes);
+    std::map<std::string,fs::path> assets={{"context",folder/L"fixture.png"},{"original",folder/L"fixture.png"},{"annotated",folder/L"fixture.png"}};
+    auto before=draft;
+    for(int bits=0;bits<64;++bits) {
+        DraftModules mask{bool(bits&1),bool(bits&2),bool(bits&4),bool(bits&8),bool(bits&16),bool(bits&32)};
+        auto data=draft;auto selected=assets;ProjectModules(data,selected,mask);
+        Expect(data["comment"]==(mask.thought?draft["comment"]:Json("")));
+        Expect(data["source"]["text"]==(mask.excerpt?Json("excerpt private"):Json("")));
+        Expect(data["evidence"]["context"].contains("text")==mask.original);
+        Expect(data["source"]["url"]==(mask.link?draft["source"]["url"]:Json("")));
+        Expect(selected.count("context")==static_cast<std::size_t>(mask.page));
+        Expect(selected.count("original")==static_cast<std::size_t>(mask.crop));
+        Expect(selected.count("annotated")==static_cast<std::size_t>(mask.crop));
+        if(!mask.excerpt) Expect(!data["evidence"].contains("exact_text") && !data["source"].contains("selectors"));
+        if(mask.page&&!mask.crop) Expect(data["evidence"]["context"]["image"]["purpose"]=="page_context" && !data["evidence"]["context"]["image"].contains("selection"));
+        if(mask.crop) Expect(!data["evidence"]["context"]["image"].contains("purpose"));
+    }
+    Expect(draft==before && assets.size()==3);
+    Library moduleLibrary(folder/L"library");
+    auto initial=moduleLibrary.save("guest",draft,assets);
+    auto onlyText=initial.data;auto selected=initial.assets;
+    ProjectModules(onlyText,selected,{true,false,false,false,false,false});
+    onlyText["id"]=NewId();
+    auto reduced=moduleLibrary.save("guest",onlyText,selected);
+    Expect(reduced.assets.empty());
+    Expect(!reduced.data["evidence"]["context"].contains("image"));
+    Expect(!reduced.data["evidence"]["context"].contains("text"));
+    Expect(!reduced.data["evidence"].contains("exact_text") && !reduced.data.contains("annotations"));
+    Expect(reduced.data["source"]["text"]=="" && reduced.data["source"]["url"]=="");
+    auto onlyPage=draft;selected=assets;
+    ProjectModules(onlyPage,selected,{false,false,false,false,true,false});
+    onlyPage["id"]=NewId();
+    auto page=moduleLibrary.save("guest",onlyPage,selected);
+    Expect(page.assets.size()==1 && page.assets.count("context"));
+    Expect(page.data["evidence"]["context"]["image"]["purpose"]=="page_context");
+    auto empty=page.data;selected=page.assets;ProjectModules(empty,selected,{false,false,false,false,false,false});
+    empty["id"]=NewId();
+    Throws([&]{moduleLibrary.save("guest",empty,selected);},"empty_record");
+    auto tags=draft;selected=assets;tags["tags"]="invalid unselected draft tags";
+    ProjectModules(tags,selected,{true,true,true,true,true,true,false});
+    Expect(tags["tags"]==Json::array());
+}
 void Cases(const fs::path& folder) {
+    ModuleCases(folder/L"modules");
     Expect(Hash("abc")=="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     Expect(Wide(Utf8(L"中文🌱"))==L"中文🌱");
     Expect(Tags(L"#灵感， TODO;todo\n灵感")==Json::array({"灵感","TODO"}));
