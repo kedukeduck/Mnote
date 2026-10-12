@@ -1,0 +1,23 @@
+[Unit]
+Description=Private Mnote transcription demo
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mnote-transcript
+Group=mnote-transcript
+WorkingDirectory=/opt/mnote-transcript
+EnvironmentFile=/etc/mnote-transcript.env
+ExecStart=/opt/mnote-transcript/.venv/bin/python /opt/mnote-transcript/service.py --host 127.0.0.1 --port 8791
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/mnote-transcript
+
+[Install]
+WantedBy=multi-user.target

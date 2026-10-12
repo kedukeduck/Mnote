@@ -1,0 +1,3 @@
+# Optional operator diagnostic only. NOT invoked by the service: its arbitrary network
+# paths would bypass the service's pinned-IP SSRF/redirect policy.
+yt-dlp==2025.8.22

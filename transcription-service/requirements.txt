@@ -1,0 +1,5 @@
+# Optional CPU inference runtime; stdlib HTTP/SQLite server and mock tests need no pip packages.
+faster-whisper==1.2.1
+# PyAV 19 removed metadata_errors, still used by faster-whisper 1.2.1.
+# https://github.com/PyAV-Org/PyAV/releases/tag/v19.0.0
+av==18.1.0

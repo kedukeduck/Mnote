@@ -1,0 +1,37 @@
+[Unit]
+Description=Mnote private transcription demo API
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=true
+StateDirectory=mnote-transcription-demo
+StateDirectoryMode=0700
+WorkingDirectory=/opt/mnote-transcription-demo
+EnvironmentFile=/etc/mnote-transcription-demo/service.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/mnote-transcription-demo/runtime/bin/python /opt/mnote-transcription-demo/service.py --host 127.0.0.1 --port 8791
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/mnote-transcription-demo
+MemoryMax=1900M
+CPUQuota=100%
+Nice=10
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
