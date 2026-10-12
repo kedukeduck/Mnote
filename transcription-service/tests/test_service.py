@@ -106,8 +106,12 @@ class URLTests(unittest.TestCase):
 
     def test_cdn_boundary(self):
         self.assertTrue(api.cdn_allowed("audio.foo.bilivideo.com", "bilibili", ()))
-        for host in ["bilivideo.com.evil.org", "evilbilivideo.com", "bilibili.com", "127.0.0.1"]:
+        self.assertTrue(api.cdn_allowed("upos-hz-mirrorakam.akamaized.net", "bilibili", ()))
+        for host in ["bilivideo.com.evil.org", "evilbilivideo.com", "bilibili.com", "127.0.0.1",
+                     "evil.akamaized.net", "akamaized.net", "upos-hz-mirrorakam.akamaized.net.evil.org",
+                     "sub.upos-hz-mirrorakam.akamaized.net"]:
             self.assertFalse(api.cdn_allowed(host, "bilibili", ()))
+        self.assertFalse(api.cdn_allowed("upos-hz-mirrorakam.akamaized.net", "douyin", ()))
         self.assertFalse(api.cdn_allowed("sub.media.example.org", "audio", ("media.example.org",)))
 
     def test_all_dns_answers_must_be_public(self):
@@ -181,6 +185,28 @@ class ClientTests(unittest.TestCase):
                 client.fetch("https://media.example.org/a.wav", lambda h: True, 10)
             self.assertEqual(error.exception.code, "too_large")
 
+    def test_partial_body_is_not_success(self):
+        client = self.make_client([FakeResponse(data=b"partial", headers={"Content-Length": "100"})])
+        with self.assertRaises(api.ServiceError) as error:
+            client.fetch("https://media.example.org/a.wav", lambda h: True, 100)
+        self.assertEqual(error.exception.code, "network_failed")
+
+    def test_rejection_and_rate_limit_are_not_folded_into_network_error(self):
+        for status, code in [(403, "source_forbidden"), (412, "source_forbidden"), (429, "source_rate_limited")]:
+            with self.subTest(status=status):
+                client = self.make_client([FakeResponse(status)])
+                with self.assertRaises(api.ServiceError) as error:
+                    client.fetch("https://media.example.org/a.wav", lambda h: True, 100)
+                self.assertEqual(error.exception.code, code)
+
+    def test_shared_expired_deadline_stops_before_dns(self):
+        client = self.make_client([])
+        with self.assertRaises(api.ServiceError) as error:
+            client.fetch("https://media.example.org/a.wav", lambda h: True, 100,
+                         deadline_at=time.monotonic() - 1)
+        self.assertEqual(error.exception.code, "timeout")
+        self.assertEqual(self.resolutions, [])
+
     def test_content_encoding_and_redirect_limit(self):
         client = self.make_client([FakeResponse(headers={"Content-Encoding": "gzip"})])
         with self.assertRaises(api.ServiceError):
@@ -205,16 +231,67 @@ class ClientTests(unittest.TestCase):
 
     def test_real_connection_uses_approved_ip_and_original_tls_name(self):
         connection = api.PinnedHTTPSConnection("media.example.org", "8.8.8.8", 1)
+        class Socket:
+            handshake_started = False
+            exposed_before_handshake = False
+            def do_handshake(self):
+                self.handshake_started = True
+                self.exposed_before_handshake = connection.sock is self
+        tls_socket = Socket()
         class Context:
-            def wrap_socket(self, sock, server_hostname):
+            def wrap_socket(self, sock, server_hostname, do_handshake_on_connect):
                 self.hostname = server_hostname
-                return sock
+                self.implicit_handshake = do_handshake_on_connect
+                return tls_socket
         context = Context()
         connection._context = context
         with patch.object(socket, "create_connection", return_value=object()) as create:
             connection.connect()
         create.assert_called_once_with(("8.8.8.8", 443), 1)
         self.assertEqual(context.hostname, "media.example.org")
+        self.assertFalse(context.implicit_handshake)
+        self.assertTrue(tls_socket.handshake_started)
+        self.assertTrue(tls_socket.exposed_before_handshake)
+
+    def test_hard_deadline_interrupts_tls_handshake_after_slow_connect(self):
+        # Synthetic local endpoint accepts TCP but never responds to ClientHello.
+        # A slow TCP phase leaves little total budget; TLS must not get a fresh
+        # socket timeout while the watchdog only sees the detached raw socket.
+        listener = socket.socket()
+        listener.settimeout(2)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        address = listener.getsockname()
+        released, accepted = threading.Event(), threading.Event()
+        def serve():
+            try:
+                connection, _ = listener.accept()
+            except OSError:
+                return
+            with connection:
+                accepted.set()
+                released.wait(3)
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        original_connect = socket.create_connection
+        def slow_local_connect(approved_address, timeout):
+            self.assertEqual(approved_address, ("8.8.8.8", 443))
+            time.sleep(0.45)
+            return original_connect(address, timeout=timeout)
+        client = api.SafeClient(lambda host: ["8.8.8.8"], deadline_seconds=0.6)
+        try:
+            with patch.object(socket, "create_connection", side_effect=slow_local_connect):
+                started = time.monotonic()
+                with self.assertRaises(api.ServiceError) as error:
+                    client.fetch("https://media.example.org/synthetic.wav", lambda host: host == "media.example.org", 100)
+            self.assertEqual(error.exception.code, "timeout")
+            self.assertTrue(accepted.is_set())
+            # The old implicit handshake takes about 1.05s (TCP 0.45 + TLS 0.6).
+            self.assertLess(time.monotonic() - started, 0.95)
+        finally:
+            released.set()
+            listener.close()
+            thread.join(3)
 
     def test_hard_deadline_and_cancellation_interrupt_blocked_read(self):
         for cancellation in (False, True):
@@ -331,6 +408,50 @@ class ResolverTests(TempCase):
         with self.assertRaises(api.ServiceError) as error:
             api.MediaResolver(Client(), self.config).resolve({"platform": "bilibili", "host": "www.bilibili.com", "url": "https://www.bilibili.com/video/BV1234567890/"})
         self.assertEqual(error.exception.code, "too_long")
+
+    def test_bilibili_keeps_valid_same_stream_backups_bounded_and_private(self):
+        source = {"platform": "bilibili", "host": "www.bilibili.com", "url": "https://www.bilibili.com/video/BV1234567890/"}
+        class Client:
+            def json(self, url, allowed):
+                if "web-interface" in url:
+                    return {"code": 0, "data": {"title": "Synthetic", "pages": [{"duration": 2, "cid": 123}]}}
+                return {"code": 0, "data": {"dash": {"audio": [
+                    {"bandwidth": 100, "baseUrl": "https://audio.bilivideo.com/low?token=SECRET",
+                     "backupUrl": ["https://audio.bilivideo.com/low?token=SECRET", "https://evil.akamaized.net/wrong",
+                                   "https://upos-hz-mirrorakam.akamaized.net/low?token=SECRET", "http://audio.bilivideo.com/plain"],
+                     "backup_url": ["https://other.bilivideo.com/low", "https://fourth.bilivideo.com/low"]},
+                    {"bandwidth": 500, "baseUrl": "https://audio.bilivideo.com/high"}]}}}
+        urls, public = api.MediaResolver(Client(), self.config).resolve_candidates(source)
+        self.assertEqual(len(urls), 3)
+        self.assertEqual(urllib_host(urls[1]), "upos-hz-mirrorakam.akamaized.net")
+        self.assertEqual(urllib_host(urls[2]), "other.bilivideo.com")
+        self.assertTrue(all("/low" in url for url in urls))
+        self.assertNotIn("SECRET", json.dumps(public))
+        self.assertNotIn("akamaized.net", json.dumps(public))
+
+    def test_bilibili_unsafe_primary_does_not_hide_valid_backup(self):
+        class Client:
+            def json(self, url, allowed):
+                if "web-interface" in url:
+                    return {"code": 0, "data": {"title": "Synthetic", "pages": [{"duration": 2, "cid": 123}]}}
+                return {"code": 0, "data": {"dash": {"audio": [{"bandwidth": 100, "base_url": "https://evil.org/audio",
+                    "backup_url": ["https://upos-hz-mirrorakam.akamaized.net/audio"]}]}}}
+        source = {"platform": "bilibili", "host": "www.bilibili.com", "url": "https://www.bilibili.com/video/BV1234567890/"}
+        urls, _ = api.MediaResolver(Client(), self.config).resolve_candidates(source)
+        self.assertEqual(urls, ["https://upos-hz-mirrorakam.akamaized.net/audio"])
+
+    def test_bilibili_all_unsafe_backups_rejected_without_fetch(self):
+        class Client:
+            def json(self, url, allowed):
+                if "web-interface" in url:
+                    return {"code": 0, "data": {"title": "Synthetic", "pages": [{"duration": 2, "cid": 123}]}}
+                return {"code": 0, "data": {"dash": {"audio": [{"bandwidth": 100, "baseUrl": "https://evil.org/audio",
+                    "backupUrl": ["https://localhost/audio", "http://audio.bilivideo.com/audio",
+                                  "https://user:pass@audio.bilivideo.com/audio"]}]}}}
+        source = {"platform": "bilibili", "host": "www.bilibili.com", "url": "https://www.bilibili.com/video/BV1234567890/"}
+        with self.assertRaises(api.ServiceError) as error:
+            api.MediaResolver(Client(), self.config).resolve_candidates(source)
+        self.assertEqual(error.exception.code, "unsafe_url")
 
     def test_douyin_unavailable_is_truthful(self):
         class Client:
@@ -487,7 +608,7 @@ class JobsTests(TempCase):
 
     def test_local_decode_and_asr_commands_no_urls_or_shell(self):
         class Client:
-            def fetch(self, url, allowed, limit, destination, cancel, progress):
+            def fetch(self, url, allowed, limit, destination, cancel, progress, **kwargs):
                 synthetic_wav(destination)
                 progress(1)
                 return b"", url
@@ -507,6 +628,74 @@ class JobsTests(TempCase):
         self.assertEqual(ffmpeg[ffmpeg.index("-protocol_whitelist") + 1], "file,pipe")
         self.assertNotIn("hls", ffmpeg[ffmpeg.index("-format_whitelist") + 1])
         self.assertTrue(all(not any("https://" in value or "SECRET" in value for value in call) for call in calls))
+
+    def test_media_download_403_tries_approved_backup_without_forwarding_credentials(self):
+        fixture = ClientTests()
+        client = fixture.make_client([FakeResponse(403), FakeResponse(data=b"complete")])
+        service = self.make_service(client=client, start_worker=False)
+        destination = self.root / "input.media"
+        urls = ["https://audio.bilivideo.com/a?token=SECRET", "https://upos-hz-mirrorakam.akamaized.net/a?token=SECRET"]
+        service.download_media(urls, {"platform": "bilibili"}, destination, lambda: False, lambda value: None)
+        self.assertEqual(destination.read_bytes(), b"complete")
+        self.assertEqual(fixture.resolutions, ["audio.bilivideo.com", "upos-hz-mirrorakam.akamaized.net"])
+        for call in fixture.calls:
+            if call[0] == "GET":
+                self.assertNotIn("Authorization", call[2])
+                self.assertNotIn("Cookie", call[2])
+
+    def test_media_download_early_eof_replaces_partial_file_not_appends(self):
+        fixture = ClientTests()
+        client = fixture.make_client([FakeResponse(data=b"partial", headers={"Content-Length": "100"}),
+                                    FakeResponse(data=b"second-complete", headers={"Content-Length": "15"})])
+        service = self.make_service(client=client, start_worker=False)
+        destination = self.root / "input.media"
+        service.download_media(["https://audio.bilivideo.com/a", "https://upos-hz-mirrorakam.akamaized.net/a"],
+                               {"platform": "bilibili"}, destination, lambda: False, lambda value: None)
+        self.assertEqual(destination.read_bytes(), b"second-complete")
+
+    def test_media_download_does_not_switch_on_rate_limit_size_deadline_or_unsafe_redirect(self):
+        for code in ("source_rate_limited", "too_large", "timeout", "unsafe_url"):
+            with self.subTest(code=code):
+                calls = []
+                class Client:
+                    def fetch(self, *args, **kwargs):
+                        calls.append(args[0])
+                        raise api.ServiceError(code)
+                service = self.make_service(client=Client(), start_worker=False)
+                with self.assertRaises(api.ServiceError) as error:
+                    service.download_media(["https://audio.bilivideo.com/a", "https://upos-hz-mirrorakam.akamaized.net/a"],
+                                           {"platform": "bilibili"}, self.root / "input.media", lambda: False, lambda value: None)
+                self.assertEqual(error.exception.code, code)
+                self.assertEqual(len(calls), 1)
+
+    def test_media_download_does_not_follow_cross_host_redirect_even_to_another_cdn(self):
+        fixture = ClientTests()
+        client = fixture.make_client([FakeResponse(302, headers={"Location": "https://other.bilivideo.com/a"})])
+        service = self.make_service(client=client, start_worker=False)
+        with self.assertRaises(api.ServiceError) as error:
+            service.download_media(["https://audio.bilivideo.com/a"], {"platform": "bilibili"},
+                                   self.root / "input.media", lambda: False, lambda value: None)
+        self.assertEqual(error.exception.code, "unsafe_url")
+        self.assertEqual(fixture.resolutions, ["audio.bilivideo.com"])
+
+    def test_media_download_candidates_share_deadline_and_have_attempt_cap(self):
+        deadlines, calls = [], []
+        class Client:
+            def fetch(self, *args, **kwargs):
+                calls.append(args[0])
+                deadlines.append(kwargs["deadline_at"])
+                raise api.ServiceError("network_failed")
+        service = self.make_service(client=Client(), start_worker=False)
+        with self.assertRaises(api.ServiceError):
+            service.download_media(["https://audio.bilivideo.com/" + str(n) for n in range(5)],
+                                   {"platform": "bilibili"}, self.root / "input.media", lambda: False, lambda value: None)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(set(deadlines)), 1)
+        calls.clear()
+        with self.assertRaises(api.Cancelled):
+            service.download_media(["https://audio.bilivideo.com/a"], {"platform": "bilibili"},
+                                   self.root / "input.media", lambda: True, lambda value: None)
+        self.assertEqual(calls, [])
 
 
 def wait_terminal(service, ident):

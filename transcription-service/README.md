@@ -89,7 +89,17 @@ preserved, but declaration URL credentials and query parameters are scrubbed.
 Share text may contain
 Chinese surrounding text and exactly one HTTPS URL. B23/Bilibili and Douyin are
 recognized. Bilibili uses ordinary anonymous metadata and lowest-bandwidth DASH
-audio only. Douyin reads public embedded metadata if offered; unavailable or
+audio only. For that same audio representation, it validates the API's primary
+and backup URLs, deduplicates them, and tries at most three approved candidates.
+Besides the bilivideo domains, only the exact observed
+`upos-hz-mirrorakam.akamaized.net` hostname is approved, not `*.akamaized.net`.
+An ordinary network failure, early EOF or HTTP 403/412 can switch to an explicit
+backup; HTTP 429, unsafe redirects, oversized media and cancellation stop the
+attempt. All candidates share a 120-second acquisition deadline (including DNS
+and TLS), and each retry replaces the partial file. A Bilibili media request does
+not follow cross-host redirects: another host must be an approved explicit
+candidate. Source credentials, cookies and forged Referer headers are never sent.
+Douyin reads public embedded metadata if offered; unavailable or
 login/signature-gated links fail clearly instead of asserting successful access.
 Platform changes may make public resolution unavailable. Direct audio supports
 common audio/video container suffixes on configured hosts, not playlists.
@@ -110,6 +120,10 @@ Errors are `{error:{code,message}}` with fixed Chinese messages; source URLs,
 signed query parameters, cookies, stack traces and underlying exception messages
 are never included in responses or access logs. Source summaries only contain
 platform, host, bounded title and optionally duration.
+
+`source_forbidden` identifies HTTP 403/412; `source_rate_limited` identifies
+HTTP 429. `network_failed` covers connection/read failures or other non-200
+responses. A valid share link is not necessarily an accessible audio stream.
 
 If `MNOTE_TRANSCRIPT_DEMO_AUDIO` names the operator-created sample, public
 `GET /demo/sample.wav` serves **only that exact file** and `/demo/license` gives
@@ -147,3 +161,16 @@ endpoint to point at personal media or third-party material.
 An example systemd unit is included. Use a dedicated unprivileged account with
 access only to its model/data directories. Test a model and a recording you created
 before marking deployment operational; passing mock tests is not ASR proof.
+
+For operator-selected Bilibili links, a read-only diagnostic checks public
+metadata and media response headers, without reading media bodies or creating
+transcription jobs:
+
+```sh
+python3 scripts/verify-transcript-bilibili-access.py HTTPS_SHARE_LINK
+```
+
+A 200 response here establishes current source access, not successful complete
+download, decoding, speech recognition or rights verification. It does not print
+signed media queries. Automated regressions use only synthetic/mock media; the
+anonymous end-to-end check uses the operator's original CC0 sample.

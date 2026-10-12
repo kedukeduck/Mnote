@@ -39,6 +39,9 @@ URL_RE = re.compile(r"https?://[^\s<>\"'，。！；、（）【】]+", re.I)
 SITE_HOSTS = frozenset({"b23.tv", "bilibili.com", "www.bilibili.com", "m.bilibili.com",
                         "v.douyin.com", "www.douyin.com", "douyin.com"})
 BILI_HOSTS = frozenset({"b23.tv", "bilibili.com", "www.bilibili.com", "m.bilibili.com"})
+# Observed in Bilibili's anonymous playurl response; do not allow the shared suffix.
+BILI_EXTRA_CDN_HOSTS = frozenset({"upos-hz-mirrorakam.akamaized.net"})
+MAX_MEDIA_CANDIDATES = 3
 DOUYIN_HOSTS = frozenset({"v.douyin.com", "www.douyin.com", "douyin.com"})
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".webm", ".mp4"}
 ERRORS = {
@@ -46,6 +49,8 @@ ERRORS = {
     "invalid_request": "请求格式不正确。", "consent_required": "请确认授权依据并同意当前版本的使用约定。",
     "invalid_url": "未找到有效的 HTTPS 分享链接。", "unsupported_source": "暂不支持此来源；可使用已配置的公开音频域名。",
     "unsafe_url": "链接或重定向不符合安全访问规则。", "network_failed": "无法安全读取公开媒体，请稍后重试。",
+    "source_forbidden": "来源服务器拒绝读取（403/412），请稍后重试或更换来源。",
+    "source_rate_limited": "音视频服务器限制了请求频率（429），请稍后重试。",
     "platform_restricted": "平台未提供可匿名读取的公开音频；本服务不使用登录、Cookie 或签名绕过。",
     "media_unavailable": "未找到可公开读取的音频流。", "too_long": "媒体时长超过 30 分钟限制。",
     "too_large": "媒体文件超过服务大小限制。", "invalid_media": "无法解码为有效音频。",
@@ -201,14 +206,23 @@ class PinnedHTTPSConnection(http.client.HTTPSConnection):
     def connect(self):
         # No second hostname lookup: the approved IP is pinned, while TLS checks the real host.
         self.sock = socket.create_connection((self.address, 443), self.timeout)
-        self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
+        # Publish the actual TLS socket before a potentially blocking handshake.
+        # wrap_socket detaches the raw socket, so the download watchdog cannot
+        # interrupt its default implicit handshake through the old self.sock.
+        tls_socket = self._context.wrap_socket(self.sock, server_hostname=self.host,
+                                              do_handshake_on_connect=False)
+        self.sock = tls_socket
+        tls_socket.do_handshake()
 
 
-def bounded_addresses(host: str, cancel: Callable[[], bool] = lambda: False) -> list[str]:
+def bounded_addresses(host: str, cancel: Callable[[], bool] = lambda: False,
+                      deadline_at: float | None = None) -> list[str]:
     # Isolate the OS resolver so stuck DNS cannot hold the single job worker forever.
     command = [sys.executable, str(Path(__file__).resolve()), "--resolve", host]
     with subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as process:
         deadline = time.monotonic() + 15
+        if deadline_at is not None:
+            deadline = min(deadline, deadline_at)
         while process.poll() is None:
             if cancel() or time.monotonic() > deadline:
                 process.kill()
@@ -236,14 +250,22 @@ class SafeClient:
     def fetch(self, url: str, allowed: Callable[[str], bool], limit: int,
               destination: Path | None = None, cancel: Callable[[], bool] = lambda: False,
               progress: Callable[[float], None] = lambda x: None,
-              stop_redirect: Callable[[str], bool] = lambda url: False) -> tuple[bytes, str]:
+              stop_redirect: Callable[[str], bool] = lambda url: False,
+              deadline_at: float | None = None) -> tuple[bytes, str]:
         deadline = time.monotonic() + self.deadline_seconds
+        if deadline_at is not None:
+            deadline = min(deadline, deadline_at)
         for redirects in range(5):
             if cancel():
                 raise Cancelled()
+            if time.monotonic() >= deadline:
+                raise ServiceError("timeout")
             parts = validate_url(url, allowed)
-            addresses = self.resolver(parts.hostname) if self.resolver else bounded_addresses(parts.hostname, cancel)
-            connection = self.connection(parts.hostname, addresses[0], 15)
+            addresses = self.resolver(parts.hostname) if self.resolver else bounded_addresses(parts.hostname, cancel, deadline)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ServiceError("timeout")
+            connection = self.connection(parts.hostname, addresses[0], min(15, remaining))
             transport_socket = [None]
             finished = threading.Event()
             interrupted = threading.Event()
@@ -274,6 +296,10 @@ class SafeClient:
                     if stop_redirect(url):
                         return b"", url
                     continue
+                if response.status in (403, 412):
+                    raise ServiceError("source_forbidden")
+                if response.status == 429:
+                    raise ServiceError("source_rate_limited")
                 if response.status != 200:
                     raise ServiceError("network_failed")
                 encoding = response.getheader("Content-Encoding", "identity").lower()
@@ -307,6 +333,8 @@ class SafeClient:
                         else:
                             collected.append(chunk)
                         progress(min(1, count / size) if size else 0)
+                if size > 0 and count != size:
+                    raise ServiceError("network_failed")
                 return b"".join(collected), url
             except (OSError, http.client.HTTPException, ssl.SSLError):
                 if interrupted.is_set():
@@ -334,6 +362,8 @@ class SafeClient:
 def cdn_allowed(host: str, platform: str, direct_hosts: tuple[str, ...]) -> bool:
     if platform == "audio":
         return host in direct_hosts
+    if platform == "bilibili" and host in BILI_EXTRA_CDN_HOSTS:
+        return True
     domains = ("bilivideo.com", "bilivideo.cn", "bilivideo.net") if platform == "bilibili" else ("douyinvod.com", "bytecdn.cn", "ibytedtos.com")
     return any(host == domain or host.endswith("." + domain) for domain in domains)
 
@@ -349,7 +379,17 @@ class MediaResolver:
             return self.bilibili(source)
         return self.douyin(source)
 
+    def resolve_candidates(self, source: dict) -> tuple[list[str], dict]:
+        if source["platform"] == "bilibili":
+            return self.bilibili_candidates(source)
+        url, public = self.resolve(source)
+        return [url], public
+
     def bilibili(self, source: dict) -> tuple[str, dict]:
+        urls, public = self.bilibili_candidates(source)
+        return urls[0], public
+
+    def bilibili_candidates(self, source: dict) -> tuple[list[str], dict]:
         url = source["url"]
         if source["host"] == "b23.tv":
             def canonical(candidate):
@@ -387,12 +427,33 @@ class MediaResolver:
             if play.get("code") != 0:
                 raise ServiceError("platform_restricted")
             audio = play["data"]["dash"]["audio"]
+            if not isinstance(audio, list) or not audio:
+                raise ValueError()
             stream = min(audio, key=lambda item: int(item.get("bandwidth", 10**12)))
-            media_url = stream.get("baseUrl") or stream["base_url"]
-        except (KeyError, TypeError, ValueError):
+            media_url = stream.get("baseUrl") or stream.get("base_url")
+        except (KeyError, TypeError, ValueError, AttributeError):
             raise ServiceError("media_unavailable") from None
-        validate_url(media_url, lambda host: cdn_allowed(host, "bilibili", ()))
-        return media_url, {"platform": "bilibili", "host": "www.bilibili.com", "title": clean_text(data.get("title", "公开媒体"), 200, True), "duration_seconds": duration}
+        supplied = [media_url]
+        for key in ("backupUrl", "backup_url"):
+            backups = stream.get(key)
+            if isinstance(backups, list):
+                supplied.extend(backups[:16])
+        urls, rejected = [], False
+        for candidate in supplied:
+            if candidate is None:
+                continue
+            try:
+                validate_url(candidate, lambda host: cdn_allowed(host, "bilibili", ()))
+            except ServiceError:
+                rejected = True
+                continue
+            if candidate not in urls:
+                urls.append(candidate)
+            if len(urls) >= MAX_MEDIA_CANDIDATES:
+                break
+        if not urls:
+            raise ServiceError("unsafe_url" if rejected else "media_unavailable")
+        return urls, {"platform": "bilibili", "host": "www.bilibili.com", "title": clean_text(data.get("title", "公开媒体"), 200, True), "duration_seconds": duration}
 
     def douyin(self, source: dict) -> tuple[str, dict]:
         # Only publicly embedded metadata is read. Never generate signatures or load cookies.
@@ -717,15 +778,15 @@ class JobService:
         ident = job["id"]
         cancel = lambda: self.cancelled_job(ident)
         source = {**job["source"], "url": job["private_url"]}
-        media_url, public_source = self.resolver.resolve(source)
+        media_urls, public_source = self.resolver.resolve_candidates(source)
         if cancel():
             raise Cancelled()
         self.store.update(ident, source=public_source, stage="downloading", progress=15)
         directory = self.work_dir / ident
         directory.mkdir(mode=0o700)
         audio, wav, result, progress_path = directory / "input.media", directory / "audio.wav", directory / "result.json", directory / "progress.txt"
-        self.client.fetch(media_url, lambda host: cdn_allowed(host, source["platform"], self.config.direct_hosts), self.config.max_bytes,
-                          audio, cancel, lambda value: self.store.update(ident, progress=15 + 25 * value))
+        self.download_media(media_urls, source, audio, cancel,
+                            lambda value: self.store.update(ident, progress=15 + 25 * value))
         if cancel():
             raise Cancelled()
         self.store.update(ident, stage="transcribing", progress=42)
@@ -764,6 +825,33 @@ class JobService:
         if result.stat().st_size > 8 * 1024 * 1024:
             raise ServiceError("transcription_failed")
         return json.loads(result.read_text(encoding="utf-8"))
+
+    def download_media(self, urls: list[str], source: dict, destination: Path,
+                       cancel: Callable[[], bool], progress: Callable[[float], None]):
+        # Same selected audio representation, bounded alternatives and one shared budget.
+        deadline = time.monotonic() + 120
+        last_error = None
+        for candidate in urls[:MAX_MEDIA_CANDIDATES]:
+            if cancel():
+                raise Cancelled()
+            if time.monotonic() >= deadline:
+                raise ServiceError("timeout")
+            parts = validate_url(candidate, lambda host: cdn_allowed(host, source["platform"], self.config.direct_hosts))
+            if source["platform"] == "bilibili":
+                # Cross-host redirects must be supplied as separately validated backups.
+                allowed = lambda host, expected=parts.hostname: host == expected
+            else:
+                allowed = lambda host: cdn_allowed(host, source["platform"], self.config.direct_hosts)
+            try:
+                # fetch opens with wb; a retry must never append to a partial first file.
+                self.client.fetch(candidate, allowed, self.config.max_bytes, destination,
+                                  cancel, progress, deadline_at=deadline)
+                return
+            except ServiceError as error:
+                if error.code not in ("network_failed", "source_forbidden"):
+                    raise
+                last_error = error
+        raise last_error or ServiceError("media_unavailable")
 
     def close(self):
         self.stop_event.set()
