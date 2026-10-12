@@ -2,6 +2,7 @@
 import contextlib
 import dataclasses
 import http.client
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
 import os
@@ -272,6 +273,37 @@ class ClientTests(unittest.TestCase):
             api.bounded_addresses("media.example.org")
         self.assertTrue(process.killed)
         self.assertEqual(error.exception.code, "timeout")
+
+    def test_http10_body_deadline_keeps_original_socket_after_getresponse(self):
+        release = threading.Event()
+        class Stub(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"a")
+                self.wfile.flush()
+                release.wait(1)
+                with contextlib.suppress(OSError):
+                    self.wfile.write(b"b")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Stub)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        client = api.SafeClient(lambda host: ["8.8.8.8"],
+            lambda host, address, timeout: http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=2), deadline_seconds=0.08)
+        try:
+            started = time.monotonic()
+            with self.assertRaises(api.ServiceError) as error:
+                client.fetch("https://media.example.org/synthetic.wav", lambda host: True, 100)
+            self.assertEqual(error.exception.code, "timeout")
+            self.assertLess(time.monotonic() - started, 0.4)
+        finally:
+            release.set()
+            server.shutdown()
+            server.server_close()
+            thread.join(2)
 
 
 def urllib_host(url):

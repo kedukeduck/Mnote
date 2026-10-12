@@ -244,13 +244,15 @@ class SafeClient:
             parts = validate_url(url, allowed)
             addresses = self.resolver(parts.hostname) if self.resolver else bounded_addresses(parts.hostname, cancel)
             connection = self.connection(parts.hostname, addresses[0], 15)
+            transport_socket = [None]
             finished = threading.Event()
             interrupted = threading.Event()
             def watchdog():
                 while not finished.wait(0.1):
                     if cancel() or time.monotonic() >= deadline:
                         interrupted.set()
-                        sock = connection.sock
+                        # HTTP/1.0 clears connection.sock while response.fp still owns it.
+                        sock = transport_socket[0] or connection.sock
                         if sock:
                             with contextlib.suppress(OSError):
                                 sock.shutdown(socket.SHUT_RDWR)
@@ -261,6 +263,7 @@ class SafeClient:
             try:
                 path = urllib.parse.urlunsplit(("", "", parts.path or "/", parts.query, ""))
                 connection.request("GET", path, headers={"User-Agent": "MnoteAuthorizedTranscript/1.0", "Accept-Encoding": "identity"})
+                transport_socket[0] = connection.sock
                 response = connection.getresponse()
                 if response.status in (301, 302, 303, 307, 308):
                     location = response.getheader("Location")

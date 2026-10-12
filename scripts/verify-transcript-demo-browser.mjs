@@ -1,11 +1,14 @@
-// Isolated, local-only browser QA using the existing headless Chromium service.
+// Isolated browser QA using the existing headless Chromium service.
 // Creates its own browser context; never reads other tabs, cookies, or profiles.
 import { mkdir, writeFile } from 'node:fs/promises';
 
 const url = process.argv[2] || 'http://127.0.0.1:5173/';
 const output = process.argv[3];
-if (!output || !['127.0.0.1', 'localhost'].includes(new URL(url).hostname)) {
-  throw new Error('Pass a local preview URL and an absolute screenshot directory.');
+const site = new URL(url);
+const publicDemo = site.origin === 'https://chenyu.online' && site.pathname === '/mnote-transcript/' && !site.search && !site.hash;
+const api = site.pathname.startsWith('/mnote-transcript/') ? '/mnote-transcript/api/transcripts' : '/api/transcripts';
+if (!output?.startsWith('/') || (!publicDemo && !['127.0.0.1', 'localhost'].includes(site.hostname))) {
+  throw new Error('Pass a local preview or the exact public demo URL and an absolute screenshot directory.');
 }
 const browser = await fetch('http://127.0.0.1:9222/json/version').then(r => r.json());
 const socket = new WebSocket(browser.webSocketDebuggerUrl);
@@ -56,13 +59,21 @@ try {
   const mobile = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true }, sessionId);
   await writeFile(`${output}/mobile.png`, Buffer.from(mobile.data, 'base64'));
   const mobileLayout = await evaluate('({viewport:innerWidth,width:document.documentElement.scrollWidth})');
-  const config = await evaluate('fetch("/api/transcripts/config").then(async r=>({status:r.status,body:await r.json()}))');
-  const originGuard = await evaluate('fetch("/api/transcripts/jobs",{method:"POST",headers:{"Content-Type":"text/plain"},body:"{}"}).then(r=>r.status)');
+  const config = await evaluate(`fetch("${api}/config").then(async r=>({status:r.status,body:await r.json()}))`);
+  const originGuard = await evaluate(`fetch("${api}/jobs",{method:"POST",headers:{"Content-Type":"text/plain"},body:"{}"}).then(r=>r.status)`);
   console.log(JSON.stringify({ desktop: desktopLayout, mobile: mobileLayout, config, invalidContentTypeStatus: originGuard, screenshotDirectory: output }, null, 2));
   if (desktopLayout.width > desktopLayout.viewport || mobileLayout.width > mobileLayout.viewport) throw new Error('Horizontal layout overflow');
   if (desktopLayout.checkboxes.some(Boolean)) throw new Error('Consent must start unchecked');
   if (config.status !== 200 || config.body.ready !== true) throw new Error('Backend readiness check failed');
   if (originGuard !== 415) throw new Error('JSON-only mutation guard failed');
+  if (publicDemo) {
+    const {cookies} = await call('Network.getCookies', {urls:[url]}, sessionId);
+    const visitor = cookies.find(x=>x.name==='__Host-mnote-transcript-visitor');
+    if (!visitor || !visitor.httpOnly || !visitor.secure || visitor.sameSite !== 'Strict' || visitor.path !== '/') throw new Error('Anonymous cookie security flags missing');
+    const anonymous = await evaluate('({url:location.href,loginPrompt:/signin-with-chatgpt|signout-with-chatgpt/.test(document.body.innerHTML),cookieReadable:document.cookie.includes("__Host-mnote-transcript-visitor")})');
+    if (anonymous.url !== url || anonymous.loginPrompt || anonymous.cookieReadable) throw new Error('Public page requires login or leaks HttpOnly visitor cookie');
+    console.log(JSON.stringify({anonymousPage: true, secureHttpOnlyCookie: true, noLoginRequired: true}));
+  }
   // Exercise the actual UI, using only the project's original CC0 test speech.
   for (let attempt = 0; attempt < 30; attempt++) {
     if (await evaluate('[...document.querySelectorAll("button")].some(x=>x.textContent.includes("用测试音频体验"))')) break;
@@ -91,7 +102,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 150));
     const segmentCount = await evaluate('document.querySelectorAll("#panel-segments .segment-row").length');
     if (!segmentCount) throw new Error('Timeline not rendered');
-    const exports = await evaluate(`Promise.all(["txt","md","srt"].map(async format=>{const response=await fetch("/api/transcripts/jobs/${jobId}/download?format="+format);return {format,status:response.status,bytes:(await response.arrayBuffer()).byteLength}}))`);
+    const exports = await evaluate(`Promise.all(["txt","md","srt"].map(async format=>{const response=await fetch("${api}/jobs/${jobId}/download?format="+format);return {format,status:response.status,bytes:(await response.arrayBuffer()).byteLength}}))`);
     if (exports.some(x=>x.status !== 200 || !x.bytes)) throw new Error('Browser export failed');
     await call('Page.navigate', { url }, sessionId);
     for (let attempt = 0; attempt < 30; attempt++) {
@@ -108,12 +119,12 @@ try {
       if (!await evaluate('sessionStorage.getItem("mnote-transcript-job-id")')) break;
       await new Promise(resolve => setTimeout(resolve, 250));
     }
-    const deletedStatus = await evaluate(`fetch("/api/transcripts/jobs/${jobId}").then(r=>r.status)`);
+    const deletedStatus = await evaluate(`fetch("${api}/jobs/${jobId}").then(r=>r.status)`);
     if (deletedStatus !== 404) throw new Error('Deleted UI record remains accessible');
     console.log(JSON.stringify({ actualUITranscription: result.text, timelineSegments: segmentCount, exports, restoredAfterRefresh: true, deletedStatus }, null, 2));
     jobId = null;
   } finally {
-    if (jobId) await evaluate(`fetch("/api/transcripts/jobs/${jobId}",{method:"DELETE"}).then(r=>r.status)`);
+    if (jobId) await evaluate(`fetch("${api}/jobs/${jobId}",{method:"DELETE"}).then(r=>r.status)`);
   }
 } finally {
   await call('Target.disposeBrowserContext', { browserContextId });

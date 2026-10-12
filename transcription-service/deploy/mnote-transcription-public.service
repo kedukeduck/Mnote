@@ -1,0 +1,39 @@
+[Unit]
+Description=Mnote anonymous transcription demo gateway
+Wants=network-online.target
+After=network-online.target mnote-transcription-demo.service
+
+[Service]
+Type=simple
+DynamicUser=true
+StateDirectory=mnote-transcription-public
+StateDirectoryMode=0700
+WorkingDirectory=/opt/mnote-transcription-demo
+EnvironmentFile=/etc/mnote-transcription-demo/service.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=MNOTE_TRANSCRIPT_GATEWAY_DATA=/var/lib/mnote-transcription-public
+Environment=MNOTE_TRANSCRIPT_PUBLIC_ORIGIN=https://chenyu.online
+ExecStart=/usr/bin/python3 /opt/mnote-transcription-demo/public_gateway.py
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/mnote-transcription-public
+MemoryMax=128M
+CPUQuota=20%
+TasksMax=64
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
