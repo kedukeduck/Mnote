@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import socketserver
 import sys
 import tempfile
 import threading
@@ -47,6 +48,20 @@ class TempCase(unittest.TestCase):
 
 
 class ConfigTests(TempCase):
+    def test_optional_browser_configuration_and_private_repr(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(api.Config.from_env().browser_socket, "")
+        with patch.dict(os.environ, {"MNOTE_TRANSCRIPT_BROWSER_SOCKET": "/run/mnote-transcription-browser/api.sock",
+                                     "MNOTE_TRANSCRIPT_BROWSER_TOKEN": "s" * 40}, clear=True):
+            config = api.Config.from_env()
+            self.assertEqual(config.browser_token, "s" * 40)
+            self.assertNotIn("s" * 40, repr(config))
+            for token in ("short", "secret\r\nInjected: value", " ".join(["x"] * 40)):
+                with patch.dict(os.environ, {"MNOTE_TRANSCRIPT_BROWSER_TOKEN": token}), self.assertRaises(ValueError):
+                    api.Config.from_env()
+            with patch.dict(os.environ, {"MNOTE_TRANSCRIPT_BROWSER_SOCKET": "relative.sock"}), self.assertRaises(ValueError):
+                api.Config.from_env()
+
     def prepare(self):
         self.config.model_path.mkdir()
         (self.config.model_path / "model.bin").write_bytes(b"synthetic-not-loaded")
@@ -388,7 +403,275 @@ def urllib_host(url):
     return urllib.parse.urlsplit(url).hostname
 
 
+def douyin_item(ident="1234567890123456789", url="https://v3-dy-o.zjcdn.com/synthetic?signature=SECRET%2Fpart"):
+    return {"aweme_id": ident, "aweme_type": 0, "desc": "Synthetic local fixture", "video": {
+        "duration": 1000, "play_addr": {"url_list": [url]}}}
+
+
+class BrowserHelperTests(TempCase):
+    @contextlib.contextmanager
+    def helper(self, data, status=200, headers=None, pause=None):
+        payload = data if isinstance(data, bytes) else json.dumps(data).encode()
+        calls, entered, release = [], threading.Event(), threading.Event()
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+            def do_POST(self):
+                calls.append((self.path, dict(self.headers), json.loads(self.rfile.read(int(self.headers["Content-Length"])))))
+                entered.set()
+                if pause == "headers":
+                    release.wait(3)
+                with contextlib.suppress(OSError):
+                    self.send_response(status)
+                    for key, value in (headers or {"Content-Length": str(len(payload))}).items():
+                        self.send_header(key, value)
+                    self.end_headers()
+                    if pause == "body":
+                        self.wfile.write(payload[:1])
+                        self.wfile.flush()
+                        release.wait(3)
+                        self.wfile.write(payload[1:])
+                    else:
+                        self.wfile.write(payload)
+        class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+            daemon_threads = True
+        path = str(self.root / "helper.sock")
+        server = Server(path, Handler)
+        thread = threading.Thread(target=lambda: server.serve_forever(poll_interval=0.01), daemon=True)
+        thread.start()
+        config = dataclasses.replace(self.config, browser_socket=path, browser_token="h" * 40)
+        try:
+            yield config, calls, entered, release
+        finally:
+            release.set()
+            server.shutdown()
+            server.server_close()
+            thread.join(2)
+            Path(path).unlink(missing_ok=True)
+
+    def test_real_unix_contract_sends_only_id_and_helper_credential(self):
+        item = douyin_item()
+        with self.helper({"item": item}) as (config, calls, _, _):
+            self.assertEqual(api.browser_resolve(config, item["aweme_id"]), item)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], "/resolve")
+        self.assertEqual(calls[0][1]["Authorization"], "Bearer " + "h" * 40)
+        self.assertNotIn("Cookie", calls[0][1])
+        self.assertEqual(calls[0][2], {"video_id": item["aweme_id"]})
+
+    def test_helper_errors_are_allowlisted_without_echoing_private_details(self):
+        for supplied, expected in [(code, code) for code in api.BROWSER_ERROR_CODES] + [
+                ("cookie=PRIVATE", "browser_unavailable"), (["timeout"], "browser_unavailable")]:
+            with self.subTest(supplied=supplied), self.helper({"error": {"code": supplied, "message": "PRIVATE"}}, 503) as (config, _, _, _):
+                with self.assertRaises(api.ServiceError) as error:
+                    api.browser_resolve(config, "1234567890123456789")
+                self.assertEqual(error.exception.code, expected)
+                self.assertNotIn("PRIVATE", str(error.exception))
+
+    def test_helper_does_not_follow_redirects(self):
+        with self.helper(b"", 302, {"Location": "https://evil.example/PRIVATE", "Content-Length": "0"}) as (config, calls, _, _):
+            with self.assertRaises(api.ServiceError) as error:
+                api.browser_resolve(config, "1234567890123456789")
+            self.assertEqual(error.exception.code, "browser_unavailable")
+            self.assertEqual(len(calls), 1)
+
+    def test_helper_body_cap_encoding_and_partial_json_fail_closed(self):
+        cases = [(b"{}", {"Content-Length": str(api.BROWSER_MAX_BYTES + 1)}),
+                 (b" " * (api.BROWSER_MAX_BYTES + 1), {"Connection": "close"}),
+                 (b"{}", {"Content-Length": "9"}), (b"{}", {"Content-Length": "bad"}),
+                 (b"{}", {"Content-Encoding": "gzip"}), (b"not-json", None),
+                 (b"[]", None), (b'{"item":[]}', None)]
+        for data, headers in cases:
+            with self.subTest(length=len(data), headers=headers), self.helper(data, headers=headers) as (config, _, _, _):
+                with self.assertRaises(api.ServiceError) as error:
+                    api.browser_resolve(config, "1234567890123456789")
+                self.assertEqual(error.exception.code, "browser_unavailable")
+
+    def test_helper_cancel_and_deadline_interrupt_headers_and_http10_body(self):
+        for pause in ("headers", "body"):
+            for cancellation in (False, True):
+                with self.subTest(pause=pause, cancellation=cancellation), self.helper({"item": douyin_item()}, pause=pause) as (config, _, entered, _):
+                    stopped = threading.Event()
+                    if cancellation:
+                        def stop():
+                            entered.wait(1)
+                            stopped.set()
+                        thread = threading.Thread(target=stop)
+                        thread.start()
+                    with patch.object(api, "BROWSER_TIMEOUT", 5 if cancellation else 0.12):
+                        started = time.monotonic()
+                        with self.assertRaises(api.Cancelled if cancellation else api.ServiceError) as error:
+                            api.browser_resolve(config, "1234567890123456789", stopped.is_set)
+                        self.assertLess(time.monotonic() - started, 0.8)
+                        if not cancellation:
+                            self.assertEqual(error.exception.code, "timeout")
+                    if cancellation:
+                        thread.join(1)
+
+    def test_helper_disabled_missing_socket_invalid_id_and_cancel(self):
+        with self.assertRaises(api.ServiceError) as error:
+            api.browser_resolve(self.config, "1234567890123456789")
+        self.assertEqual(error.exception.code, "browser_unavailable")
+        config = dataclasses.replace(self.config, browser_socket=str(self.root / "missing.sock"), browser_token="x" * 40)
+        with self.assertRaises(api.ServiceError) as error:
+            api.browser_resolve(config, "1234567890123456789")
+        self.assertEqual(error.exception.code, "browser_unavailable")
+        with patch.object(api, "UnixHTTPConnection", side_effect=AssertionError("must not connect")):
+            with self.assertRaises(api.Cancelled):
+                api.browser_resolve(config, "1234567890123456789", lambda: True)
+            with self.assertRaises(api.ServiceError) as error:
+                api.browser_resolve(config, "1?cookie=PRIVATE")
+            self.assertEqual(error.exception.code, "invalid_request")
+
+    def test_helper_cancellation_racing_socket_publication_still_interrupts(self):
+        with self.helper({"item": douyin_item()}, pause="headers") as (config, _, _, _):
+            stopped = threading.Event()
+            original_connect = api.UnixHTTPConnection.connect
+            def delayed_connect(connection):
+                # Watchdog first observes no socket. A later connect must not
+                # escape its cancellation/total-budget guard.
+                stopped.set()
+                time.sleep(0.12)
+                original_connect(connection)
+            started = time.monotonic()
+            with patch.object(api.UnixHTTPConnection, "connect", delayed_connect), self.assertRaises(api.Cancelled):
+                api.browser_resolve(config, "1234567890123456789", stopped.is_set)
+            self.assertLess(time.monotonic() - started, 0.7)
+
+
 class ResolverTests(TempCase):
+    def test_douyin_canonical_browser_avoids_desktop_challenge_and_forwards_cancel(self):
+        item = douyin_item()
+        config = dataclasses.replace(self.config, browser_socket="/configured/helper.sock", browser_token="s" * 40)
+        cancel = lambda: False
+        class Client:
+            def fetch(self, *args, **kwargs):
+                raise AssertionError("canonical ID should not fetch desktop HTML first")
+        for url in ("https://www.douyin.com/video/", "https://www.iesdouyin.com/share/video/", "https://douyin.com/video/"):
+            source = api.parse_share_text(url + item["aweme_id"], ())
+            with self.subTest(url=url), patch.object(api, "browser_resolve", return_value=item) as helper:
+                urls, public = api.MediaResolver(Client(), config).resolve_candidates(source, cancel)
+                helper.assert_called_once_with(config, item["aweme_id"], cancel)
+                self.assertIn("SECRET%2Fpart", urls[0])
+                self.assertNotIn("SECRET", json.dumps(public))
+
+    def test_douyin_short_link_stops_on_verified_canonical_without_reading_transition(self):
+        item = douyin_item()
+        config = dataclasses.replace(self.config, browser_socket="/configured/helper.sock", browser_token="s" * 40)
+        for host, path in (("www.iesdouyin.com", "share/video"), ("www.douyin.com", "video")):
+            fixture = ClientTests()
+            target = f"https://{host}/{path}/{item['aweme_id']}/?from=share"
+            client = fixture.make_client([FakeResponse(302, headers={"Location": target})])
+            with self.subTest(host=host), patch.object(api, "browser_resolve", return_value=item) as helper:
+                urls, _ = api.MediaResolver(client, config).resolve_candidates(api.parse_share_text("https://v.douyin.com/mock/", ()))
+                self.assertEqual(fixture.resolutions, ["v.douyin.com"])
+                self.assertEqual(helper.call_args.args[1], item["aweme_id"])
+                self.assertEqual(len(urls), 1)
+
+    def test_douyin_public_raw_and_outer_encoded_json_preserve_signed_url_bytes(self):
+        import urllib.parse
+        item = douyin_item()
+        for encode in (lambda value: value, urllib.parse.quote):
+            class Client:
+                def fetch(self, *args, **kwargs):
+                    return ('<script id="RENDER_DATA">' + encode(json.dumps({"target": item})) + '</script>').encode(), "https://www.iesdouyin.com/share/video/" + item["aweme_id"]
+            urls, _ = api.MediaResolver(Client(), self.config).resolve_candidates(api.parse_share_text("https://v.douyin.com/mock/", ()))
+            self.assertEqual(urls, item["video"]["play_addr"]["url_list"])
+
+    def test_douyin_disabled_helper_follows_only_canonical_public_compatibility_page(self):
+        fixture = ClientTests()
+        item = douyin_item()
+        canonical = "https://www.iesdouyin.com/share/video/" + item["aweme_id"]
+        client = fixture.make_client([FakeResponse(302, headers={"Location": canonical}),
+                                     FakeResponse(data=('<script id="RENDER_DATA">' + json.dumps(item) + '</script>').encode())])
+        urls, _ = api.MediaResolver(client, self.config).resolve_candidates(api.parse_share_text("https://v.douyin.com/mock/", ()))
+        self.assertEqual(len(urls), 1)
+        self.assertEqual(fixture.resolutions, ["v.douyin.com", "www.iesdouyin.com"])
+
+    def test_douyin_fallback_only_after_nonrestricted_public_metadata_failure(self):
+        item = douyin_item()
+        config = dataclasses.replace(self.config, browser_socket="/configured/helper.sock", browser_token="s" * 40)
+        for html in (b"<html>Public video app shell</html>", b'<script id="RENDER_DATA">broken</script>'):
+            class Client:
+                def fetch(self, *args, **kwargs):
+                    return html, "https://www.douyin.com/video/" + item["aweme_id"]
+            with self.subTest(html=html), patch.object(api, "browser_resolve", return_value=item) as helper:
+                self.assertEqual(len(api.MediaResolver(Client(), config).resolve_candidates(api.parse_share_text("https://v.douyin.com/mock/", ()))[0]), 1)
+                helper.assert_called_once()
+
+    def test_douyin_restrictions_never_fall_through_to_browser(self):
+        config = dataclasses.replace(self.config, browser_socket="/configured/helper.sock", browser_token="s" * 40)
+        for value in (b"Login needed", b"Please sign in", "请输入验证码".encode(), b"captcha",
+                      api.ServiceError("source_rate_limited"), api.ServiceError("source_forbidden"), api.ServiceError("unsafe_url")):
+            class Client:
+                def fetch(self, *args, **kwargs):
+                    if isinstance(value, Exception):
+                        raise value
+                    return value, "https://www.douyin.com/video/1234567890123456789"
+            with self.subTest(value=value), patch.object(api, "browser_resolve", side_effect=AssertionError("must not evade restrictions")):
+                with self.assertRaises(api.ServiceError) as error:
+                    api.MediaResolver(Client(), config).resolve_candidates(api.parse_share_text("https://v.douyin.com/mock/", ()))
+                self.assertEqual(error.exception.code, value.code if isinstance(value, api.ServiceError) else "platform_restricted")
+
+    def test_douyin_note_or_photo_metadata_rejected_before_background_music(self):
+        for config in (self.config, dataclasses.replace(self.config, browser_socket="/configured/helper.sock")):
+            with patch.object(api, "browser_resolve", side_effect=AssertionError("note must not call helper")):
+                with self.assertRaises(api.ServiceError) as error:
+                    api.MediaResolver(object(), config).resolve_candidates(api.parse_share_text("https://www.douyin.com/note/1234567890123456789", ()))
+                self.assertEqual(error.exception.code, "image_post_unsupported")
+        for metadata in ({"aweme_type": 68}, {"aweme_type": "150"}, {"images": [{}]}, {"image_post_info": {"images": [{}]}}):
+            item = {**douyin_item(), **metadata}
+            with self.subTest(metadata=metadata), self.assertRaises(api.ServiceError) as error:
+                api.MediaResolver.douyin_item(item, item["aweme_id"])
+            self.assertEqual(error.exception.code, "image_post_unsupported")
+
+    def test_douyin_rejects_mismatched_recommendation_and_unconfirmed_ids(self):
+        config = dataclasses.replace(self.config, browser_socket="/configured/helper.sock", browser_token="s" * 40)
+        with patch.object(api, "browser_resolve", return_value=douyin_item("9876543210987654321")):
+            with self.assertRaises(api.ServiceError) as error:
+                api.MediaResolver(object(), config).resolve_candidates(api.parse_share_text("https://www.douyin.com/video/1234567890123456789", ()))
+            self.assertEqual(error.exception.code, "platform_restricted")
+        for target in ("https://www.douyin.com/?modal_id=1234567890123456789",
+                       "https://www.douyin.com/not/video/1234567890123456789",
+                       "https://v.douyin.com/video/1234567890123456789"):
+            self.assertIsNone(api.MediaResolver.douyin_identity(target))
+        with self.assertRaises(api.ServiceError):
+            api.MediaResolver.douyin_identity("https://evil.example/video/1234567890123456789")
+        class Client:
+            def fetch(self, *args, **kwargs):
+                return b"", "https://www.douyin.com/video/9876543210987654321"
+        with self.assertRaises(api.ServiceError) as error:
+            api.MediaResolver(Client(), self.config).resolve_candidates(api.parse_share_text("https://www.douyin.com/video/1234567890123456789", ()))
+        self.assertEqual(error.exception.code, "platform_restricted")
+
+    def test_douyin_lowest_representation_keeps_safe_player_fallback_with_three_url_cap(self):
+        item = douyin_item()
+        item["video"]["bit_rate"] = [
+            {"bit_rate": 900, "play_addr": {"url_list": ["https://media.douyinvod.com/high"]}},
+            {"bit_rate": 100, "play_addr": {"url_list": ["http://media.douyinvod.com/plain", "https://other.zjcdn.com/wrong",
+                "https://user:pass@media.douyinvod.com/wrong", "https://127.0.0.1/wrong", "https://v3-dy-o.zjcdn.com/low?token=SECRET",
+                "https://media.douyinvod.com/low", "https://media.douyinvod.com/low", "https://alternate.bytecdn.cn/low", "https://fourth.douyinvod.com/low"]}},
+            {"bit_rate": "malformed", "play_addr": {"url_list": ["https://media.douyinvod.com/wrong"]}}]
+        urls, public = api.MediaResolver.douyin_item(item, item["aweme_id"])
+        self.assertEqual(len(urls), 3)
+        self.assertIn("/low", urls[0])
+        self.assertIn(item["video"]["play_addr"]["url_list"][0], urls)
+        self.assertFalse(any("/high" in url or "/wrong" in url for url in urls))
+        self.assertEqual(urllib_host(urls[0]), "v3-dy-o.zjcdn.com")
+        self.assertNotIn("SECRET", json.dumps(public))
+        self.assertFalse(api.cdn_allowed("other.zjcdn.com", "douyin", ()))
+        self.assertFalse(api.cdn_allowed("v3-dy-o.zjcdn.com.evil.example", "douyin", ()))
+
+    def test_douyin_unsafe_missing_and_long_media_are_terminal(self):
+        for modification, expected in [({"duration": 1801000}, "too_long"), ({"duration": 0}, "platform_restricted"),
+                                       ({"play_addr": {"url_list": []}}, "media_unavailable"),
+                                       ({"play_addr": {"url_list": ["https://localhost/a"]}}, "unsafe_url")]:
+            item = douyin_item()
+            item["video"].update(modification)
+            with self.subTest(expected=expected), self.assertRaises(api.ServiceError) as error:
+                api.MediaResolver.douyin_item(item, item["aweme_id"])
+            self.assertEqual(error.exception.code, expected)
+
     def test_bilibili_chooses_lowest_bandwidth(self):
         class Client:
             def json(self, url, allowed):
@@ -629,6 +912,42 @@ class JobsTests(TempCase):
         self.assertNotIn("hls", ffmpeg[ffmpeg.index("-format_whitelist") + 1])
         self.assertTrue(all(not any("https://" in value or "SECRET" in value for value in call) for call in calls))
 
+    def test_process_passes_live_cancellation_to_resolver(self):
+        service = self.make_service(start_worker=False)
+        job = service.submit("owner-a", body())
+        observed = []
+        class Resolver:
+            def resolve_candidates(self, source, cancel):
+                observed.append(cancel())
+                service.delete(job["id"], "owner-a")
+                observed.append(cancel())
+                raise api.Cancelled()
+        service.resolver = Resolver()
+        with patch.object(api.Config, "ready", return_value=True), self.assertRaises(api.Cancelled):
+            service.process(service.store.get(job["id"], private=True))
+        self.assertEqual(observed, [False, True])
+
+    def test_douyin_download_backups_are_separate_cookie_free_candidates(self):
+        fixture = ClientTests()
+        client = fixture.make_client([FakeResponse(403), FakeResponse(data=b"synthetic-media")])
+        service = self.make_service(client=client, start_worker=False)
+        urls = ["https://media.douyinvod.com/low?signature=SECRET", "https://v3-dy-o.zjcdn.com/low?signature=SECRET"]
+        destination = self.root / "input.media"
+        service.download_media(urls, {"platform": "douyin"}, destination, lambda: False, lambda value: None)
+        self.assertEqual(destination.read_bytes(), b"synthetic-media")
+        self.assertEqual(fixture.resolutions, ["media.douyinvod.com", "v3-dy-o.zjcdn.com"])
+        for call in fixture.calls:
+            if call[0] == "GET":
+                self.assertNotIn("Authorization", call[2])
+                self.assertNotIn("Cookie", call[2])
+        fixture = ClientTests()
+        client = fixture.make_client([FakeResponse(302, headers={"Location": urls[1]})])
+        service = self.make_service(client=client, start_worker=False)
+        with self.assertRaises(api.ServiceError) as error:
+            service.download_media(urls, {"platform": "douyin"}, destination, lambda: False, lambda value: None)
+        self.assertEqual(error.exception.code, "unsafe_url")
+        self.assertEqual(fixture.resolutions, ["media.douyinvod.com"])
+
     def test_media_download_403_tries_approved_backup_without_forwarding_credentials(self):
         fixture = ClientTests()
         client = fixture.make_client([FakeResponse(403), FakeResponse(data=b"complete")])
@@ -642,6 +961,21 @@ class JobsTests(TempCase):
             if call[0] == "GET":
                 self.assertNotIn("Authorization", call[2])
                 self.assertNotIn("Cookie", call[2])
+
+    def test_douyin_denied_low_rate_falls_back_to_normal_player_version(self):
+        candidate = {"aweme_id": "1234567890123456789", "desc": "Synthetic", "video": {
+            "duration": 1000,
+            "play_addr": {"url_list": ["https://v3-dy-o.zjcdn.com/player"]},
+            "bit_rate": [{"bit_rate": 100, "play_addr": {"url_list": ["https://regional.douyinvod.com/low"]}}]}}
+        urls, _ = api.MediaResolver.douyin_item(candidate, candidate["aweme_id"])
+        self.assertEqual(urls, ["https://regional.douyinvod.com/low", "https://v3-dy-o.zjcdn.com/player"])
+        fixture = ClientTests()
+        client = fixture.make_client([FakeResponse(403), FakeResponse(data=b"complete-player")])
+        service = self.make_service(client=client, start_worker=False)
+        destination = self.root / "input.media"
+        service.download_media(urls, {"platform": "douyin"}, destination, lambda: False, lambda value: None)
+        self.assertEqual(destination.read_bytes(), b"complete-player")
+        self.assertEqual(fixture.resolutions, ["regional.douyinvod.com", "v3-dy-o.zjcdn.com"])
 
     def test_media_download_early_eof_replaces_partial_file_not_appends(self):
         fixture = ClientTests()

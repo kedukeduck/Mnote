@@ -1,0 +1,45 @@
+[Unit]
+Description=Mnote isolated anonymous desktop browser resolver
+Requires=mnote-transcription-egress.service
+After=mnote-transcription-egress.service
+
+[Service]
+Type=simple
+DynamicUser=true
+RuntimeDirectory=mnote-transcription-browser
+RuntimeDirectoryMode=0755
+WorkingDirectory=/opt/mnote-transcription-browser
+EnvironmentFile=/etc/mnote-transcription-browser/worker.env
+ExecStart=/opt/mnote-transcription-browser/node /opt/mnote-transcription-browser/browser_worker.mjs
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+# No host loopback, DNS, Internet or existing browser port is reachable here.
+# The only network bridge terminates at the authenticated Unix egress socket.
+PrivateNetwork=true
+PrivateTmp=true
+PrivateDevices=true
+PrivateIPC=true
+ProtectHome=true
+ProtectSystem=strict
+InaccessiblePaths=-/etc/mnote-transcription-demo -/var/lib/mnote-transcription-demo -/var/lib/private/mnote-transcription-demo -/opt/mnote-transcription-demo/models
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=invisible
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=
+AppArmorProfile=mnote-transcription-browser
+MemoryMax=750M
+CPUQuota=75%
+TasksMax=256
+KillMode=control-group
+TimeoutStopSec=10
+StandardOutput=null
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target

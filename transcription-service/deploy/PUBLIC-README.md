@@ -112,3 +112,9 @@ timeline, exports, refresh recovery and deletion.
 Source resolution remains ordinary public access only. No-login access to this
 demo does not remove Bilibili/Douyin's restrictions or guarantee every share link
 will resolve. The rights declaration remains explicitly unverified.
+
+The optional isolated anonymous Douyin desktop-browser adapter is now documented
+in [DOUYIN-BROWSER.md](DOUYIN-BROWSER.md). The public form and visitor isolation
+are unchanged: users do not supply a login, Cookie or source account credential.
+Photo posts receive an explicit unsupported-image-post message; OCR is a separate
+future feature. Browser metadata/media-header checks are not full ASR proof.

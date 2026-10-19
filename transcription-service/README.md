@@ -50,8 +50,11 @@ audio. Never set an untrusted user-controlled host as a blanket workaround.
 Platform page/API hosts and CDN suffixes are separately restricted in code.
 The optional `requirements-resolver.txt` pins yt-dlp for operator diagnostics only;
 the service does not execute it, because arbitrary extractor networking would
-defeat this service's SSRF controls. No cookies, account login, JavaScript-signature
-generation, DRM circumvention or access-control bypass is supported.
+defeat this service's SSRF controls. No imported user cookies, account login,
+hand-generated website signatures, DRM circumvention or access-control bypass is
+supported. The optional isolated anonymous desktop-browser adapter is documented
+in [`deploy/DOUYIN-BROWSER.md`](deploy/DOUYIN-BROWSER.md); its temporary first-party
+browser state is never sent to the media downloader.
 
 ## API
 
@@ -99,8 +102,13 @@ attempt. All candidates share a 120-second acquisition deadline (including DNS
 and TLS), and each retry replaces the partial file. A Bilibili media request does
 not follow cross-host redirects: another host must be an approved explicit
 candidate. Source credentials, cookies and forged Referer headers are never sent.
-Douyin reads public embedded metadata if offered; unavailable or
-login/signature-gated links fail clearly instead of asserting successful access.
+Douyin reads public embedded metadata, or uses the optional isolated anonymous
+desktop-browser adapter when configured. Downloads use a maximum of three
+validated URLs, preferring low bandwidth with the normal player version as a
+fallback, and no browser cookie. Retries replace the complete partial file.
+Photo posts are explicitly unsupported by this speech-transcription
+flow, rather than transcribing their background music. Unavailable or access-
+restricted links fail clearly instead of asserting successful access.
 Platform changes may make public resolution unavailable. Direct audio supports
 common audio/video container suffixes on configured hosts, not playlists.
 

@@ -37,12 +37,17 @@ OWNER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}\Z")
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 URL_RE = re.compile(r"https?://[^\s<>\"'，。！；、（）【】]+", re.I)
 SITE_HOSTS = frozenset({"b23.tv", "bilibili.com", "www.bilibili.com", "m.bilibili.com",
-                        "v.douyin.com", "www.douyin.com", "douyin.com"})
+                        "v.douyin.com", "www.douyin.com", "douyin.com", "www.iesdouyin.com"})
 BILI_HOSTS = frozenset({"b23.tv", "bilibili.com", "www.bilibili.com", "m.bilibili.com"})
 # Observed in Bilibili's anonymous playurl response; do not allow the shared suffix.
 BILI_EXTRA_CDN_HOSTS = frozenset({"upos-hz-mirrorakam.akamaized.net"})
 MAX_MEDIA_CANDIDATES = 3
-DOUYIN_HOSTS = frozenset({"v.douyin.com", "www.douyin.com", "douyin.com"})
+DOUYIN_HOSTS = frozenset({"v.douyin.com", "www.douyin.com", "douyin.com", "www.iesdouyin.com"})
+DOUYIN_EXTRA_CDN_HOSTS = frozenset({"v3-dy-o.zjcdn.com"})
+BROWSER_TIMEOUT = 70
+BROWSER_MAX_BYTES = 2 * 1024 * 1024
+BROWSER_ERROR_CODES = frozenset({"platform_restricted", "browser_unavailable", "browser_busy", "timeout",
+                               "image_post_unsupported", "source_rate_limited", "unsafe_url", "media_unavailable"})
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".webm", ".mp4"}
 ERRORS = {
     "unauthorized": "服务凭证无效或缺失。", "owner_invalid": "用户标识缺失或格式不正确。",
@@ -51,7 +56,10 @@ ERRORS = {
     "unsafe_url": "链接或重定向不符合安全访问规则。", "network_failed": "无法安全读取公开媒体，请稍后重试。",
     "source_forbidden": "来源服务器拒绝读取（403/412），请稍后重试或更换来源。",
     "source_rate_limited": "音视频服务器限制了请求频率（429），请稍后重试。",
-    "platform_restricted": "平台未提供可匿名读取的公开音频；本服务不使用登录、Cookie 或签名绕过。",
+    "platform_restricted": "平台未提供可匿名读取的公开音频；本服务不登录账号、不导入个人 Cookie，也不绕过验证码或访问限制。",
+    "browser_unavailable": "公开页面解析暂不可用，请稍后重试。",
+    "browser_busy": "公开页面解析繁忙，请稍后重试。",
+    "image_post_unsupported": "此链接是图文作品，暂不支持转写；背景音乐不代表图文正文。",
     "media_unavailable": "未找到可公开读取的音频流。", "too_long": "媒体时长超过 30 分钟限制。",
     "too_large": "媒体文件超过服务大小限制。", "invalid_media": "无法解码为有效音频。",
     "not_ready": "本地转写模型或音频工具尚未准备好。", "queue_full": "任务队列已满，请稍后再试。",
@@ -107,6 +115,8 @@ class Config:
     ffprobe: str = "ffprobe"
     demo_audio: Path | None = None
     public_url: str = ""
+    browser_socket: str = ""
+    browser_token: str = dataclasses.field(default="", repr=False)
 
     @classmethod
     def from_env(cls):
@@ -119,10 +129,17 @@ class Config:
         if public_url:
             if validate_url(public_url, lambda host: True).query:
                 raise ValueError("public API URL cannot contain query parameters")
+        browser_socket = os.environ.get("MNOTE_TRANSCRIPT_BROWSER_SOCKET", "")
+        browser_token = os.environ.get("MNOTE_TRANSCRIPT_BROWSER_TOKEN", "")
+        if browser_socket and (not browser_socket.startswith("/") or "\x00" in browser_socket or
+                               len(os.fsencode(browser_socket)) > 107 or
+                               not re.fullmatch(r"[A-Za-z0-9._~-]{32,512}", browser_token)):
+            raise ValueError("invalid browser helper configuration")
         return cls(Path(os.environ.get("MNOTE_TRANSCRIPT_DATA", "./data")).resolve(),
                    os.environ.get("MNOTE_TRANSCRIPT_TOKEN", ""),
                    Path(os.environ.get("MNOTE_TRANSCRIPT_MODEL", "./models/faster-whisper-small")).resolve(), hosts,
-                   demo_audio=Path(demo).resolve() if demo else None, public_url=public_url)
+                   demo_audio=Path(demo).resolve() if demo else None, public_url=public_url,
+                   browser_socket=browser_socket, browser_token=browser_token)
 
     def ready(self) -> bool:
         return self.readiness()[0]
@@ -359,10 +376,105 @@ class SafeClient:
             raise ServiceError("media_unavailable") from None
 
 
+class UnixHTTPConnection(http.client.HTTPConnection):
+    """The endpoint is an administrator-configured local socket, never a source URL."""
+    def __init__(self, path: str):
+        super().__init__("localhost", timeout=BROWSER_TIMEOUT)
+        self.path = path
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(BROWSER_TIMEOUT)
+        self.sock.connect(self.path)
+
+
+def browser_resolve(config: Config, video_id: str, cancel: Callable[[], bool] = lambda: False) -> dict:
+    if cancel():
+        raise Cancelled()
+    if not re.fullmatch(r"[0-9]{10,24}", video_id):
+        raise ServiceError("invalid_request")
+    if not config.browser_socket or not re.fullmatch(r"[A-Za-z0-9._~-]{32,512}", config.browser_token):
+        raise ServiceError("browser_unavailable", 503)
+    connection = UnixHTTPConnection(config.browser_socket)
+    finished, interrupted = threading.Event(), threading.Event()
+    transport_socket = [None]
+    deadline = time.monotonic() + BROWSER_TIMEOUT
+
+    def check():
+        if cancel():
+            raise Cancelled()
+        if interrupted.is_set() or time.monotonic() >= deadline:
+            raise ServiceError("timeout")
+
+    def watchdog():
+        while not finished.wait(0.05):
+            if cancel() or time.monotonic() >= deadline:
+                interrupted.set()
+                sock = transport_socket[0] or connection.sock
+                if sock:
+                    with contextlib.suppress(OSError):
+                        sock.shutdown(socket.SHUT_RDWR)
+                connection.close()
+                # Keep watching until request unwinds: cancellation can race
+                # with connect() publishing a newly created socket.
+
+    watcher = threading.Thread(target=watchdog, daemon=True)
+    watcher.start()
+    try:
+        connection.request("POST", "/resolve", body=json.dumps({"video_id": video_id}).encode("ascii"),
+                           headers={"Authorization": "Bearer " + config.browser_token,
+                                    "Content-Type": "application/json", "Accept-Encoding": "identity"})
+        check()
+        transport_socket[0] = connection.sock
+        response = connection.getresponse()
+        check()
+        # Never follow redirects or accept compressed/unbounded helper payloads.
+        if 300 <= response.status < 400 or response.getheader("Content-Encoding", "identity").lower() not in ("", "identity"):
+            raise ServiceError("browser_unavailable", 503)
+        declared = response.getheader("Content-Length")
+        size = int(declared) if declared is not None else None
+        if size is not None and not 0 <= size <= BROWSER_MAX_BYTES:
+            raise ServiceError("browser_unavailable", 503)
+        chunks, count = [], 0
+        while True:
+            check()
+            chunk = response.read1(min(65536, BROWSER_MAX_BYTES - count + 1))
+            check()
+            if not chunk:
+                break
+            count += len(chunk)
+            if count > BROWSER_MAX_BYTES:
+                raise ServiceError("browser_unavailable", 503)
+            chunks.append(chunk)
+        if size is not None and count != size:
+            raise ServiceError("browser_unavailable", 503)
+        data = json.loads(b"".join(chunks))
+        if not isinstance(data, dict):
+            raise ServiceError("browser_unavailable", 503)
+        if "error" in data:
+            error = data["error"]
+            code = error.get("code") if isinstance(error, dict) else None
+            if not isinstance(code, str) or code not in BROWSER_ERROR_CODES:
+                code = "browser_unavailable"
+            raise ServiceError(code, 503 if code in ("browser_unavailable", "browser_busy") else 400)
+        if response.status != 200 or not isinstance(data.get("item"), dict):
+            raise ServiceError("browser_unavailable", 503)
+        return data["item"]
+    except (OSError, http.client.HTTPException, ValueError, UnicodeError, RecursionError):
+        check()
+        raise ServiceError("browser_unavailable", 503) from None
+    finally:
+        finished.set()
+        connection.close()
+        watcher.join(timeout=0.2)
+
+
 def cdn_allowed(host: str, platform: str, direct_hosts: tuple[str, ...]) -> bool:
     if platform == "audio":
         return host in direct_hosts
     if platform == "bilibili" and host in BILI_EXTRA_CDN_HOSTS:
+        return True
+    if platform == "douyin" and host in DOUYIN_EXTRA_CDN_HOSTS:
         return True
     domains = ("bilivideo.com", "bilivideo.cn", "bilivideo.net") if platform == "bilibili" else ("douyinvod.com", "bytecdn.cn", "ibytedtos.com")
     return any(host == domain or host.endswith("." + domain) for domain in domains)
@@ -379,9 +491,13 @@ class MediaResolver:
             return self.bilibili(source)
         return self.douyin(source)
 
-    def resolve_candidates(self, source: dict) -> tuple[list[str], dict]:
+    def resolve_candidates(self, source: dict, cancel: Callable[[], bool] = lambda: False) -> tuple[list[str], dict]:
+        if cancel():
+            raise Cancelled()
         if source["platform"] == "bilibili":
             return self.bilibili_candidates(source)
+        if source["platform"] == "douyin":
+            return self.douyin_candidates(source, cancel)
         url, public = self.resolve(source)
         return [url], public
 
@@ -456,28 +572,80 @@ class MediaResolver:
         return urls, {"platform": "bilibili", "host": "www.bilibili.com", "title": clean_text(data.get("title", "公开媒体"), 200, True), "duration_seconds": duration}
 
     def douyin(self, source: dict) -> tuple[str, dict]:
-        # Only publicly embedded metadata is read. Never generate signatures or load cookies.
-        raw, final_url = self.client.fetch(source["url"], lambda host: host in DOUYIN_HOSTS, 2 * 1024 * 1024)
-        parts = validate_url(final_url, lambda host: host in DOUYIN_HOSTS)
-        requested = re.search(r"/video/([0-9]{10,24})(?:/|$)", parts.path)
-        if not requested:
+        urls, public = self.douyin_candidates(source)
+        return urls[0], public
+
+    @staticmethod
+    def douyin_identity(url: str) -> tuple[str, bool] | None:
+        parts = validate_url(url, lambda host: host in DOUYIN_HOSTS)
+        # A numeric ID in a query or unrelated path is not evidence of the target.
+        if parts.hostname == "v.douyin.com":
+            return None
+        match = re.fullmatch(r"/(share/video|video|share/note|note)/([0-9]{10,24})/?", parts.path)
+        return (match[2], match[1] in ("note", "share/note")) if match else None
+
+    def douyin_candidates(self, source: dict, cancel: Callable[[], bool] = lambda: False) -> tuple[list[str], dict]:
+        if cancel():
+            raise Cancelled()
+        url = source["url"]
+        identity = self.douyin_identity(url)
+        if identity and identity[1]:
+            raise ServiceError("image_post_unsupported")
+        # For a confirmed ID, the isolated anonymous browser avoids fetching the
+        # desktop challenge twice. It is not a fallback past an observed denial.
+        if identity and self.config.browser_socket:
+            return self.douyin_item(browser_resolve(self.config, identity[0], cancel), identity[0])
+        raw, final_url = self.client.fetch(url, lambda host: host in DOUYIN_HOSTS, BROWSER_MAX_BYTES,
+                                           cancel=cancel, stop_redirect=lambda target: self.douyin_identity(target) is not None)
+        final_identity = self.douyin_identity(final_url)
+        if not final_identity or (identity and identity[0] != final_identity[0]):
             raise ServiceError("platform_restricted")
+        if final_identity[1]:
+            raise ServiceError("image_post_unsupported")
+        requested = final_identity[0]
+        if not raw:
+            if self.config.browser_socket:
+                return self.douyin_item(browser_resolve(self.config, requested, cancel), requested)
+            # The disabled-helper compatibility path still reads public embedded
+            # metadata, but the short-link hop never downloads a transition page.
+            raw, checked_url = self.client.fetch(final_url, lambda host: host in DOUYIN_HOSTS,
+                                                  BROWSER_MAX_BYTES, cancel=cancel)
+            if self.douyin_identity(checked_url) != final_identity:
+                raise ServiceError("platform_restricted")
         html = raw.decode("utf-8", "replace")
+        # Explicit login/verification walls are terminal. The helper must not be
+        # used to evade a denial already observed by this request.
+        if re.search(r"(?:login\s+(?:needed|required)|please\s+(?:log\s*in|sign\s*in)|"
+                     r"captcha|verify\s+(?:you|your|to\s+continue)|登录后|请先?登录|验证码|安全验证)", html, re.I):
+            raise ServiceError("platform_restricted")
+        try:
+            candidate = self.douyin_embedded(html, requested)
+            return self.douyin_item(candidate, requested)
+        except ServiceError as error:
+            if error.code not in ("platform_restricted", "media_unavailable") or not self.config.browser_socket:
+                raise
+            return self.douyin_item(browser_resolve(self.config, requested, cancel), requested)
+
+    @staticmethod
+    def douyin_embedded(html: str, requested: str) -> dict:
         match = re.search(r'<script[^>]+id=["\']RENDER_DATA["\'][^>]*>(.*?)</script>', html, re.S)
         if not match:
             raise ServiceError("platform_restricted")
         try:
-            data = json.loads(urllib.parse.unquote(match[1]))
-        except (ValueError, UnicodeError):
+            # Unquoting valid raw JSON corrupts signed URL values such as %2F.
+            try:
+                data = json.loads(match[1])
+            except ValueError:
+                data = json.loads(urllib.parse.unquote(match[1]))
+        except (ValueError, UnicodeError, RecursionError):
             raise ServiceError("platform_restricted") from None
         stack, candidate, visited = [data], None, 0
         while stack and visited < 2000:
             node = stack.pop()
             visited += 1
             if isinstance(node, dict):
-                video = node.get("video")
                 item_id = node.get("aweme_id", node.get("awemeId"))
-                if str(item_id) == requested[1] and isinstance(video, dict) and isinstance(video.get("play_addr"), dict):
+                if str(item_id) == requested:
                     candidate = node
                     break
                 stack.extend(node.values())
@@ -485,18 +653,72 @@ class MediaResolver:
                 stack.extend(node)
         if not candidate:
             raise ServiceError("platform_restricted")
+        return candidate
+
+    @staticmethod
+    def douyin_item(candidate: dict, requested: str) -> tuple[list[str], dict]:
+        if str(candidate.get("aweme_id", candidate.get("awemeId"))) != requested:
+            raise ServiceError("platform_restricted")
+        # Never transcribe a photo post's music as if it were the post's content.
+        if str(candidate.get("aweme_type")) in ("68", "150") or candidate.get("images") or candidate.get("image_post_info"):
+            raise ServiceError("image_post_unsupported")
         try:
             video = candidate["video"]
             duration = float(video["duration"]) / 1000
-            media_url = video["play_addr"]["url_list"][0]
             if not math.isfinite(duration) or duration <= 0:
                 raise ValueError()
-        except (KeyError, IndexError, TypeError, ValueError):
+        except (KeyError, IndexError, TypeError, ValueError, OverflowError):
             raise ServiceError("platform_restricted") from None
         if duration > MAX_DURATION:
             raise ServiceError("too_long")
-        validate_url(media_url, lambda host: cdn_allowed(host, "douyin", ()))
-        return media_url, {"platform": "douyin", "host": "www.douyin.com", "title": clean_text(candidate.get("desc", "公开媒体"), 200, True), "duration_seconds": duration}
+        rates = video.get("bit_rate")
+        streams = []
+        if isinstance(rates, list):
+            for rate in rates[:64]:
+                if not isinstance(rate, dict) or not isinstance(rate.get("play_addr"), dict):
+                    continue
+                try:
+                    bandwidth = float(rate.get("bit_rate", rate.get("bandwidth", math.inf)))
+                    if math.isfinite(bandwidth) and bandwidth > 0:
+                        streams.append((bandwidth, rate["play_addr"]))
+                except (TypeError, ValueError, OverflowError):
+                    continue
+        # Prefer a low-rate representation, but keep the normal player version
+        # as a fallback: some low-rate CDN variants reject otherwise public works.
+        # Retries replace the whole file; bytes from representations are never joined.
+        address = min(streams, key=lambda stream: stream[0])[1] if streams else video.get("play_addr", {})
+        primary = video.get("play_addr", {})
+        supplied = address.get("url_list") if isinstance(address, dict) else None
+        fallback = primary.get("url_list", []) if isinstance(primary, dict) else []
+        if not isinstance(supplied, list) and not isinstance(fallback, list):
+            raise ServiceError("media_unavailable")
+        rejected = False
+        def valid(values):
+            nonlocal rejected
+            cleaned = []
+            for value in values[:32] if isinstance(values, list) else []:
+                try:
+                    validate_url(value, lambda host: cdn_allowed(host, "douyin", ()))
+                except ServiceError:
+                    rejected = True
+                    continue
+                if value not in cleaned:
+                    cleaned.append(value)
+            return cleaned
+        low, player = valid(supplied), valid(fallback)
+        # Prefer a different fallback CDN when the normal player supplies one.
+        if low and player:
+            host = urllib.parse.urlsplit(low[0]).hostname
+            alternate = next((value for value in player if urllib.parse.urlsplit(value).hostname != host), player[0])
+            player = [alternate] + [value for value in player if value != alternate]
+        ordered = low[:1] + player[:1] + low[1:] + player[1:]
+        urls = list(dict.fromkeys(ordered))[:MAX_MEDIA_CANDIDATES]
+        if not urls:
+            raise ServiceError("unsafe_url" if rejected else "media_unavailable")
+        title = candidate.get("desc")
+        return urls, {"platform": "douyin", "host": "www.douyin.com",
+                      "title": clean_text(title if isinstance(title, str) else "公开媒体", 200, True),
+                      "duration_seconds": duration}
 
 
 class JobStore:
@@ -778,7 +1000,7 @@ class JobService:
         ident = job["id"]
         cancel = lambda: self.cancelled_job(ident)
         source = {**job["source"], "url": job["private_url"]}
-        media_urls, public_source = self.resolver.resolve_candidates(source)
+        media_urls, public_source = self.resolver.resolve_candidates(source, cancel=cancel)
         if cancel():
             raise Cancelled()
         self.store.update(ident, source=public_source, stage="downloading", progress=15)
@@ -837,7 +1059,7 @@ class JobService:
             if time.monotonic() >= deadline:
                 raise ServiceError("timeout")
             parts = validate_url(candidate, lambda host: cdn_allowed(host, source["platform"], self.config.direct_hosts))
-            if source["platform"] == "bilibili":
+            if source["platform"] in ("bilibili", "douyin"):
                 # Cross-host redirects must be supplied as separately validated backups.
                 allowed = lambda host, expected=parts.hostname: host == expected
             else:

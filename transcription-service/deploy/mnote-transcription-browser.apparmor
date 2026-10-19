@@ -1,0 +1,7 @@
+# Only grants the namespace permission needed by Chromium's own sandbox.
+# Filesystem/network isolation is enforced independently by the systemd unit.
+abi <abi/4.0>,
+include <tunables/global>
+profile mnote-transcription-browser /opt/mnote-transcription-browser/chromium/chrome flags=(unconfined) {
+  userns,
+}

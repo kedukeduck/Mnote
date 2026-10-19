@@ -1,0 +1,39 @@
+[Unit]
+Description=Mnote anonymous browser restricted HTTPS egress
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=true
+RuntimeDirectory=mnote-transcription-egress
+RuntimeDirectoryMode=0755
+WorkingDirectory=/opt/mnote-transcription-browser
+EnvironmentFile=/etc/mnote-transcription-browser/egress.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/mnote-transcription-browser/browser_egress.py
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=invisible
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+MemoryMax=128M
+CPUQuota=25%
+TasksMax=64
+TimeoutStopSec=10
+StandardOutput=null
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target
