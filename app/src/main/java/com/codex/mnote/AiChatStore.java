@@ -102,6 +102,8 @@ final class AiChatStore {
         if(selected.contains("original")) text.append("原文仅为保存时的页面内容，可能不完整。");
         JSONObject metadata=record.captureContext.optJSONObject("image");
         if(selected.contains("excerpt") && "clipboard".equals(record.sourceType)) text.append("摘录来自剪贴板，和当前页面的关联未经确认。");
+        if(selected.contains("excerpt") && ("video_transcript".equals(record.sourceType)||"machine_transcribed".equals(record.fidelityLevel)))
+            text.append("摘录来自视频的自动语音转写，可能经过用户校对，仍不保证逐字准确；不是已核实的原话，与附加页面截图的关联未经确认。");
         if(selected.contains("images") && metadata!=null) {
             if("page_context".equals(metadata.optString("purpose"))) text.append("页面截图记录当时环境，不表示摘录位于图中某个选区。");
             else if(metadata.optBoolean("retained") && metadata.optJSONObject("selection")!=null) {

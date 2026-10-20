@@ -19,7 +19,8 @@ inline void ProjectModules(Json &data, std::map<std::string, fs::path> &assets,
     if (!modules.tags) data["tags"] = Json::array();
     if (!modules.excerpt) {
         source["text"] = "";
-        for (const auto *key : {"selectors", "text_origin", "selected_text"}) source.erase(key);
+        for (const auto *key : {"selectors", "text_origin", "selected_text", "transcription"}) source.erase(key);
+        if(source.value("type",Json(""))=="video_transcript")source["type"]="user_supplied";
         evidence.erase("exact_text");
         if (context.contains("text") && context["text"].is_object()) {
             auto &text = context["text"];
@@ -32,8 +33,12 @@ inline void ProjectModules(Json &data, std::map<std::string, fs::path> &assets,
     if (!modules.link) {
         auto text=source.value("text",Json(""));
         auto origin=source.value("text_origin",Json("user_supplied"));
+        auto transcription=source.value("transcription",Json(nullptr));
         source={{"type","user_supplied"},{"text",text},{"url",""}};
         if(modules.excerpt && !text.get<std::string>().empty()) source["text_origin"]=origin;
+        if(modules.excerpt && !text.get<std::string>().empty() && transcription.is_object()) {
+            source["transcription"]=transcription;source["type"]="video_transcript";
+        }
         for(auto role:{"text","image"})
             if(context.contains(role) && context[role].is_object())
                 for(auto key:{"source_url","source_package","source_app","app_name","app_id","window_title","url_origin"})

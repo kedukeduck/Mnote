@@ -14,6 +14,20 @@
     <item name="unified_original" type="id" />
     <item name="unified_url" type="id" />
     <item name="unified_clipboard" type="id" />
+    <item name="unified_video_transcript" type="id" />
+    <item name="video_transcript_link" type="id" />
+    <item name="video_transcript_basis" type="id" />
+    <item name="video_transcript_note" type="id" />
+    <item name="video_transcript_consent" type="id" />
+    <item name="video_transcript_status" type="id" />
+    <item name="video_transcript_progress" type="id" />
+    <item name="video_transcript_parse" type="id" />
+    <item name="video_transcript_refresh" type="id" />
+    <item name="video_transcript_preview" type="id" />
+    <item name="video_transcript_source" type="id" />
+    <item name="video_transcript_import" type="id" />
+    <item name="video_transcript_cancel" type="id" />
+    <item name="video_transcript_reset" type="id" />
     <item name="unified_read_page" type="id" />
     <item name="unified_context_preview" type="id" />
     <item name="unified_crop_preview" type="id" />

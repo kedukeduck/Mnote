@@ -67,6 +67,10 @@ final class CaptureRecordPage {
                 TextView warning=JournalUi.text(activity,"来自剪贴板，附加页面不一定是其原始出处",13,R.color.ink_muted);
                 warning.setPadding(0,dp(activity,8),0,0);body.addView(warning);
             }
+            if("video_transcript".equals(record.sourceType)||"machine_transcribed".equals(record.fidelityLevel)) {
+                TextView warning=JournalUi.text(activity,"视频自动转写 · 可能有识别错误，请以原视频为准",13,R.color.ink_muted);
+                warning.setPadding(0,dp(activity,8),0,0);body.addView(warning);
+            }
         }
         if(excerptImage!=null) {
             if(record.sourceText.isEmpty())JournalUi.section(body,"圈选截图");else space(body,16);

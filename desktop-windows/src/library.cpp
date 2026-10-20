@@ -812,6 +812,15 @@ Record Library::save(const std::string &scope, Json data,
                                       .value("full_text", std::string());
         record.data["source"]["url"] = source.value("url", std::string());
         record.data["source"]["text"] = quote;
+        bool transcriptSource=source.value("type",Json(""))=="video_transcript"||source.value("text_origin",Json(""))=="video_transcript"||source.value("transcription",Json(nullptr)).is_object();
+        if(transcriptSource) {
+            record.data["source"]["type"]="video_transcript";
+            record.data["source"]["text_origin"]=source.value("text_origin",Json("video_transcript"));
+            record.data["source"]["transcription"]=source.value("transcription",Json(nullptr)).is_object()?source["transcription"]:
+                Json{{"method","automatic_speech_recognition"},{"verified",false}};
+            record.data["source"].erase("selectors");record.data["source"].erase("selected_text");
+            record.data["evidence"].erase("exact_text");
+        }
         if (quote != before || original != oldOriginal) {
             auto &context = record.data["evidence"]["context"];
             if (!context.is_object())
@@ -834,9 +843,13 @@ Record Library::save(const std::string &scope, Json data,
             auto &edited = context["text_edit"];
             if (quote != before) {
                 edited["quote_modified"] = true;
-                record.data["evidence"]["exact_text"] = {{"text", quote},
-                                                         {"delivered_by", "user_edited"}};
-                record.data["source"]["text_origin"] = "user_edited";
+                if(!transcriptSource) {
+                    record.data["evidence"]["exact_text"] = {{"text", quote},{"delivered_by", "user_edited"}};
+                    record.data["source"]["text_origin"] = "user_edited";
+                    record.data["source"].erase("transcription");
+                    if(record.data["source"].value("type",Json(""))=="video_transcript")
+                        record.data["source"]["type"]="user_supplied";
+                }
                 if (record.data["source"].contains("selectors") &&
                     record.data["source"]["selectors"].is_object())
                     record.data["source"]["selectors"]["validation_status"] =

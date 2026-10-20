@@ -21,6 +21,8 @@
         <activity android:name=".ShareTextActivity" android:exported="false" />
         <activity android:name=".ShareCardActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" android:label="设置" />
+        <activity android:name=".VideoTranscriptActivity" android:exported="false" android:label="视频文字稿"
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden" />
         <activity android:name=".AiChatActivity" android:exported="false" android:label="围绕这条聊聊"
             android:windowSoftInputMode="adjustResize|stateAlwaysHidden" />
         <activity android:name=".AiChatHistoryActivity" android:exported="false" android:label="AI 对话" />

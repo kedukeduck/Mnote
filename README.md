@@ -20,6 +20,10 @@ Mnote 是一个独立的本地优先个人知识捕获项目，用于在 Android
 - `docs/`：产品、隐私、协议、安装和验收文档。
 - `scripts/`：完整验证与交付打包。
 
+## 视频链接文字稿摘录（1.22.0）
+
+Android / Windows 的记录页「摘录」中，可选择读取剪贴板第一条，或粘贴 B 站／抖音视频分享链接生成文字稿。沿用 Mnote 账号，明确声明使用依据后在服务端解析，预览确认才填入摘录；可选填入来源链接，不改变其他模块。支持进度、取消和超限提示，转写结果请校对。详见 [1.22.0 使用与边界](docs/video-transcript-1.22.0-release-notes.md)。
+
 ## 单条记录 AI 对话（1.20.0）
 
 Android / Windows 支持「保存并聊天」、记录详情内新建或继续会话、设置中的模型配置与全部聊天历史，以及列表 AI 标识和筛选。每次会话使用用户确认的单条记录资料副本，支持真实截图输入、多轮、流式、停止、重试及账号同步。
@@ -28,7 +32,7 @@ API Key 只保存在本机，需在每台设备分别配置；支持 HTTPS OpenA
 
 ## Windows 下载
 
-当前 Windows 测试版 **1.21.0-test**：[安装包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.21.0-test/Mnote-Windows-1.21.0-test-Setup.exe) · [便携包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.21.0-test/Mnote-Windows-1.21.0-test-Portable.zip)。本次统一记录入口，先截图再按模块编辑，可从原图圈选批注，详见 [版本说明](docs/unified-capture-1.21.0-release-notes.md)。使用 Android 上同一账号登录，自动同步；旧本机记录需要明确导入。
+当前 Windows 测试版 **1.22.0-test**：[安装包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.22.0-test/Mnote-Windows-1.22.0-test-Setup.exe) · [便携包](https://chenyu.online/heartnote-capture/updates/files/mnote-windows-v1.22.0-test/Mnote-Windows-1.22.0-test-Portable.zip)。本次增加视频链接文字稿摘录，详见 [版本说明](docs/video-transcript-1.22.0-release-notes.md)。使用 Android 上同一账号登录，自动同步；旧本机记录需要明确导入。
 
 双端 1.8.0 新增批量选择记录导出 Markdown：包含文档说明、AI 阅读提示、索引、想法、摘录、原文、来源和完整截图/圈选图/批注图在线链接。首页先筛选再选择，最多 100 条已同步记录；需明确确认分享图片，分享快照可在导出页独立撤销。详情见[批量导出说明](docs/markdown-batch-export.md)。
 
@@ -38,7 +42,7 @@ Windows 已补齐应用内查看 / 编辑 / 删除、标签 / 未分类筛选、
 
 ## Android 构建
 
-当前 Android 测试版：[1.21.1-test APK](https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.21.1-test/Mnote-Android-1.21.1-test.apk)。本版修复记录时展开或选择标签导致页面跳回旧输入框的问题，并保留键盘避让。统一记录入口、既有记录与聊天不变，Windows 保持 1.21.0-test，服务端保持 0.9.0。1.9 及之后的测试版可从应用内检查更新；更早版本可手动下载覆盖安装。详见 [版本说明](docs/android-1.21.1-release-notes.md)、[交互与验证](docs/unified-capture-editor.md)。安装前保存草稿，覆盖安装，不要卸载旧版。Android 沿用测试签名，非正式商店版。
+当前 Android 测试版：[1.22.0-test APK](https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.22.0-test/Mnote-Android-1.22.0-test.apk)。本次增加视频链接文字稿摘录，并保留 1.21.1 标签滚动修复。统一记录入口、既有记录与聊天不变；服务端新增可选的账号转写适配。1.9 及之后的测试版可从应用内检查更新；更早版本可手动下载覆盖安装。详见 [版本说明](docs/video-transcript-1.22.0-release-notes.md)、[交互与验证](docs/unified-capture-editor.md)。安装前保存草稿，覆盖安装，不要卸载旧版。Android 沿用测试签名，非正式商店版。
 
 1.10.1 修复“分享管理”无法查看历史图片：点击历史分享即可查看当次导出的图片快照，兼容旧分享，不依赖原记录是否仍在本机。详见 [历史分享图片说明](docs/share-history-1.10.1-release-notes.md)。
 

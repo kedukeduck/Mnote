@@ -18,6 +18,7 @@ final class UnifiedCaptureDraft {
     final Set<String> selected = new LinkedHashSet<>();
     String thought="", excerpt="", original="", url="", tags="", kind="thought";
     String recordId="";
+    String excerptOrigin="",transcriptState="",transcriptBaselineExcerpt="",transcriptBaselineUrl="";
     boolean clipboardRead, pageRead, editing;
     CaptureSourceContext source=CaptureSourceContext.EMPTY;
     File screenshot, cropOriginal, cropAnnotated;
@@ -45,6 +46,8 @@ final class UnifiedCaptureDraft {
         draft.url=data.optString("url");draft.tags=data.optString("tags");draft.kind=data.optString("kind","thought");
         draft.clipboardRead=data.optBoolean("clipboard");draft.pageRead=data.optBoolean("page");draft.editing=data.optBoolean("editing");
         draft.recordId=data.optString("record");
+        draft.excerptOrigin=data.optString("excerpt_origin");draft.transcriptState=data.optString("transcript_state");
+        draft.transcriptBaselineExcerpt=data.optString("transcript_baseline_excerpt");draft.transcriptBaselineUrl=data.optString("transcript_baseline_url");
         draft.source=new CaptureSourceContext(data.optString("package"),data.optString("detected_url"),data.optString("origin"));
         draft.screenshot=CaptureStore.safeDraftFile(context,data.optString("screenshot"));
         draft.cropOriginal=CaptureStore.safeDraftFile(context,data.optString("crop_original"));
@@ -59,12 +62,14 @@ final class UnifiedCaptureDraft {
             JSONObject data=new JSONObject().put("scope",scope).put("thought",thought).put("excerpt",excerpt)
                     .put("original",original).put("url",url).put("tags",tags).put("kind",kind)
                     .put("clipboard",clipboardRead).put("page",pageRead).put("editing",editing).put("record",recordId)
+                    .put("excerpt_origin",excerptOrigin).put("transcript_state",transcriptState)
+                    .put("transcript_baseline_excerpt",transcriptBaselineExcerpt).put("transcript_baseline_url",transcriptBaselineUrl)
                     .put("package",source.appPackage).put("detected_url",source.url).put("origin",source.origin)
                     .put("selected",new JSONArray(selected)).put("screenshot",path(screenshot))
                     .put("crop_original",path(cropOriginal)).put("crop_annotated",path(cropAnnotated))
                     .put("layer",layer==null?JSONObject.NULL:layer).put("editing_layer",editingLayer==null?JSONObject.NULL:editingLayer);
             if(data.toString().getBytes(StandardCharsets.UTF_8).length>4L*1024*1024)throw new IOException("Editor draft too large");
-            CaptureStore.writeJson(data,stateFile);
+            CaptureStore.writeJson(data,stateFile,4*1024*1024);
         } catch(org.json.JSONException error) {throw new IOException("Cannot persist editor state",error);}
     }
     synchronized void confirmCrop(Context context,Bitmap original,Bitmap annotated,JSONObject layer) throws IOException {
@@ -83,6 +88,11 @@ final class UnifiedCaptureDraft {
         CaptureStore.discardDraft(context,oldFirst);CaptureStore.discardDraft(context,oldSecond);
     }
     synchronized void discard(Context context) {
+        if(!transcriptState.isEmpty())try{
+            VideoTranscriptState video=VideoTranscriptState.read(context,transcriptState);String id=video.id();
+            if(!id.isEmpty())new Thread(()->{try{VideoTranscriptClient.request(context.getApplicationContext(),scope,"DELETE","/jobs/"+id,null);}catch(Exception ignored){}},"mnote-video-cleanup").start();
+            video.discard();
+        }catch(Exception ignored){}
         CaptureStore.discardDraft(context,screenshot);CaptureStore.discardDraft(context,cropOriginal);
         CaptureStore.discardDraft(context,cropAnnotated);stateFile.delete();
     }

@@ -31,6 +31,7 @@ import java.util.concurrent.Future;
 /** A single opt-in editor. Page, clipboard, crop and thought are independent materials. */
 public final class UnifiedCaptureActivity extends Activity {
     static final String EXTRA_DRAFT_PATH="com.codex.mnote.extra.CAPTURE_DRAFT_PATH";
+    static final int REQUEST_VIDEO_TRANSCRIPT=4081;
     private static WeakReference<UnifiedCaptureActivity> active=new WeakReference<>(null);
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final ExecutorService executor=Executors.newSingleThreadExecutor();
@@ -158,9 +159,10 @@ public final class UnifiedCaptureActivity extends Activity {
         editImage=button(context.card,"圈选与批注  ↗",R.id.unified_edit_image,false,this::openCanvas);
         Module idea=module(body,"thought",R.id.unified_thought_toggle,"我的想法","这是你的声音，与摘录和原文分开保存。");
         thought=input(idea.body,R.id.unified_thought,"此刻想到什么？",4);
-        Module quote=module(body,"excerpt",R.id.unified_excerpt_toggle,"摘录","手动输入，或由你主动读取剪贴板第一条文字。");
+        Module quote=module(body,"excerpt",R.id.unified_excerpt_toggle,"摘录","手动输入、读取剪贴板，或粘贴视频链接生成文字稿。");
         excerpt=input(quote.body,R.id.unified_excerpt,"想保留的那一段…",4);CaptureLongText.attach(this,excerpt,"摘录");
         button(quote.body,"读取剪贴板第一条",R.id.unified_clipboard,false,this::readClipboard);
+        button(quote.body,"从视频链接解析文字稿",R.id.unified_video_transcript,false,this::openVideoTranscript);
         Module page=module(body,"original",R.id.unified_original_toggle,"页面原文","与截图同时保留。读取仅尝试当前来源页，不保证文章全文。");
         original=input(page.body,R.id.unified_original,"粘贴或编辑完整原文…",5);CaptureLongText.attach(this,original,"页面原文");
         original.addTextChangedListener(new android.text.TextWatcher(){
@@ -284,9 +286,42 @@ public final class UnifiedCaptureActivity extends Activity {
     private void readClipboard() {
         confirmReplace(excerpt,"替换摘录？",()->{
             if(!foreground()){message("请返回记录页后再读取剪贴板。");return;}
-            try {String value=QuickNoteClipboard.first(this);excerpt.setText(value);draft.clipboardRead=true;message("已读取剪贴板第一条，其他模块没有变化。");}
+            try {String value=QuickNoteClipboard.first(this);excerpt.setText(value);draft.clipboardRead=true;draft.excerptOrigin="clipboard";message("已读取剪贴板第一条，其他模块没有变化。");}
             catch(Exception error){message("无法读取剪贴板文字，请先复制文字后再试；已有摘录仍保留。");}
         });
+    }
+    private void openVideoTranscript() {
+        if(session.pending!=null||acquiring)return;
+        if(!CaptureAccountSession.hasAccount(this)){message("请先在设置中登录账号，再解析视频文字稿；当前记录草稿会保留。");return;}
+        try {
+            collect();VideoTranscriptState state=null;
+            if(!draft.transcriptState.isEmpty())try{state=VideoTranscriptState.read(this,draft.transcriptState);}catch(Exception ignored){}
+            if(state==null){state=VideoTranscriptState.create(this,draft.scope);draft.transcriptState=state.file.getAbsolutePath();}
+            draft.transcriptBaselineExcerpt=excerpt.getText().toString();draft.transcriptBaselineUrl=url.getText().toString();
+            draft.persist();hideKeyboard();startActivityForResult(VideoTranscriptActivity.open(this,draft.transcriptState),REQUEST_VIDEO_TRANSCRIPT);
+        }catch(Exception error){message("暂时无法打开文字稿解析，当前草稿仍保留。请检查登录状态后重试。");}
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data) {
+        super.onActivityResult(request,result,data);
+        if(request!=REQUEST_VIDEO_TRANSCRIPT||result!=RESULT_OK||draft==null||destroyed)return;
+        try {
+            CaptureAccountSession.requireScope(this,draft.scope);
+            if(data==null||!draft.transcriptState.equals(data.getStringExtra(VideoTranscriptActivity.STATE)))throw new IOException("invalid_transcript");
+            VideoTranscriptState state=VideoTranscriptState.read(this,draft.transcriptState);
+            if(!state.imported||state.text.trim().isEmpty()||state.text.length()>VideoTranscriptState.MAX_TEXT)throw new IOException("invalid_transcript");
+            Runnable apply=()->{
+                if(destroyed||!draft.scope.equals(CaptureAccountSession.scope(this)))return;
+                excerpt.setText(state.text);draft.clipboardRead=false;draft.excerptOrigin="video_transcript";
+                // Source opt-out stays opt-out. Never overwrite a source changed after this import began.
+                if(state.importSource&&url.getText().toString().equals(draft.transcriptBaselineUrl)&&!state.sourceUrl.isEmpty())url.setText(state.sourceUrl);
+                state.discard();draft.transcriptState="";persist();message("视频文字稿已导入摘录，请校对后保存；其他模块保持不变。");
+            };
+            if(!excerpt.getText().toString().equals(draft.transcriptBaselineExcerpt))new AlertDialog.Builder(this)
+                    .setTitle("替换当前摘录？").setMessage("摘录在解析期间发生了变化。仅在你确认后替换为视频文字稿。")
+                    .setNegativeButton("保留当前摘录",(d,w)->{state.imported=false;try{state.persist();}catch(Exception ignored){}})
+                    .setPositiveButton("导入文字稿",(d,w)->apply.run()).show();
+            else apply.run();
+        }catch(Exception error){message("未能导入文字稿，当前摘录没有变化，请重新打开解析页面。");}
     }
     private void confirmReplace(EditText field,String title,Runnable action) {
         if(session.pending!=null||acquiring)return;
@@ -443,7 +478,8 @@ public final class UnifiedCaptureActivity extends Activity {
                         .put("strokes",new JSONArray());
             }
             final JSONObject material=textContext,annotation=layer;
-            String type=!quote.isEmpty()&&draft.clipboardRead?"clipboard":context||crop?"screen":"quick_note";
+            String type=!quote.isEmpty()&&"video_transcript".equals(draft.excerptOrigin)?"video_transcript"
+                    :!quote.isEmpty()&&draft.clipboardRead?"clipboard":context||crop?"screen":"quick_note";
             String pkg=source?draft.source.appPackage:"",origin=link.isEmpty()?"":link.equals(draft.source.url)?draft.source.origin:"user_entered";
             String category=draft.kind,scope=draft.scope;File screenshot=context?draft.screenshot:null,first=draft.cropOriginal,second=draft.cropAnnotated;
             UnifiedCaptureDraft target=draft;Context app=getApplicationContext();persist();

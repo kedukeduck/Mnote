@@ -604,11 +604,17 @@ final class CaptureStore {
     }
 
     static void writeJson(JSONObject object, File destination) throws IOException {
+        writeJson(object,destination,512*1024);
+    }
+
+    /** Drafts may hold several independent 100k-character materials; record limits stay unchanged. */
+    static void writeJson(JSONObject object,File destination,int maximumBytes)throws IOException {
+        if(maximumBytes<1||maximumBytes>4*1024*1024)throw new IOException("invalid_json_limit");
         File partial = new File(destination.getParentFile(), destination.getName() + ".part");
         byte[] bytes;
         try {
             bytes = object.toString(2).getBytes(StandardCharsets.UTF_8);
-            if (bytes.length > 512 * 1024) throw new IOException("record_too_large");
+            if (bytes.length > maximumBytes) throw new IOException("record_too_large");
         } catch (JSONException error) {
             throw new IOException("Cannot format capture metadata", error);
         }
@@ -696,6 +702,7 @@ final class CaptureStore {
     }
 
     private static String fidelityLevel(String sourceType, boolean hasImage) {
+        if("video_transcript".equals(sourceType))return "machine_transcribed";
         if ("process_text".equals(sourceType) || "share_text".equals(sourceType) || "accessibility_selection".equals(sourceType) || "clipboard".equals(sourceType)) {
             return "L3";
         }

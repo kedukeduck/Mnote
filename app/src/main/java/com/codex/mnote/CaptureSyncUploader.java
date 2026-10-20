@@ -124,6 +124,8 @@ final class CaptureSyncUploader {
                 .put("url", record.sourceUrl)
                 .put("url_origin", record.sourceUrlOrigin)
                 .put("fidelity_level", record.fidelityLevel);
+        if("video_transcript".equals(record.sourceType))source.put("text_origin","video_transcript")
+                .put("transcription",new JSONObject().put("method","automatic_speech_recognition").put("verified",false));
         JSONArray ocr = new JSONArray();
         JSONObject origin = new JSONObject()
                 .put("device_id", CaptureSyncPreferences.deviceId(context))
@@ -133,7 +135,7 @@ final class CaptureSyncUploader {
                 .put("context",record.captureContext)
                 .put(
                         "exact_text",
-                        record.sourceText.isEmpty()
+                        record.sourceText.isEmpty()||"video_transcript".equals(record.sourceType)
                                 ? JSONObject.NULL
                                 : new JSONObject()
                                         .put("text", record.sourceText)
@@ -167,12 +169,23 @@ final class CaptureSyncUploader {
         if(resultEvidence==null) resultEvidence=new JSONObject();
         resultEvidence.put("context",record.captureContext);
         JSONObject edits=record.captureContext.optJSONObject("text_edit");
+        JSONObject transcription=resultSource.optJSONObject("transcription");
+        boolean machineTranscript="video_transcript".equals(record.sourceType)
+                ||"video_transcript".equals(resultSource.optString("text_origin"))
+                ||transcription!=null&&"automatic_speech_recognition".equals(transcription.optString("method"));
         if(edits!=null && edits.optBoolean("quote_modified")) {
             resultSource.put("text_origin","user_edited");
             JSONObject selectors=resultSource.optJSONObject("selectors");
             if(selectors!=null) selectors.put("validation_status","invalidated_by_manual_edit");
-            resultEvidence.put("exact_text",record.sourceText.isEmpty() ? JSONObject.NULL
+            resultEvidence.put("exact_text",record.sourceText.isEmpty()||machineTranscript ? JSONObject.NULL
                     : new JSONObject().put("text",record.sourceText).put("delivered_by","user_edited"));
+        }
+        if(machineTranscript){
+            if(transcription==null)transcription=new JSONObject();
+            transcription.put("method","automatic_speech_recognition").put("verified",false);
+            if(edits!=null&&edits.optBoolean("quote_modified"))transcription.put("user_edited",true);
+            resultSource.put("transcription",transcription).put("fidelity_level","machine_transcribed");
+            resultEvidence.put("exact_text",JSONObject.NULL);
         }
         result.put("source",resultSource).put("evidence",resultEvidence);
         if(record.serverRevision>0) result.put("base_revision",record.serverRevision);

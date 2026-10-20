@@ -262,6 +262,19 @@ until_drive close-account
 # GetDC on a covered list can return the settings window's pixels or CLR_INVALID.
 until_drive settings-close
 drive show
+drive focus-source
+drive capture
+until_drive unified-ready
+drive transcript-open
+until_drive transcript-ready
+drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/video-transcript-preview.png" 'Mnote · 从视频链接摘录'
+drive transcript-small
+until_drive transcript-ready
+drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/video-transcript-small-preview.png" 'Mnote · 从视频链接摘录'
+drive transcript-close
+until_drive transcript-preserved
+until_drive discard-editor
+drive show
 until_drive library-uncovered
 sleep 0.3
 until_drive cards-ready

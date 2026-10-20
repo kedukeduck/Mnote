@@ -75,6 +75,7 @@ echo "[4/7] Windows sync boundary and WinHTTP smoke test"
   bash desktop-windows/tests/run-sync-smoke.sh
   bash desktop-windows/tests/run-library-tests.sh
   bash desktop-windows/tests/run-library-live.sh
+  bash desktop-windows/tests/run-transcript-import-tests.sh
   bash desktop-windows/tests/run-updater-tests.sh
   if [[ -f desktop-windows/tests/run-ai-chat-tests.sh ]]; then
     bash desktop-windows/tests/run-ai-chat-tests.sh
@@ -132,6 +133,7 @@ for component in \
   CaptureTriggerActivity \
   CaptureEditorActivity \
   UnifiedCaptureActivity \
+  VideoTranscriptActivity \
   AppUpdateActivity \
   SettingsActivity \
   AiChatActivity \

@@ -3,7 +3,9 @@
 #include "ai_chat.hpp"
 #include "chat_transcript.hpp"
 #include "draft_modules.hpp"
+#include "transcript_import.hpp"
 #include <cmath>
+#include <chrono>
 #include <commctrl.h>
 #include <commdlg.h>
 #include <condition_variable>
@@ -104,7 +106,9 @@ enum Control {
     ChatThought, ChatExcerpt, ChatOriginal, ChatImages, ChatMetadata, ChatName,
     ModelLabel, ModelEndpoint, ModelId, ModelKey, ModelVision, ModelLimit, ModelNew,
     ModelTest, ModelImageTest, ModelDelete, ChatSuggestOne, ChatSuggestTwo, ChatSuggestThree,
-    ChatRetry
+    ChatRetry,
+    VideoTranscript = 31000, TranscriptLink, TranscriptRights, TranscriptNote, TranscriptConsent,
+    TranscriptStart, TranscriptCancel, TranscriptResult, TranscriptImport, TranscriptSource
 };
 enum class Mode {
     Library,
@@ -117,7 +121,7 @@ enum class Mode {
     Shares,
     Settings,
     ShareText,
-    Reader, Chat, ChatHistory, ChatModels
+    Reader, Chat, ChatHistory, ChatModels, Transcript
 };
 struct Placement {
     HWND control;
@@ -167,6 +171,14 @@ struct Window {
     std::shared_ptr<std::atomic_bool> chatStop;
     Ai::Conversation conversation;
     bool chatReceiving = false;
+    HWND transcriptTarget = nullptr;
+    std::uint64_t transcriptTargetSerial = 0;
+    std::shared_ptr<std::atomic_bool> transcriptStop;
+    std::string transcriptAgreement;
+    std::string transcriptJobId,transcriptRequestId,transcriptPayload;
+    Account transcriptAccount;
+    std::wstring transcriptUrl;
+    bool transcriptRunning = false;
 };
 HINSTANCE instance = nullptr;
 HWND home = nullptr, editor = nullptr, accountWindow = nullptr;
@@ -252,6 +264,7 @@ void Busy(Window &w, bool value) {
                    IncludeOriginal, IncludeLink, IncludeCrop, IncludeTags, Annotate})
         if (auto c = ControlOf(w, id))
             EnableWindow(c, !value);
+    if (auto c=ControlOf(w,VideoTranscript)) EnableWindow(c,!value);
     if (w.mode == Mode::Editor && !value) ModuleControls(w);
 }
 void Failure(HWND hwnd, std::uint64_t serial, const std::wstring &error) {
@@ -565,14 +578,19 @@ void Layout(Window &w) {
         if (w.mode == Mode::Editor && p.y >= 10000)
             y -= 10000;
         if (id == Status)
-            y = height - 44;
+            y = height - (w.mode==Mode::Transcript?50:44);
         else if (id == Save || id == Login || id == SaveChat)
             y = height - 94;
         else if (id == Cancel || id == Delete)
             y = height - 94;
+        else if(id==TranscriptImport) y=height-94;
         int ww = p.stretch ? std::max(120, width - 56) : p.w;
-        MoveWindow(p.control, Scale(w, p.x), Scale(w, y), Scale(w, ww), Scale(w, p.h), TRUE);
-        bool footer = id == Status || id == Save || id == Login || id == Cancel || id == Delete || id == SaveChat;
+        int x=p.x;
+        if(w.mode==Mode::Editor&&id==VideoTranscript)x=width-28-p.w;
+        if(w.mode==Mode::Editor&&id==Clipboard)x=width-28-124-10-p.w;
+        if(w.mode==Mode::Editor&&id==IncludeExcerpt)ww=std::max(140,width-56-276);
+        MoveWindow(p.control, Scale(w, x), Scale(w, y), Scale(w, ww), Scale(w, p.h), TRUE);
+        bool footer = id == Status || id == Save || id == Login || id == Cancel || id == Delete || id == SaveChat || id==TranscriptImport;
         // Clip the scrolling body above the fixed save/status footer.
         if (!footer)
             SetWindowRgn(p.control,
@@ -1152,6 +1170,216 @@ void OpenShareImages(Window &from, const std::string &id, const Json &images) {
     SetForegroundWindow(w.hwnd);
     LoadShareImage(w);
 }
+bool TranscriptAccount(const Account &account) {
+    auto current=library->account();
+    return current.scope==account.scope && current.token==account.token && current.server==account.server;
+}
+void TranscriptRunning(Window &w,bool running) {
+    w.transcriptRunning=running;
+    bool pending=!w.transcriptJobId.empty();
+    for(auto id:{TranscriptLink,TranscriptRights,TranscriptNote,TranscriptConsent})
+        EnableWindow(ControlOf(w,id),!running&&!pending);
+    EnableWindow(ControlOf(w,TranscriptStart),!running&&!w.transcriptAgreement.empty());
+    EnableWindow(ControlOf(w,TranscriptCancel),running||pending);
+    EnableWindow(ControlOf(w,TranscriptImport),!running&&!Text(ControlOf(w,TranscriptResult)).empty());
+    Set(w,TranscriptCancel,L"取消解析");
+    Set(w,TranscriptStart,pending?L"继续读取任务":L"解析文字稿");
+}
+void ClearPendingTranscript(Window &w) {
+    auto id=w.transcriptJobId;if(id.empty())return;
+    auto account=w.transcriptAccount;auto hwnd=w.hwnd;auto serial=w.serial;
+    w.transcriptJobId.clear();w.transcriptRequestId.clear();w.transcriptPayload.clear();
+    TranscriptRunning(w,true);StatusText(w,L"正在取消并清理临时文字稿任务…");
+    chatWorkers.emplace_back([account,id,hwnd,serial] {
+        bool failed=false;try{Transcript::Client(account).erase(id);}catch(const std::exception&){failed=true;}
+        Post([hwnd,serial,failed]{if(auto form=Find(hwnd,serial)) {
+            TranscriptRunning(*form,false);
+            StatusText(*form,failed?L"临时任务清理暂未成功，将由服务最多 24 小时过期清理；草稿未改变。":L"已取消并删除临时任务；记录草稿未改变。");
+        }});
+    });
+}
+void OpenTranscript(Window &from) {
+    if(from.scope!=library->account().scope || !library->account().signedIn()) {
+        StatusText(from,L"请先在设置中登录 Mnote 账号，再解析视频链接。"); return;
+    }
+    for(auto &entry:windows) if(entry.second->mode==Mode::Transcript && entry.second->transcriptTarget==from.hwnd) {
+        ShowWindow(entry.first,SW_SHOW); SetForegroundWindow(entry.first); return;
+    }
+    auto &w=Create(Mode::Transcript,L"Mnote · 从视频链接摘录",760,900);
+    w.transcriptAccount=library->account();
+    w.transcriptTarget=from.hwnd; w.transcriptTargetSerial=from.serial;
+    w.transcriptStop=std::make_shared<std::atomic_bool>(false);
+    Label(w,Title,L"把听到的，留成文字",24);
+    Label(w,Subtitle,L"粘贴 B 站 / 抖音分享链接 · 校对后确认写入摘录",76);
+    Label(w,31101,L"公开视频分享链接或完整分享文字",118);
+    Edit(w,TranscriptLink,L"",148,78,8192);
+    Label(w,31102,L"内容权利来源（请选择）",244);
+    auto rights=Add(w,TranscriptRights,L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_TABSTOP,28,274,660,160,true);
+    for(auto text:{L"请选择内容权利来源",L"我拥有此内容",L"我已获权利人授权",L"内容具有开放许可"})
+        SendMessageW(rights,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(text));
+    SendMessageW(rights,CB_SETCURSEL,0,0);
+    Label(w,31103,L"权利说明（授权或开放许可请说明依据，至少 8 个字）",320);
+    Edit(w,TranscriptNote,L"",350,64,500);
+    auto consent=Add(w,TranscriptConsent,L"BUTTON",L"我确认拥有相应权利，并同意服务端读取链接及转写音轨",BS_AUTOCHECKBOX|WS_TABSTOP,28,426,660,36,true);
+    SendMessageW(consent,BM_SETCHECK,BST_UNCHECKED,0);
+    Label(w,31104,L"仅处理可公开读取的内容，不绕过登录或平台限制。",472);
+    Label(w,31105,L"临时文字稿最多保留 24 小时；导入不影响截图和想法。",500);
+    Button(w,TranscriptStart,L"解析文字稿",28,544,174);
+    Button(w,TranscriptCancel,L"取消解析",216,544,144);
+    Label(w,Status,L"正在检查文字稿服务…",596);
+    w.placements.back().h=42;
+    Label(w,31106,L"文字稿预览 · 可校对，未确认前不会改变记录",638);
+    Edit(w,TranscriptResult,L"",674,262,100000);
+    EnableWindow(ControlOf(w,TranscriptResult),FALSE);
+    Add(w,TranscriptSource,L"BUTTON",L"同时将本次视频链接填入来源链接",BS_AUTOCHECKBOX|WS_TABSTOP,28,950,660,32,true);
+    Button(w,TranscriptImport,L"确认导入摘录",28,1002,190);
+    Button(w,Cancel,L"返回记录",234,1002,144);
+    w.extent=990;
+    EnableWindow(ControlOf(w,TranscriptStart),FALSE);
+    EnableWindow(ControlOf(w,TranscriptCancel),FALSE);
+    EnableWindow(ControlOf(w,TranscriptImport),FALSE);
+    Layout(w);ShowWindow(w.hwnd,SW_SHOW);SetForegroundWindow(w.hwnd);
+    auto account=library->account();auto hwnd=w.hwnd;auto serial=w.serial;auto stop=w.transcriptStop;
+    chatWorkers.emplace_back([account,hwnd,serial,stop] {
+        try {
+            if(stop->load()||!TranscriptAccount(account))return;
+            auto config=Transcript::Client(account).config();
+            if(!config.value("ready",false))throw std::runtime_error("not_configured");
+            auto agreement=config.at("agreement_version").get<std::string>();
+            if(agreement.empty()||agreement.size()>100)throw std::runtime_error("invalid_job");
+            Post([hwnd,serial,account,stop,agreement] {
+                if(auto form=Find(hwnd,serial);form&&!stop->load()&&TranscriptAccount(account)) {
+                    form->transcriptAgreement=agreement;
+                    StatusText(*form,L"服务已就绪 · 最长 30 分钟，提交后可取消；声明版本："+Wide(agreement));
+                    TranscriptRunning(*form,false);
+                }
+            });
+        }catch(const std::exception &error) {
+            auto message=Transcript::Error(error);
+            Post([hwnd,serial,stop,message]{if(auto form=Find(hwnd,serial);form&&!stop->load())StatusText(*form,message);});
+        }
+    });
+}
+void StartTranscript(Window &w) {
+    if(w.transcriptRunning||w.transcriptAgreement.empty())return;
+    auto account=w.transcriptAccount;
+    if(!TranscriptAccount(account)||!account.signedIn())throw std::runtime_error("account_changed");
+    auto share=Text(ControlOf(w,TranscriptLink));
+    auto note=Utf8(Text(ControlOf(w,TranscriptNote)));
+    auto index=SendMessageW(ControlOf(w,TranscriptRights),CB_GETCURSEL,0,0);
+    std::string basis=index==1?"owned":index==2?"authorized":index==3?"open_license":"";
+    if(share.empty()||Transcript::ShareUrl(share).empty())throw std::runtime_error("invalid_request");
+    if(!Checked(w,TranscriptConsent)||basis.empty()||note.empty()||(basis!="owned"&&Wide(note).size()<8))
+        throw std::runtime_error("consent_required");
+    auto fingerprint=Hash(Json{{"share_text",Utf8(share)},{"basis",basis},{"note",note},{"agreement",w.transcriptAgreement}}.dump());
+    if(w.transcriptPayload!=fingerprint||w.transcriptRequestId.empty()) {
+        if(!w.transcriptJobId.empty())throw std::runtime_error("invalid_request");
+        w.transcriptRequestId=Transcript::NewRequestId();w.transcriptPayload=fingerprint;
+    }
+    auto requestId=w.transcriptRequestId,knownJob=w.transcriptJobId;
+    auto stop=std::make_shared<std::atomic_bool>(false);w.transcriptStop=stop;
+    w.transcriptUrl=Transcript::ShareUrl(share);
+    Set(w,TranscriptResult,L"");EnableWindow(ControlOf(w,TranscriptResult),FALSE);
+    auto agreement=w.transcriptAgreement;auto hwnd=w.hwnd;auto serial=w.serial;
+    TranscriptRunning(w,true);StatusText(w,L"正在提交解析任务…");
+    chatWorkers.emplace_back([account,stop,agreement,share,note,basis,hwnd,serial,requestId,knownJob] {
+        std::string id=knownJob;Json job;std::wstring result,errorMessage;
+        bool keepPending=false,terminal=false;
+        Transcript::Client client(account);
+        try {
+            auto check=[&] {
+                if(stop->load())throw std::runtime_error("cancelled");
+                if(!TranscriptAccount(account))throw std::runtime_error("account_changed");
+            };
+            auto get=[&] {
+                for(int attempt=0;;++attempt)try{check();return client.get(id);}catch(const std::exception&error) {
+                    std::string code=error.what();
+                    if(attempt>=2||(code!="network_io"&&code!="upstream_unavailable"))throw;
+                    Post([hwnd,serial,stop]{if(auto form=Find(hwnd,serial);form&&!stop->load())StatusText(*form,L"网络暂时中断，正在重试读取原任务，不会重复提交…");});
+                    for(int i=0;i<20;++i){check();std::this_thread::sleep_for(std::chrono::milliseconds(100));}
+                }
+            };
+            check();job=id.empty()?client.create(Utf8(share),basis,note,agreement,true,requestId):get();id=job.at("id");
+            auto deadline=std::chrono::steady_clock::now()+std::chrono::hours(1);
+            for(;;) {
+                check();
+                auto status=job.value("status",std::string());
+                if(status=="completed") {terminal=true;result=Transcript::Text(job);break;}
+                if(status=="failed") {
+                    terminal=true;
+                    auto error=Object(job,"error");
+                    // Only the fixed error mapping is shown, never raw remote messages.
+                    throw std::runtime_error(error.value("code",std::string("transcript_failed")));
+                }
+                if(status!="queued"&&status!="processing")throw std::runtime_error("invalid_job");
+                if(std::chrono::steady_clock::now()>deadline)throw std::runtime_error("timeout");
+                auto progress=Transcript::Progress(job);
+                Post([hwnd,serial,stop,account,progress] {
+                    if(auto form=Find(hwnd,serial);form&&!stop->load()&&TranscriptAccount(account))StatusText(*form,progress);
+                });
+                for(int i=0;i<30;++i){check();std::this_thread::sleep_for(std::chrono::milliseconds(100));}
+                job=get();
+            }
+            check();
+        }catch(const std::exception &error){
+            std::string code=error.what();errorMessage=Transcript::Error(error);
+            keepPending=!terminal&&!stop->load()&&TranscriptAccount(account)&&
+                (code=="network_io"||code=="upstream_unavailable"||code=="submission_uncertain");
+        }
+        // Temporary jobs are not the saved note. Clear them on success, failure or cancellation.
+        bool cleanupFailed=false;
+        if(!keepPending&&!id.empty())try{client.erase(id);}catch(const std::exception &){cleanupFailed=true;}
+        Post([hwnd,serial,stop,account,result,errorMessage,cleanupFailed,keepPending,id] {
+            auto form=Find(hwnd,serial);
+            if(!form||form->transcriptStop!=stop)return;
+            if(!TranscriptAccount(account)) {
+                TranscriptRunning(*form,false);form->transcriptAgreement.clear();
+                EnableWindow(ControlOf(*form,TranscriptStart),FALSE);
+                StatusText(*form,L"账号已变化，本次结果已丢弃。请关闭后重新打开解析。");return;
+            }
+            form->transcriptJobId=keepPending?id:"";
+            if(!keepPending){form->transcriptRequestId.clear();form->transcriptPayload.clear();}
+            TranscriptRunning(*form,false);
+            if(keepPending) {
+                StatusText(*form,id.empty()?L"提交状态暂不确定。请保持相同链接与声明后重试，将使用同一请求编号避免重复创建任务。":L"网络暂时中断，服务端任务仍保留。点击“继续读取任务”恢复，或取消解析。");return;
+            }
+            if(stop->load()||!errorMessage.empty()) {
+                StatusText(*form,stop->load()?L"已取消解析，记录草稿未改变。":errorMessage);return;
+            }
+            Set(*form,TranscriptResult,result);EnableWindow(ControlOf(*form,TranscriptResult),TRUE);
+            EnableWindow(ControlOf(*form,TranscriptImport),TRUE);
+            StatusText(*form,cleanupFailed?L"文字稿已生成，请校对。临时任务清理失败，将由服务自动过期删除。":L"文字稿已生成，请校对后确认导入摘录。");
+        });
+    });
+}
+void ImportTranscript(Window &w) {
+    if(w.transcriptRunning)return;
+    auto target=Find(w.transcriptTarget,w.transcriptTargetSerial);
+    if(!target||target->busy||target->scope!=w.scope||w.scope!=library->account().scope) {
+        StatusText(w,L"原记录编辑页已关闭、账号已变化或正在保存；无法写入，请返回后重试。");return;
+    }
+    auto text=Text(ControlOf(w,TranscriptResult));
+    if(text.empty()||text.size()>100000)throw std::runtime_error("text_too_long");
+    if(!Text(ControlOf(*target,Quote)).empty()&&
+       MessageBoxW(w.hwnd,L"用校对后的文字稿替换当前摘录？想法、原文和截图保持不变。",L"Mnote · 导入文字稿",MB_YESNO|MB_ICONQUESTION)!=IDYES)return;
+    if(Checked(w,TranscriptSource)) {
+        auto current=Text(ControlOf(*target,Url));
+        if(!current.empty()&&current!=w.transcriptUrl&&
+           MessageBoxW(w.hwnd,L"当前记录已有来源链接，是否替换为本次视频链接？",L"Mnote · 来源链接",MB_YESNO|MB_ICONQUESTION)!=IDYES)return;
+        Set(*target,Url,w.transcriptUrl);SendMessageW(ControlOf(*target,IncludeLink),BM_SETCHECK,BST_CHECKED,0);
+    }
+    Set(*target,Quote,text);SendMessageW(ControlOf(*target,IncludeExcerpt),BM_SETCHECK,BST_CHECKED,0);
+    target->draft.data["source"]["text"]=Utf8(text);
+    target->draft.data["source"]["text_origin"]="video_transcript";
+    target->draft.data["source"]["type"]="video_transcript";
+    target->draft.data["source"]["transcription"]={{"method","automatic_speech_recognition"},{"verified",false}};
+    target->draft.data["source"].erase("selectors");
+    target->draft.data["source"].erase("selected_text");
+    target->draft.data["evidence"].erase("exact_text");
+    target->dirty=true;ModuleControls(*target);
+    StatusText(*target,L"文字稿已导入摘录；自动转写可能有误，请校对后保存记录。");
+    auto editorHwnd=target->hwnd;DestroyWindow(w.hwnd);SetForegroundWindow(editorHwnd);
+}
 void OpenEditor(Draft draft, const Record *record) {
     if (editor && IsWindow(editor)) {
         ShowWindow(editor, SW_SHOW);
@@ -1189,7 +1417,9 @@ void OpenEditor(Draft draft, const Record *record) {
     Edit(w,Note,Field(data,"comment"),156,144,20000);
     module(IncludeExcerpt,L"摘录 · 加入记录",328,w.editing || !Field(source,"text").empty());
     w.placements.back().stretch=false;
-    Button(w,Clipboard,L"读取剪贴板",500,326,164);
+    w.placements.back().w=360;
+    Button(w,Clipboard,L"读取剪贴板",408,326,122);
+    Button(w,VideoTranscript,L"视频文字稿",540,326,124);
     Edit(w,Quote,Field(source,"text"),370,112,100000);
     module(IncludeOriginal,L"页面原文 · 加入记录",508,w.editing || !OriginalText(data).empty());
     w.placements.back().stretch=false;
@@ -1412,6 +1642,8 @@ void ReadClipboard(Window &w) {
     SendMessageW(ControlOf(w,IncludeExcerpt),BM_SETCHECK,BST_CHECKED,0);
     ModuleControls(w);
     w.draft.data["source"]["text_origin"] = "clipboard";
+    w.draft.data["source"].erase("transcription");
+    if(w.draft.data["source"].value("type",Json(""))=="video_transcript")w.draft.data["source"]["type"]="clipboard";
     w.draft.data["source"]["text"] = Utf8(text);
     w.draft.data["evidence"]["exact_text"] = {{"text", Utf8(text)}, {"delivered_by", "clipboard"}};
     StatusText(w, L"已读取本次剪贴板文字。不会继续监听剪贴板。");
@@ -1503,7 +1735,15 @@ Json Edited(Window &w) {
         auto delivered = changed
                              ? "user_edited"
                              : data["source"].value("text_origin", std::string("user_supplied"));
-        data["evidence"]["exact_text"] = {{"text", Utf8(quote)}, {"delivered_by", delivered}};
+        bool machineTranscript=data["source"].value("type",Json(""))=="video_transcript" ||
+            data["source"].value("text_origin",Json(""))=="video_transcript" || data["source"].contains("transcription");
+        if(machineTranscript) {
+            data["source"]["type"]="video_transcript";
+            if(!data["source"].value("transcription",Json(nullptr)).is_object())
+                data["source"]["transcription"]={{"method","automatic_speech_recognition"},{"verified",false}};
+            data["evidence"].erase("exact_text");
+            if(changed)data["source"]["transcription"]["user_edited"]=true;
+        } else data["evidence"]["exact_text"] = {{"text", Utf8(quote)}, {"delivered_by", delivered}};
         data["source"]["text_origin"] = delivered;
     }
     auto assets=w.draft.assets;
@@ -2587,6 +2827,21 @@ void ExportRecords(Window &w, const std::vector<Record> &records) {
         });
 }
 void Command(Window &w, int id, int event) {
+    if(w.mode==Mode::Transcript) {
+        try {
+            if(id==TranscriptStart)StartTranscript(w);
+            else if(id==TranscriptCancel&&w.transcriptStop) {
+                if(!w.transcriptRunning&&!w.transcriptJobId.empty())ClearPendingTranscript(w);
+                else {
+                    w.transcriptStop->store(true);Set(w,TranscriptCancel,L"正在取消…");
+                    EnableWindow(ControlOf(w,TranscriptCancel),FALSE);
+                    StatusText(w,L"正在取消并清理临时任务，原来的记录草稿未改变…");
+                }
+            }else if(id==TranscriptImport)ImportTranscript(w);
+            else if(id==Cancel)PostMessageW(w.hwnd,WM_CLOSE,0,0);
+        }catch(const std::exception &error){StatusText(w,Transcript::Error(error));}
+        return;
+    }
     if(w.mode==Mode::Chat||w.mode==Mode::ChatHistory||w.mode==Mode::ChatModels) {
         try { ChatCommand(w,id,event); } catch(const std::exception &e) { StatusText(w,Ai::Store::error(e)); }
         return;
@@ -2988,6 +3243,8 @@ void Command(Window &w, int id, int event) {
     }
     else if (id == Clipboard)
         ReadClipboard(w);
+    else if (id == VideoTranscript)
+        OpenTranscript(w);
     else if (id == ReadContext)
         CaptureContext(w);
     else if (id == ScreenContext)
@@ -3416,6 +3673,10 @@ void DrawRecord(Window &w, const DRAWITEMSTRUCT &item) {
 LRESULT Dispatch(Window &w, UINT message, WPARAM wp, LPARAM lp) {
     switch (message) {
     case WM_ACTIVATE:
+        if(w.mode==Mode::Transcript&&LOWORD(wp)!=WA_INACTIVE&&w.scope!=Scope()) {
+            if(w.transcriptStop)w.transcriptStop->store(true);
+            PostMessageW(w.hwnd,WM_CLOSE,0,0);return 0;
+        }
         if((w.mode==Mode::Chat||w.mode==Mode::ChatHistory||w.mode==Mode::ChatModels)&&LOWORD(wp)!=WA_INACTIVE) {
             if(w.scope!=Scope()){if(w.chatStop)w.chatStop->store(true);PostMessageW(w.hwnd,WM_CLOSE,0,0);return 0;}
             if(w.mode==Mode::Chat&&!w.chatReceiving)ChatProfileList(w);
@@ -3663,6 +3924,8 @@ LRESULT Dispatch(Window &w, UINT message, WPARAM wp, LPARAM lp) {
         return 0;
     }
     case WM_CLOSE:
+        if(w.mode==Mode::Transcript&&!w.transcriptRunning&&!w.transcriptJobId.empty())ClearPendingTranscript(w);
+        if(w.mode==Mode::Transcript&&w.transcriptStop)w.transcriptStop->store(true);
         if(w.mode==Mode::Chat) {
             if(w.chatStop)w.chatStop->store(true);
             if(w.scope==Scope()&&!w.chatReceiving){auto value=Utf8(Text(ControlOf(w,ChatInput)));if(w.chatId.empty())chats->scratch(w.scope,w.chatRecordId,value);else chats->draft(w.scope,w.chatId,value);}
@@ -3696,6 +3959,12 @@ LRESULT CALLBACK Procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
     if (!w)
         return DefWindowProcW(hwnd, message, wp, lp);
     if (message == WM_NCDESTROY) {
+        if(w->transcriptStop)w->transcriptStop->store(true);
+        if(w->mode==Mode::Editor)for(auto &entry:windows)
+            if(entry.second->mode==Mode::Transcript&&entry.second->transcriptTarget==hwnd) {
+                if(entry.second->transcriptStop)entry.second->transcriptStop->store(true);
+                PostMessageW(entry.first,WM_CLOSE,0,0);
+            }
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
         if (editor == hwnd)
             editor = nullptr;
@@ -3935,7 +4204,9 @@ void Start(HINSTANCE appInstance, const fs::path &root, std::function<void()> ca
     Sync();
 }
 void Stop() {
+    for(auto &item:windows)if(item.second->mode==Mode::Transcript&&!item.second->transcriptRunning&&!item.second->transcriptJobId.empty())ClearPendingTranscript(*item.second);
     for(auto &item:windows)if(item.second->chatStop)item.second->chatStop->store(true);
+    for(auto &item:windows)if(item.second->transcriptStop)item.second->transcriptStop->store(true);
     if (library)
         library->interrupt();
     if (home)
