@@ -145,6 +145,7 @@ public class VideoTranscriptActivityTest {
             a.onActivityResult(UnifiedCaptureActivity.REQUEST_VIDEO_TRANSCRIPT,Activity.RESULT_OK,new Intent().putExtra(VideoTranscriptActivity.STATE,state.file.getAbsolutePath()));
             assertEquals("用户后来写下的摘录",a.<EditText>findViewById(R.id.unified_excerpt).getText().toString());
             ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+            shadowOf(Looper.getMainLooper()).idle();
             assertEquals("用户后来写下的摘录",a.<EditText>findViewById(R.id.unified_excerpt).getText().toString());assertTrue(state.file.exists());
             assertFalse(VideoTranscriptState.read(a,state.file.getAbsolutePath()).imported);
         }
