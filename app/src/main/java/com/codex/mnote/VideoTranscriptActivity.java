@@ -14,6 +14,7 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.UUID;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -149,10 +150,12 @@ public final class VideoTranscriptActivity extends Activity {
 
     /** Survives rotation without holding an Activity. A persisted job ID is resumed after process death. */
     static final class Session {
+        static final long REQUEST_TIMEOUT_MILLIS=45_000;
         final Context context;final VideoTranscriptState state;final Handler main=new Handler(Looper.getMainLooper());
         final ExecutorService executor=executor();
         WeakReference<VideoTranscriptActivity> receiver=new WeakReference<>(null);
         boolean ready,busy,cancelled;String message="正在连接解析服务…";int polls,failures;boolean active;
+        long generation;Future<?> request;Runnable timeout;
         final Runnable next=this::poll;
         Session(Context context,VideoTranscriptState state){this.context=context.getApplicationContext();this.state=state;}
         private static ExecutorService executor(){ThreadPoolExecutor pool=new ThreadPoolExecutor(1,1,20,TimeUnit.SECONDS,new LinkedBlockingQueue<>());pool.allowCoreThreadTimeOut(true);return pool;}
@@ -162,8 +165,9 @@ public final class VideoTranscriptActivity extends Activity {
         void refresh(){polls=0;failures=0;state.problem="";if(!busy){if(state.creating&&state.id().isEmpty())create();else if(state.id().isEmpty())configuration();else poll();}}
         void reset(){if(busy||!state.terminal())return;cleanupJob();state.job=null;state.text="";state.share="";state.sourceUrl="";
             state.creating=false;state.imported=false;state.consent=false;state.problem="";state.requestId=UUID.randomUUID().toString();polls=0;failures=0;persist();configuration();}
-        void configuration(){run("GET","/config",null,(response)->{
+        void configuration(){if(busy||cancelled)return;ready=false;state.problem="";message="正在连接解析服务…";run("GET","/config",null,(response)->{
             ready=response.optBoolean("ready");state.agreement=response.optString("agreement_version");
+            state.problem="";
             message=ready?"已连接 · 最长 "+Math.max(1,response.optInt("max_duration_seconds",1800)/60)+" 分钟。请确认本次授权后开始解析。":"当前服务器尚未启用视频文字稿服务。";persist();
         });}
         void create(){
@@ -193,24 +197,48 @@ public final class VideoTranscriptActivity extends Activity {
             executor.execute(()->{try{VideoTranscriptClient.request(context,state.scope,"DELETE","/jobs/"+id,null);}catch(Exception ignored){/* Server TTL is the final cleanup boundary. */}});}
         interface Completion {void accept(JSONObject response)throws Exception;}
         void run(String method,String suffix,JSONObject body,Completion callback){
-            if(busy||cancelled)return;busy=true;notifyUi();
-            executor.execute(()->{JSONObject response=null;Exception failure=null;
+            if(busy||cancelled)return;busy=true;final long attempt=++generation;notifyUi();
+            timeout=()->{
+                if(attempt!=generation||!busy)return;
+                ++generation;busy=false;if(request!=null)request.cancel(true);request=null;timeout=null;
+                if(cancelled||!state.file.isFile())return;
+                if("POST".equals(method)){
+                    // The server may have accepted the idempotent submission. Never invent a new key or retry automatically.
+                    state.problem="提交结果暂未确认。点击“恢复本次提交”可安全查询同一次提交，不会新建重复任务。";
+                }else if("/config".equals(suffix)){
+                    ready=false;state.problem="连接解析服务超时。请检查网络，然后点击“重新连接服务”；已填写的内容会保留。";
+                }else state.problem="刷新任务超时。任务可能仍在服务器处理，点击“刷新任务进度”可继续查看。";
+                persist();notifyUi();
+            };
+            main.postDelayed(timeout,REQUEST_TIMEOUT_MILLIS);
+            request=executor.submit(()->{JSONObject response=null;Exception failure=null;
                 try{CaptureAccountSession.requireScope(context,state.scope);response=VideoTranscriptClient.request(context,state.scope,method,suffix,body);}
                 catch(Exception error){failure=error;}
                 JSONObject value=response;Exception problem=failure;
-                main.post(()->{busy=false;if(cancelled||!state.file.isFile()){
+                main.post(()->{
+                    // A timed-out POST and its explicit recovery can refer to the same server job.
+                    // A stale completion must not clear the newer request, import text, or delete that shared job.
+                    if(attempt!=generation){if(cancelled||!state.file.isFile())cleanupAbandonedPost(method,value);return;}
+                    if(timeout!=null)main.removeCallbacks(timeout);timeout=null;request=null;busy=false;
+                    if(cancelled||!state.file.isFile()){
                         cancelled=true;
-                        if(value!=null&&"POST".equals(method))try{acceptJob(value);}catch(Exception ignored){}
-                        cleanupJob();return;
+                        if(value!=null&&"POST".equals(method))cleanupAbandonedPost(method,value);else cleanupJob();return;
                     }
                     try{CaptureAccountSession.requireScope(context,state.scope);if(problem!=null)throw problem;callback.accept(value);}
                     catch(Exception error){if("POST".equals(method)&&error instanceof VideoTranscriptClient.Rejected
                                 &&((VideoTranscriptClient.Rejected)error).status>=400&&((VideoTranscriptClient.Rejected)error).status<500
                                 &&!"submission_uncertain".equals(error.getMessage())){state.creating=false;state.requestId=UUID.randomUUID().toString();}
-                        state.problem=VideoTranscriptClient.error(error);persist();
+                        String code=error.getMessage()==null?"":error.getMessage();
+                        boolean uncertainPost="POST".equals(method)&&state.creating
+                                &&!"login_required".equals(code)&&!"invalid_session".equals(code)&&!"account_changed".equals(code);
+                        state.problem=uncertainPost?"提交结果暂未确认。请点击“恢复本次提交”重试同一次请求，不会新建重复任务。":VideoTranscriptClient.error(error);persist();
                         if(!state.id().isEmpty()&&!state.terminal()&&++failures<3)schedule();}
                     notifyUi();});
             });
+        }
+        private void cleanupAbandonedPost(String method,JSONObject response){
+            if(response==null||!"POST".equals(method))return;
+            try{acceptJob(response);cleanupJob();}catch(Exception ignored){/* Invalid/expired jobs still have the server TTL. */}
         }
         void notifyUi(){VideoTranscriptActivity activity=receiver.get();if(activity!=null)activity.render();}
     }

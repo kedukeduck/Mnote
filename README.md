@@ -42,7 +42,7 @@ Windows 已补齐应用内查看 / 编辑 / 删除、标签 / 未分类筛选、
 
 ## Android 构建
 
-当前 Android 测试版：[1.22.0-test APK](https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.22.0-test/Mnote-Android-1.22.0-test.apk)。本次增加视频链接文字稿摘录，并保留 1.21.1 标签滚动修复。统一记录入口、既有记录与聊天不变；服务端新增可选的账号转写适配。1.9 及之后的测试版可从应用内检查更新；更早版本可手动下载覆盖安装。详见 [版本说明](docs/video-transcript-1.22.0-release-notes.md)、[交互与验证](docs/unified-capture-editor.md)。安装前保存草稿，覆盖安装，不要卸载旧版。Android 沿用测试签名，非正式商店版。
+当前 Android 测试版：[1.22.1-test APK](https://chenyu.online/heartnote-capture/updates/files/mnote-android-v1.22.1-test/Mnote-Android-1.22.1-test.apk)。本版修复重新登录后的同步阻塞文字稿连接，增加整体超时、重试与迟到回调保护；Windows 保持 1.22.0-test，服务端不变。1.9 及之后的测试版可从应用内检查更新；更早版本可手动下载覆盖安装。详见 [修复说明](docs/android-1.22.1-release-notes.md)、[文字稿功能与边界](docs/video-transcript-1.22.0-release-notes.md)。安装前保存草稿，覆盖安装，不要卸载旧版。Android 沿用测试签名，非正式商店版。
 
 1.10.1 修复“分享管理”无法查看历史图片：点击历史分享即可查看当次导出的图片快照，兼容旧分享，不依赖原记录是否仍在本机。详见 [历史分享图片说明](docs/share-history-1.10.1-release-notes.md)。
 
