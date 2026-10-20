@@ -18,6 +18,7 @@ from unittest.mock import patch
 from heartnote_capture.accounts import Accounts
 from heartnote_capture.markdown_export import MarkdownExports
 from heartnote_capture.store import CaptureNotFound, CaptureStore, minimal_png
+from heartnote_capture.transcripts import Admissions
 from test_chat import conversation
 
 
@@ -121,6 +122,19 @@ class CompleteBackupTest(unittest.TestCase):
                 backup_tool.backup(str(self.data), str(self.output))
         self.assertEqual([], list(self.output.iterdir()))
         self.assertEqual(2, self.store.put(self.record_id, {"comment": "still writable"}, 1)["revision"])
+
+    def test_transcript_quota_and_request_tombstones_are_backed_up_without_text(self):
+        state = Admissions(self.data / "transcripts")
+        ident = state.reserve("synthetic-account", "request-key", "payload-hash")
+        state.accepted(ident, "core-job-id")
+        archive = backup_tool.backup(str(self.data), str(self.output))
+        restored = self.unpack(archive)
+        ledger = restored / "data" / "transcripts" / "admissions.sqlite3"
+        self.assertTrue(ledger.is_file())
+        with sqlite3.connect(ledger) as db:
+            self.assertEqual(("request-key", "payload-hash", "core-job-id"), db.execute("SELECT request_id,fingerprint,job_id FROM requests").fetchone())
+        manifest = json.loads((restored / "BACKUP.json").read_text())
+        self.assertIn("transcripts/admissions.sqlite3", manifest["databases"])
 
     def test_source_symlinks_and_nested_roots_rejected_without_copying_outside(self):
         outside = self.root / "outside.txt"

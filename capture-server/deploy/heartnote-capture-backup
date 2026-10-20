@@ -122,6 +122,12 @@ def snapshot_data(source: Path, destination: Path) -> list[str]:
             export_lock = lock_database(locks, index)
             databases.append(index)
             active_shares = [row[0] for row in export_lock.execute("SELECT id FROM exports WHERE revoked=0")]
+        transcript_state = source / "transcripts"
+        if directory(transcript_state):
+            admissions = transcript_state / "admissions.sqlite3"
+            if regular(admissions):
+                lock_database(locks, admissions)
+                databases.append(admissions)
         for database in databases:
             relative = database.relative_to(source)
             snapshot_database(database, destination / relative)
@@ -155,7 +161,7 @@ def backup(data_root: str, backup_root: str, retention_days: int = 14) -> Path:
         destination.mkdir(mode=0o700)
         databases = snapshot_data(source, destination)
         metadata = {"format": 2, "created_at": datetime.now(timezone.utc).isoformat(),
-                    "databases": databases, "includes": ["accounts", "all-vault-records", "private-chats", "images", "active-share-snapshots"],
+                    "databases": databases, "includes": ["accounts", "all-vault-records", "private-chats", "images", "active-share-snapshots", "transcript-admission-ledger"],
                     "excludes": ["update-installers", "server-env", "model-credentials"]}
         (stage / "BACKUP.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
         (stage / "RESTORE.txt").write_text(
@@ -164,7 +170,7 @@ def backup(data_root: str, backup_root: str, retention_days: int = 14) -> Path:
             "1. Extract into a NEW private temporary directory and verify archive checksum.\n"
             "2. Back up live data separately before replacement; never overlay old WAL/SHM files.\n"
             "3. Restore accounts.sqlite3, captures.sqlite3, chat.sqlite3, blobs/, account-vaults/,\n"
-            "   and markdown-exports/ together from data/. Missing chat.sqlite3 in an old backup\n"
+            "   markdown-exports/, and transcripts/ together from data/. Missing chat.sqlite3 in an old backup\n"
             "   means it predates chats; do not mix in a newer chat database.\n"
             "4. Leave existing updates/ installers and /etc service credentials in place.\n"
             "5. Set data owner to heartnote-capture:heartnote-capture; directories 0700/files 0600.\n"

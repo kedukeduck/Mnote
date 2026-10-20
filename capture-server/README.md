@@ -129,6 +129,46 @@ heartnote-capture-mcp --transport streamable-http --host 127.0.0.1 --port 8788
 
 备份必须整套恢复账号资料、全部账号 vault 的记录库、聊天库和图片，不能把不同时间的记录库与聊天库混用，也不能覆盖到仍存在旧 WAL 的目录。恢复账号会话可能包含备份后被撤销的凭证，开放服务前应作废恢复出的会话并审核旧公开分享。服务启动先执行 outbox 重放，再对外提供聊天。聊天数据库故障不会阻止普通记录/旧客户端读取；聊天 API 会拒绝读取直到恢复。
 
+## 视频文字稿（0.10.0，仅登录账号）
+
+Mnote 摘录可复用 `../transcription-service/` 的公开媒体解析与本地转写能力。同步服务只负责账号授权、任务代理、配额和幂等，不解析视频、不运行浏览器或模型。原有匿名网页仍由独立网关服务提供。
+
+| 方法 | 路径 | 响应 |
+| --- | --- | --- |
+| `GET` | `/v1/transcripts/config` | `200 {ready,configured,agreement_version,max_duration_seconds,retention_hours,message}` |
+| `POST` | `/v1/transcripts/jobs` | `202 {job}` |
+| `GET` | `/v1/transcripts/jobs/{uuid}` | `200 {job}`，仅所属账号 |
+| `DELETE` | `/v1/transcripts/jobs/{uuid}` | `200 {deleted:true,id}`，取消/删除临时任务 |
+
+所有接口只接受当前有效的账号 Bearer 会话；旧 read/write/AI token 均返回 `403`，缺失/过期会话返回 `401`。接口错误统一为 `{ "error": { "code": "...", "message": "..." } }`，不影响普通同步接口原来的错误格式。
+
+提交示例（授权依据必须由用户真实选择、填写，不可默认勾选）：
+
+```json
+{
+  "share_text": "用户粘贴的 HTTPS 分享链接或分享文案",
+  "rights_basis": "authorized",
+  "rights_note": "实际获得授权的说明，由用户填写",
+  "agreement_version": "2026-10-12-v1",
+  "consent": true,
+  "client_request_id": "2a90c0a5-1fb6-429b-82df-92d029877052"
+}
+```
+
+`rights_basis` 为 `owned`、`authorized`、`open_license` 之一；当前协议版本应从 config 获取，不能仅依赖示例常量。用户声明不等于服务已验证授权，返回的 `rights.verified` 为 `false`。链接、正文和权属说明只发送到本机转写核心，不记录到同步服务访问日志。
+
+`job` 包含 `id/status/stage/progress/text/segments/source/rights/created_at/updated_at/expires_at/error`；`status` 为 `queued/processing/completed/failed`，进度 `0..100`，失败详情为 `job.error={code,message}`。客户端轮询到完成后，经用户确认将文字复制到现有摘录字段；服务器不会自动创建或覆盖记录。删除临时任务不会删除已导入的记录文字。
+
+可选 `client_request_id` 必须为小写标准 UUID。相同账号、相同 ID 和同一请求内容重复提交时返回原任务（仍为 `202`），不重复解析、不再消耗配额；内容改变返回 `409 request_conflict`。提交结果不确定时返回 `429 submission_uncertain`，不自动再次向核心提交。原任务已删除或过期时返回 `404`，同一个 ID 不会重新创建任务。用户编辑链接/声明后重新开始时应生成新 ID。只有核心明确以 `4xx` 拒绝、确认没有接收的提交可退还名额并释放该 ID。
+
+账号隔离使用服务器根据账号 ID 派生的独立 SHA-256 owner，拒绝客户端 `X-Owner-Id`/cookie/upstream 等覆盖。代理只访问固定 `http://127.0.0.1:8791/v1/...`，不跟随重定向，绝不把账号令牌发送给核心；核心专用 Token 不下发客户端。JSON 请求限制 16 KiB、响应限制 8 MiB、核心请求总期限 25 秒；只转发固定响应字段，不暴露媒体签名 URL、私有 URL、模型配置或 Token。
+
+原生 App 入口与匿名网页入口的配额分别计算：每账号同时一个进行中的任务、每小时最多 3 次、全部账号合计每 UTC 日最多 40 次；`429` 响应带 `Retry-After`。已被接收的任务无论后续失败还是删除均计数；网络结果不明/进程中断的预留也不自动退还，24 小时后解除占用。私有 `transcripts/admissions.sqlite3` 只保存账号派生 owner、任务 ID、计数时间及请求内容 SHA-256，不保存 URL、文字稿或声明；保留最小幂等墓碑以防过期请求重试变成新任务，日配额限制下每年最多约 1.5 万条。新版备份脚本会包含该库。
+
+部署时，先按转写服务文档启动本机核心；仅在 root-only 的 `/etc/heartnote-capture/server.env` 加入 `HEARTNOTE_CAPTURE_TRANSCRIPT_TOKEN`，值为核心专用 Token。不要把整个核心 EnvironmentFile 引入同步服务，也不要将密钥放进仓库、APK 或 Windows 程序。无需修改 Nginx 路径或开放新端口。同步服务重启后，通过登录会话检查 `/v1/transcripts/config` 的 `ready/configured`。缺失/格式无效的可选 Token 令 config 返回 `ready:false,configured:false`，普通同步仍可启动；访问文字稿任务返回 `503 not_configured`。核心暂不可用返回 `503 upstream_unavailable`，不会透传内部认证错误或诊断。
+
+回滚可恢复旧版同步服务；保留上述 ledger，不要手动清空配额或幂等数据。数据恢复需和账号库一起恢复 ledger；转写核心自己的临时任务/模型和服务密钥不在本服务备份内。
+
 ## 测试
 
 不安装 MCP 依赖时，数据层和 HTTP 测试仍可运行：

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import hmac
+import contextlib
 import json
 import mimetypes
 import os
 import sqlite3
+import socket
 import sys
 import tempfile
+import threading
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,6 +28,7 @@ from .accounts import Accounts, AuthError
 from .chat_store import ChatConflict, MAX_CHAT_BYTES
 from .markdown_export import MarkdownExports
 from .releases import Releases
+from .transcripts import MAX_BODY as MAX_TRANSCRIPT_BODY, TranscriptError, Transcripts
 
 
 WEB_ROOT = Path(__file__).with_name("web")
@@ -213,6 +217,8 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         self.public_image = False
         parsed = urlparse(self.path)
+        if self._transcript_action("GET"):
+            return
         if self._chat_action("GET"):
             return
         if self._web_asset(parsed.path):
@@ -390,6 +396,8 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
             self._problem(HTTPStatus.BAD_REQUEST, "invalid_request", str(error))
 
     def do_PUT(self) -> None:  # noqa: N802
+        if self._transcript_action("PUT"):
+            return
         if self._chat_action("PUT"):
             return
         if self._require("write") is None:
@@ -414,6 +422,8 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
             self._problem(HTTPStatus.BAD_REQUEST, "invalid_request", str(error))
 
     def do_POST(self) -> None:  # noqa: N802
+        if self._transcript_action("POST"):
+            return
         if self._chat_action("POST"):
             return
         if urlparse(self.path).path.startswith("/v1/auth/"):
@@ -476,6 +486,8 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
             self._problem(HTTPStatus.BAD_REQUEST, "invalid_request", str(error))
 
     def do_DELETE(self) -> None:  # noqa: N802
+        if self._transcript_action("DELETE"):
+            return
         if self._chat_action("DELETE"):
             return
         if self._require("write") is None:
@@ -567,6 +579,64 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
             self._problem(503, "chat_storage_unavailable", "Chat storage is temporarily unavailable")
         return True
 
+    def _transcript_body(self):
+        lengths = self.headers.get_all("Content-Length", [])
+        if self.headers.get("Transfer-Encoding") or len(lengths) != 1 or not lengths[0].isascii() or not lengths[0].isdigit() or len(lengths[0]) > 10:
+            raise TranscriptError("invalid_request")
+        length = int(lengths[0])
+        if not 0 < length <= MAX_TRANSCRIPT_BODY or self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
+            raise TranscriptError("invalid_request")
+        def abort():
+            with contextlib.suppress(OSError):
+                self.connection.shutdown(socket.SHUT_RDWR)
+        timer = threading.Timer(20, abort)
+        timer.daemon = True
+        timer.start()
+        try:
+            self.connection.settimeout(20)
+            raw = self.rfile.read(length)
+            result = json.loads(raw)
+            if len(raw) != length or not isinstance(result, dict):
+                raise ValueError()
+            return result
+        except (ValueError, UnicodeError, RecursionError):
+            raise TranscriptError("invalid_request") from None
+        finally:
+            timer.cancel()
+
+    def _transcript_action(self, method: str) -> bool:
+        parsed = urlparse(self.path)
+        if not parsed.path.startswith("/v1/transcripts"):
+            return False
+        try:
+            scope = self._scope()
+            if scope != "account":
+                status = 401 if scope is None else 403
+                self._json(status, {"error": {"code": "unauthorized" if scope is None else "forbidden",
+                    "message": "请先登录 Mnote 账号后使用文字稿解析。"}},
+                    {"WWW-Authenticate": 'Bearer realm="Mnote"'} if status == 401 else None)
+                return True
+            if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment or len(self.path) > 160:
+                raise TranscriptError("not_found", 404)
+            prefix = "/v1/transcripts/"
+            suffix = parsed.path[len(prefix):] if parsed.path.startswith(prefix) else ""
+            if suffix == "config" and method == "GET":
+                self._json(200, self.transcripts.config(self.account["id"]))
+                return True
+            if suffix == "jobs" and method == "POST":
+                status, result = self.transcripts.submit(self.account["id"], self._transcript_body())
+            elif suffix.startswith("jobs/") and method in ("GET", "DELETE"):
+                status, result = self.transcripts.job(method, self.account["id"], suffix[5:])
+            else:
+                raise TranscriptError("not_found", 404)
+            self._json(status, result, {"Retry-After": "30"} if status == 429 else None)
+        except TranscriptError as error:
+            self._json(error.status, {"error": {"code": error.code, "message": str(error)}},
+                {"Retry-After": str(error.retry_after)} if error.retry_after else None)
+        except (sqlite3.Error, OSError):
+            self._json(503, {"error": {"code": "storage_unavailable", "message": "文字稿任务状态暂时不可用，请稍后重试。"}})
+        return True
+
     def _account_action(self):
         path = urlparse(self.path).path
         try:
@@ -598,7 +668,8 @@ def create_server(host: str, port: int, store: CaptureStore, tokens: Tokens, pub
         "ConfiguredCaptureRequestHandler",
         (CaptureRequestHandler,),
         {"store": store, "tokens": tokens, "accounts": Accounts(store), "releases": Releases(store.root),
-         "exports": MarkdownExports(store.root, os.environ.get("MNOTE_PUBLIC_BASE_URL", "") if public_base is None else public_base)},
+         "exports": MarkdownExports(store.root, os.environ.get("MNOTE_PUBLIC_BASE_URL", "") if public_base is None else public_base),
+         "transcripts": Transcripts(store.root)},
     )
     return ThreadingHTTPServer((host, port), handler)
 
