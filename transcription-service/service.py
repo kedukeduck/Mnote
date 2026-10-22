@@ -36,6 +36,10 @@ RUNTIME_VERSIONS = {"faster-whisper": "1.2.1", "av": "18.1.0"}
 OWNER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}\Z")
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 URL_RE = re.compile(r"https?://[^\s<>\"'，。！；、（）【】]+", re.I)
+# Copied rich-text/Markdown shares can contain the same link as both the label
+# and destination. Keep formatting delimiters out of share candidates without
+# narrowing URL_RE, which also redacts complete (potentially sensitive) URLs.
+SHARE_URL_RE = re.compile(r"https?://[^\s<>\"'，。！；、（）【】\[\]`]+", re.I)
 SITE_HOSTS = frozenset({"b23.tv", "bilibili.com", "www.bilibili.com", "m.bilibili.com",
                         "v.douyin.com", "www.douyin.com", "douyin.com", "www.iesdouyin.com"})
 BILI_HOSTS = frozenset({"b23.tv", "bilibili.com", "www.bilibili.com", "m.bilibili.com"})
@@ -182,10 +186,25 @@ def validate_url(url: str, allowed: Callable[[str], bool]) -> urllib.parse.Split
 def parse_share_text(text: object, direct_hosts: tuple[str, ...]) -> dict:
     if not isinstance(text, str) or not text.strip() or len(text) > 8192:
         raise ServiceError("invalid_url")
-    urls = URL_RE.findall(text)
+    stripped = text.strip()
+    # A malformed naked URL is not Markdown: never accept a different prefix
+    # simply because a forbidden character resembles a formatting delimiter.
+    if re.match(r"https?://", stripped, re.I) and not re.search(r"\s", stripped):
+        if SHARE_URL_RE.fullmatch(stripped) is None:
+            raise ServiceError("invalid_url")
+    urls = set()
+    for candidate in SHARE_URL_RE.findall(text):
+        candidate = candidate.rstrip(".,;!?】）")
+        # Only discard unmatched Markdown/prose closers, not a balanced ')' in
+        # a path or signature such as ?sig=(value).
+        unmatched_closers = candidate.count(")") - candidate.count("(")
+        while unmatched_closers > 0 and candidate.endswith(")"):
+            candidate = candidate[:-1].rstrip(".,;!?】）")
+            unmatched_closers -= 1
+        urls.add(candidate)
     if len(urls) != 1:
         raise ServiceError("invalid_url")
-    url = urls[0].rstrip(".,;!?)】）")
+    url = next(iter(urls))
     parts = validate_url(url, lambda host: host in SITE_HOSTS or host in direct_hosts)
     host = parts.hostname
     if host in BILI_HOSTS:
@@ -1007,27 +1026,36 @@ class JobService:
         directory = self.work_dir / ident
         directory.mkdir(mode=0o700)
         audio, wav, result, progress_path = directory / "input.media", directory / "audio.wav", directory / "result.json", directory / "progress.txt"
+        def decode_candidate(deadline):
+            if cancel():
+                raise Cancelled()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ServiceError("timeout")
+            # A successful HTTP download can still be a video-only rendition.
+            # Replace, never append to, any WAV left by an earlier candidate.
+            wav.unlink(missing_ok=True)
+            formats = "mov,mp3,wav,ogg,flac,aac,matroska,webm"
+            command = [self.config.ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-threads", "2",
+                       "-protocol_whitelist", "file,pipe", "-format_whitelist", formats, "-i", str(audio),
+                       "-t", str(MAX_DURATION + 1), "-vn", "-map_metadata", "-1", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(wav)]
+            # Decode only complete local files; network/playlist demuxers stay disabled.
+            run_process(command, cancel, min(180, remaining))
+            try:
+                with wave.open(str(wav), "rb") as media:
+                    duration = media.getnframes() / media.getframerate()
+            except (wave.Error, EOFError, ZeroDivisionError):
+                raise ServiceError("invalid_media") from None
+            if duration > MAX_DURATION + 0.05:
+                raise ServiceError("too_long")
+            if duration <= 0:
+                raise ServiceError("invalid_media")
         self.download_media(media_urls, source, audio, cancel,
-                            lambda value: self.store.update(ident, progress=15 + 25 * value))
+                            lambda value: self.store.update(ident, progress=15 + 25 * value),
+                            validate=decode_candidate)
         if cancel():
             raise Cancelled()
-        self.store.update(ident, stage="transcribing", progress=42)
-        formats = "mov,mp3,wav,ogg,flac,aac,matroska,webm"
-        # Decode locally with network/playlist demuxers disabled, and cap the decoded duration.
-        command = [self.config.ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-threads", "2",
-                   "-protocol_whitelist", "file,pipe", "-format_whitelist", formats, "-i", str(audio),
-                   "-t", str(MAX_DURATION + 1), "-vn", "-map_metadata", "-1", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(wav)]
-        run_process(command, cancel, 180)
-        try:
-            with wave.open(str(wav), "rb") as media:
-                duration = media.getnframes() / media.getframerate()
-        except (wave.Error, EOFError, ZeroDivisionError):
-            raise ServiceError("invalid_media") from None
-        if duration > MAX_DURATION + 0.05:
-            raise ServiceError("too_long")
-        if duration <= 0:
-            raise ServiceError("invalid_media")
-        self.store.update(ident, progress=50)
+        self.store.update(ident, stage="transcribing", progress=50)
         command = [sys.executable, str(Path(__file__).resolve()), "--transcribe", str(wav), str(result), str(self.config.model_path), str(progress_path)]
         last_update = [0.0]
         def monitor():
@@ -1049,8 +1077,10 @@ class JobService:
         return json.loads(result.read_text(encoding="utf-8"))
 
     def download_media(self, urls: list[str], source: dict, destination: Path,
-                       cancel: Callable[[], bool], progress: Callable[[float], None]):
-        # Same selected audio representation, bounded alternatives and one shared budget.
+                       cancel: Callable[[], bool], progress: Callable[[float], None],
+                       validate: Callable[[float], None] | None = None):
+        # Bounded alternatives share one download/decode budget. A Douyin low-rate
+        # MP4 may contain video only; use a normal player version if it cannot decode.
         deadline = time.monotonic() + 120
         last_error = None
         for candidate in urls[:MAX_MEDIA_CANDIDATES]:
@@ -1068,6 +1098,14 @@ class JobService:
                 # fetch opens with wb; a retry must never append to a partial first file.
                 self.client.fetch(candidate, allowed, self.config.max_bytes, destination,
                                   cancel, progress, deadline_at=deadline)
+                if validate is not None:
+                    try:
+                        validate(deadline)
+                    except ServiceError as error:
+                        if error.code != "invalid_media" or source["platform"] != "douyin":
+                            raise
+                        last_error = error
+                        continue
                 return
             except ServiceError as error:
                 if error.code not in ("network_failed", "source_forbidden"):

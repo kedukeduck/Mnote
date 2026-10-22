@@ -119,6 +119,66 @@ class URLTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(api.ServiceError):
                 api.parse_share_text(value, ("media.example.org",))
 
+    def test_copied_markdown_and_repeated_identical_links(self):
+        url = "https://v.douyin.com/P3DO6rRvucA/"
+        shares = [
+            f"8.43 复制打开抖音，看看【作者的作品】 [\"标题\"]({url}) sEh:/ 08/23",
+            f"复制打开抖音 [{url}]({url} \"{url}\") :7pm h@b.Nj",
+            f"[视频](<{url}>)",
+            f"<{url}> `{url}`",
+            f"复制链接 {url} {url}。",
+            f"{url}, {url}!",
+        ]
+        for share in shares:
+            with self.subTest(share=share):
+                self.assertEqual(api.parse_share_text(share, ()),
+                                 {"url": url, "platform": "douyin", "host": "v.douyin.com"})
+
+    def test_formatted_shares_do_not_hide_different_or_unsafe_links(self):
+        url = "https://v.douyin.com/P3DO6rRvucA/"
+        candidates = [
+            f"[{url}](https://v.douyin.com/other/)",
+            f"[标题]({url} \"https://b23.tv/other\")",
+            f"{url} https://localhost/private.wav",
+            f"{url} https://user:secret@v.douyin.com/P3DO6rRvucA/",
+            f"{url}#fragment {url}#fragment",
+            "[视频](https://user:secret@v.douyin.com/123/)",
+            "[视频](https://v.douyin.com.evil.org/123/)",
+            "[音频](https://localhost/private.wav)",
+            "[音频](https://media.example.org/list.m3u8)",
+        ]
+        for candidate in candidates:
+            with self.subTest(candidate=candidate), self.assertRaises(api.ServiceError):
+                api.parse_share_text(candidate, ("media.example.org",))
+
+    def test_repeated_links_preserve_direct_media_query_and_redaction(self):
+        url = "https://media.example.org/audio.wav?signature=PRIVATE&version=1"
+        self.assertEqual(api.parse_share_text(f"[{url}]({url})", ("media.example.org",))["url"], url)
+        self.assertNotIn("PRIVATE", api.clean_text(f"[{url}]({url})", 1000, redact_urls=True))
+
+    def test_malformed_naked_url_is_not_shortened_to_a_valid_prefix(self):
+        for url in ("https://media.example.org/audio.wav[unexpected]",
+                    "https://media.example.org/audio.wav`unexpected`",
+                    "https://media.example.org/audio.wav<unexpected>"):
+            with self.subTest(url=url), self.assertRaises(api.ServiceError):
+                api.parse_share_text(url, ("media.example.org",))
+
+    def test_balanced_parentheses_are_not_stripped_from_media_urls(self):
+        for url in ("https://media.example.org/audio.wav?sig=(foo)",
+                    "https://media.example.org/audio.wav?sig=((foo))",
+                    "https://media.example.org/audio(foo).wav?sig=(bar)"):
+            for share in (url, f"[音频]({url})", f"[{url}]({url})", f"<{url}> {url}"):
+                with self.subTest(share=share):
+                    self.assertEqual(api.parse_share_text(share, ("media.example.org",))["url"], url)
+
+    def test_only_unmatched_trailing_parentheses_are_removed(self):
+        url = "https://media.example.org/audio.wav?sig=(foo)"
+        for share in (f"({url})", f"[音频]({url}).", f"链接 {url})))!", f"[{url}]({url})."):
+            with self.subTest(share=share):
+                self.assertEqual(api.parse_share_text(share, ("media.example.org",))["url"], url)
+        with self.assertRaises(api.ServiceError):
+            api.parse_share_text(f"{url} https://media.example.org/audio.wav?sig=foo", ("media.example.org",))
+
     def test_cdn_boundary(self):
         self.assertTrue(api.cdn_allowed("audio.foo.bilivideo.com", "bilibili", ()))
         self.assertTrue(api.cdn_allowed("upos-hz-mirrorakam.akamaized.net", "bilibili", ()))
