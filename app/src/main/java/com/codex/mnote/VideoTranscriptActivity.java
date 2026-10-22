@@ -26,7 +26,8 @@ public final class VideoTranscriptActivity extends Activity {
     private Session session;
     private EditText link,note;
     private Spinner basis;
-    private CheckBox consent,includeSource;
+    private CheckBox consent,includeSource,audio;
+    private LinearLayout authorization,legacyPreview;
     private TextView status,preview;
     private ProgressBar progress;
     private Button parse,refresh,insert;
@@ -43,8 +44,8 @@ public final class VideoTranscriptActivity extends Activity {
             CaptureAccountSession.requireScope(this,session.state.scope);
         }catch(Exception error){Toast.makeText(this,"文字稿草稿无法恢复，请返回记录页重试。",Toast.LENGTH_LONG).show();finish();return;}
         build();restore();session.receiver=new WeakReference<>(this);render();
-        if(session.state.imported){returnResult();return;}
-        session.activate();
+        if(session.state.imported||(session.state.backgroundFlow&&(session.state.linkOnly||!session.state.backgroundTaskId.isEmpty()))){returnResult();return;}
+        activateSession();
         if(android.os.Build.VERSION.SDK_INT>=33)getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,this::onBackPressed);
     }
@@ -53,42 +54,57 @@ public final class VideoTranscriptActivity extends Activity {
         // Use our explicit exit flow instead of Activity.finish from the shared page helper.
         root.removeAllViews();JournalUi.header(this,root,"视频文字稿",this::onBackPressed);
         LinearLayout body=AiUi.body(this,root);
-        TextView headline=JournalUi.text(this,"让声音，成为摘录。",26,R.color.ink);
+        TextView headline=JournalUi.text(this,session.state.backgroundFlow?"先记下，慢慢听。":"让声音，成为摘录。",26,R.color.ink);
         headline.setTypeface(android.graphics.Typeface.create("serif",android.graphics.Typeface.NORMAL));body.addView(headline);
-        TextView description=JournalUi.text(this,"粘贴一条公开的 B 站或抖音视频分享链接。处理在服务端继续，无需停留在原视频。图文作品暂不支持。",13,R.color.ink_muted);
+        TextView description=JournalUi.text(this,session.state.backgroundFlow
+                ?"粘贴分享链接即可返回保存记录。只有选择解析音频，才会在后台获取并转写；已有想法和摘录保持不变。"
+                :"粘贴一条公开的 B 站或抖音视频分享链接。处理在服务端继续，无需停留在原视频。图文作品暂不支持。",13,R.color.ink_muted);
         description.setPadding(0,AiUi.dp(this,10),0,AiUi.dp(this,18));body.addView(description);
         link=AiUi.input(body,"分享链接","可粘贴含链接的完整分享文案",false);link.setId(R.id.video_transcript_link);
         link.setSingleLine(false);link.setMinLines(2);link.setMaxLines(4);link.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        JournalUi.section(body,"这段内容的使用依据");
+        if(session.state.backgroundFlow){
+            audio=new CheckBox(this);audio.setId(R.id.video_transcript_audio);audio.setText("解析音频 · 在后台生成文字稿");
+            audio.setTextColor(getColor(R.color.ink));audio.setTextSize(15);audio.setMinHeight(AiUi.dp(this,52));body.addView(audio);
+            TextView hint=JournalUi.text(this,"完成或失败会通知你，也可到「设置 → 解析任务」查看。拒绝通知权限不影响解析；省电或强制停止 APP 时通知可能延迟。",12,R.color.ink_muted);
+            body.addView(hint);authorization=JournalUi.column(this);body.addView(authorization);
+        }else authorization=body;
+        JournalUi.section(authorization,"这段内容的使用依据");
         basis=new Spinner(this);basis.setId(R.id.video_transcript_basis);
         basis.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,
                 new String[]{"请选择，不会自动替你声明","我拥有这段内容","我已取得授权","内容采用开放许可"}));
-        basis.setMinimumHeight(AiUi.dp(this,48));body.addView(basis,new LinearLayout.LayoutParams(-1,-2));
-        note=AiUi.input(body,"说明","例如：我的原创视频，或授权 / 开放许可说明",false);note.setId(R.id.video_transcript_note);
+        basis.setMinimumHeight(AiUi.dp(this,48));authorization.addView(basis,new LinearLayout.LayoutParams(-1,-2));
+        note=AiUi.input(authorization,"说明","例如：我的原创视频，或授权 / 开放许可说明",false);note.setId(R.id.video_transcript_note);
         note.setSingleLine(false);note.setMaxLines(3);note.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         consent=new CheckBox(this);consent.setId(R.id.video_transcript_consent);consent.setText("我确认上述声明真实，拥有处理此内容的权利，并同意将本次链接和音频交给服务器转写。声明不会被视为平台已验证授权。");
-        consent.setTextSize(13);consent.setTextColor(getColor(R.color.ink_muted));consent.setMinHeight(AiUi.dp(this,48));body.addView(consent);
+        consent.setTextSize(13);consent.setTextColor(getColor(R.color.ink_muted));consent.setMinHeight(AiUi.dp(this,48));authorization.addView(consent);
         parse=AiUi.button(body,"解析视频文字稿",true,this::submit);parse.setId(R.id.video_transcript_parse);
         status=JournalUi.text(this,"正在连接解析服务…",14,R.color.copper);status.setId(R.id.video_transcript_status);
         status.setPadding(0,AiUi.dp(this,16),0,AiUi.dp(this,8));status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);body.addView(status);
         progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setId(R.id.video_transcript_progress);progress.setMax(100);body.addView(progress,new LinearLayout.LayoutParams(-1,AiUi.dp(this,5)));
         refresh=AiUi.button(body,"刷新任务进度",false,()->session.refresh());refresh.setId(R.id.video_transcript_refresh);
         reset=AiUi.button(body,"更换链接重新解析",false,()->{session.reset();restore();render();});reset.setId(R.id.video_transcript_reset);
-        JournalUi.section(body,"文字稿预览");
+        legacyPreview=JournalUi.column(this);body.addView(legacyPreview);
+        JournalUi.section(legacyPreview,"文字稿预览");
         preview=JournalUi.text(this,"完成后会在这里展示，确认前不会替换记录中的任何内容。",15,R.color.ink);
         preview.setId(R.id.video_transcript_preview);preview.setTextIsSelectable(true);preview.setPadding(AiUi.dp(this,14),AiUi.dp(this,14),AiUi.dp(this,14),AiUi.dp(this,14));
-        preview.setBackgroundResource(R.drawable.bg_card);body.addView(preview,new LinearLayout.LayoutParams(-1,-2));
+        preview.setBackgroundResource(R.drawable.bg_card);legacyPreview.addView(preview,new LinearLayout.LayoutParams(-1,-2));
         TextView warning=JournalUi.text(this,"自动转写可能有误，尤其是人名、数字、方言和歌词。导入后请在摘录中校对。临时任务最多保留 24 小时，导入的记录会按账号正常保存。",12,R.color.ink_muted);
-        warning.setPadding(0,AiUi.dp(this,12),0,AiUi.dp(this,8));body.addView(warning);
-        includeSource=new CheckBox(this);includeSource.setId(R.id.video_transcript_source);includeSource.setText("同时将视频链接填入来源链接（不改变来源模块的勾选）");includeSource.setTextSize(13);body.addView(includeSource);
+        warning.setPadding(0,AiUi.dp(this,12),0,AiUi.dp(this,8));legacyPreview.addView(warning);
+        includeSource=new CheckBox(this);includeSource.setId(R.id.video_transcript_source);includeSource.setText(session.state.backgroundFlow?"返回后将链接加入来源模块（可在记录页取消）":"同时将视频链接填入来源链接（不改变来源模块的勾选）");includeSource.setTextSize(13);body.addView(includeSource);
         insert=AiUi.button(body,"确认并导入摘录",true,this::importResult);insert.setId(R.id.video_transcript_import);
-        AiUi.button(body,"返回记录，稍后继续",false,this::keepAndReturn);
+        AiUi.button(body,getIntent().getBooleanExtra("task_only",false)?"返回任务列表":"返回记录，稍后继续",false,this::keepAndReturn);
         AiUi.button(body,"取消并移除临时任务",false,this::confirmCancel).setId(R.id.video_transcript_cancel);
+        if(audio!=null)audio.setOnCheckedChangeListener((button,checked)->{
+            session.state.audioRequested=checked;
+            if(checked){requestNotifications();if(CaptureAccountSession.hasAccount(this)&&!session.ready&&!session.busy)session.configuration();}
+            render();
+        });
     }
     private void restore() {
         VideoTranscriptState state=session.state;link.setText(state.share);note.setText(state.note);
         String[] choices={"","owned","authorized","open_license"};int selected=0;for(int i=0;i<choices.length;i++)if(choices[i].equals(state.basis))selected=i;
         basis.setSelection(selected);consent.setChecked(state.consent);includeSource.setChecked(state.importSource);
+        if(audio!=null)audio.setChecked(state.audioRequested);
     }
     private void collect() {
         if(session==null||link==null)return;VideoTranscriptState state=session.state;
@@ -96,9 +112,11 @@ public final class VideoTranscriptActivity extends Activity {
         if(state.id().isEmpty()&&!state.creating){state.share=link.getText().toString();state.note=note.getText().toString();
             state.basis=new String[]{"","owned","authorized","open_license"}[basis.getSelectedItemPosition()];state.consent=consent.isChecked();}
         state.importSource=includeSource.isChecked();
+        if(audio!=null)state.audioRequested=audio.isChecked();
     }
     private void submit() {
         collect();VideoTranscriptState state=session.state;
+        if(state.backgroundFlow){submitBackground();return;}
         if(session.busy||!state.id().isEmpty()||state.creating)return;
         if(!session.ready||state.agreement.isEmpty()){toast("请先连接到可用的解析服务。");return;}
         if(state.share.trim().isEmpty()||state.share.length()>8192||CaptureSourceUrl.fromTranscriptShareText(state.share).isEmpty()){link.setError("请粘贴一条有效的视频分享链接；多个不同链接请分别解析");return;}
@@ -107,14 +125,43 @@ public final class VideoTranscriptActivity extends Activity {
         if(!state.consent){toast("请确认本次内容的权利声明与服务器转写说明。");return;}
         session.create();
     }
+    private void submitBackground(){
+        VideoTranscriptState state=session.state;
+        String source=CaptureSourceUrl.fromTranscriptShareText(state.share);
+        if(source.isEmpty()){link.setError("请粘贴一条有效的 HTTPS 分享链接；多个不同链接请分别添加");return;}
+        try{
+            CaptureAccountSession.requireScope(this,state.scope);state.sourceUrl=source;
+            if(!state.backgroundTaskId.isEmpty()||state.linkOnly){returnResult();return;}
+            if(!state.audioRequested){
+                if(getIntent().getBooleanExtra("task_only",false)){toast("本次没有创建解析任务。分享链接可在记录页保存。");session.cancelled=true;state.discard();finish();return;}
+                state.linkOnly=true;state.persist();returnResult();return;
+            }
+            if(!CaptureAccountSession.hasAccount(this)){toast("解析音频需要先登录；也可关闭解析，只保存链接。");return;}
+            if(!session.ready||state.agreement.isEmpty()){toast("请等待连接服务，或关闭音频解析后先保存链接。");return;}
+            if(state.basis.isEmpty()){toast("请选择本次内容的使用依据。");return;}
+            if(state.note.trim().isEmpty()||state.note.length()>1000||(!"owned".equals(state.basis)&&state.note.trim().length()<8)){note.setError("请填写 1–1000 字说明；授权和开放许可说明至少 8 个字");return;}
+            if(!state.consent){toast("请确认本次内容的权利声明与服务器转写说明。");return;}
+            JSONObject submission=new JSONObject().put("share_text",state.share.trim()).put("rights_basis",state.basis)
+                    .put("rights_note",state.note.trim()).put("agreement_version",state.agreement).put("consent",true).put("client_request_id",state.requestId);
+            VideoTranscriptTasks.Task task=VideoTranscriptTasks.enqueue(this,state.scope,submission,source,state.captureId);
+            state.backgroundTaskId=task.id;state.persist();toast("已加入后台解析，可继续保存记录。");returnResult();
+        }catch(Exception error){toast("暂时无法保存链接或创建任务，输入仍保留，请重试。");}
+    }
+    private void requestNotifications(){
+        if(android.os.Build.VERSION.SDK_INT<33||checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)==android.content.pm.PackageManager.PERMISSION_GRANTED)return;
+        android.content.SharedPreferences preferences=getSharedPreferences("mnote-transcript-notifications",MODE_PRIVATE);
+        if(!preferences.getBoolean("asked",false)){preferences.edit().putBoolean("asked",true).apply();requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},183);}
+    }
     private void importResult() {
         collect();VideoTranscriptState state=session.state;
         if(!state.completed()||state.text.trim().isEmpty()||state.text.length()>VideoTranscriptState.MAX_TEXT)return;
         try{CaptureAccountSession.requireScope(this,state.scope);state.imported=true;state.persist();returnResult();session.cleanupJob();}
         catch(Exception error){toast("未能交回文字稿，内容仍保留，请重试。");}
     }
-    private void returnResult(){setResult(RESULT_OK,new Intent().putExtra(STATE,session.state.file.getAbsolutePath()));finish();}
-    private void keepAndReturn(){collect();if(session.persist())finish();}
+    private void returnResult(){setResult(RESULT_OK,new Intent().putExtra(STATE,session.state.file.getAbsolutePath()));
+        if(getIntent().getBooleanExtra("task_only",false)&&!session.state.backgroundTaskId.isEmpty()){session.cancelled=true;session.state.discard();}finish();}
+    private void keepAndReturn(){collect();if(getIntent().getBooleanExtra("task_only",false)&&session.state.backgroundFlow){session.cancelled=true;session.state.discard();finish();}
+        else if(session.persist())finish();}
     private void confirmCancel() {
         new AlertDialog.Builder(this).setTitle("取消文字稿解析？").setMessage("会尝试删除服务器上的临时任务，不会修改已经写下的想法和摘录。")
                 .setNegativeButton("继续",null).setPositiveButton("取消任务",(d,w)->{session.cancelled=true;session.cleanupJob();session.state.discard();setResult(RESULT_CANCELED);finish();}).show();
@@ -122,6 +169,19 @@ public final class VideoTranscriptActivity extends Activity {
     private void toast(String text){Toast.makeText(this,text,Toast.LENGTH_LONG).show();}
     private void render() {
         if(destroyed||isFinishing())return;VideoTranscriptState state=session.state;
+        if(state.backgroundFlow){
+            boolean enabled=state.backgroundTaskId.isEmpty()&&!state.linkOnly;
+            boolean selected=audio!=null&&audio.isChecked();
+            link.setEnabled(enabled);audio.setEnabled(enabled);authorization.setVisibility(selected?View.VISIBLE:View.GONE);
+            includeSource.setVisibility(selected&&!getIntent().getBooleanExtra("task_only",false)?View.VISIBLE:View.GONE);legacyPreview.setVisibility(View.GONE);
+            insert.setVisibility(View.GONE);reset.setVisibility(View.GONE);progress.setVisibility(selected&&session.busy?View.VISIBLE:View.GONE);
+            progress.setIndeterminate(true);refresh.setVisibility(selected?View.VISIBLE:View.GONE);refresh.setEnabled(!session.busy);refresh.setText("重新连接服务");
+            parse.setText(selected?"加入后台解析并返回":getIntent().getBooleanExtra("task_only",false)?"暂不解析并返回":"保存链接并返回");parse.setVisibility(View.VISIBLE);
+            parse.setEnabled(enabled&&(!selected||session.ready));
+            status.setText(!selected?"仅保存链接，不会读取或上传音频。":!CaptureAccountSession.hasAccount(this)
+                    ?"解析音频需先登录账号；关闭此选项仍可保存链接。":!state.problem.isEmpty()?state.problem:session.message);
+            return;
+        }
         boolean locked=session.busy||state.creating||!state.id().isEmpty();
         link.setEnabled(!locked);note.setEnabled(!locked);basis.setEnabled(!locked);consent.setEnabled(!locked);
         parse.setEnabled(!locked&&session.ready);parse.setVisibility(state.id().isEmpty()?View.VISIBLE:View.GONE);
@@ -142,7 +202,9 @@ public final class VideoTranscriptActivity extends Activity {
     @Override public void onBackPressed(){keepAndReturn();}
     @Override protected void onResume(){super.onResume();if(session!=null){
         if(!session.state.scope.equals(CaptureAccountSession.scope(this))){toast("账号已变化，文字稿导入已停止。");finish();return;}
-        session.receiver=new WeakReference<>(this);session.activate();}}
+        session.receiver=new WeakReference<>(this);activateSession();}}
+    private void activateSession(){if(!session.state.backgroundFlow)session.activate();
+        else if(session.state.audioRequested&&CaptureAccountSession.hasAccount(this)&&!session.ready&&!session.busy)session.configuration();}
     @Override protected void onPause(){if(session!=null){if(!session.cancelled){collect();session.persist();}session.pause();}super.onPause();}
     @Override public Object onRetainNonConfigurationInstance(){return session;}
     @Override protected void onSaveInstanceState(Bundle state){if(session!=null&&!session.cancelled){collect();session.persist();state.putString(STATE,session.state.file.getAbsolutePath());}super.onSaveInstanceState(state);}

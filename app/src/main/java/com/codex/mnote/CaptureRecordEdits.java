@@ -38,6 +38,18 @@ final class CaptureRecordEdits {
     }
     static CaptureStore.CaptureRecord save(Context context,String scope,String id,String baseline,
             String comment,String quote,String original,org.json.JSONArray tags) throws Exception {
+        return save(context,scope,id,baseline,comment,quote,original,tags,null);
+    }
+    static CaptureStore.CaptureRecord importTranscript(Context context,String scope,String id,String baseline,
+            String text,String taskId) throws Exception {
+        synchronized(CaptureAccountSession.LOCK){
+            CaptureStore.CaptureRecord current=latest(context,scope,id);
+            if(text.trim().isEmpty()||taskId==null||!taskId.matches("[a-f0-9-]{36}"))throw new IOException("not_completed");
+            return save(context,scope,id,baseline,current.comment,text,original(current),current.tags,taskId);
+        }
+    }
+    private static CaptureStore.CaptureRecord save(Context context,String scope,String id,String baseline,
+            String comment,String quote,String original,org.json.JSONArray tags,String transcriptTaskId) throws Exception {
         CaptureStore.CaptureRecord result;
         synchronized(CaptureAccountSession.LOCK) {
             CaptureStore.CaptureRecord current=latest(context,scope,id);
@@ -48,7 +60,7 @@ final class CaptureRecordEdits {
             if(!current.hasImage && current.contextFile==null && comment.trim().isEmpty() && quote.trim().isEmpty()
                     && original.trim().isEmpty() && current.sourceUrl.isEmpty()) throw new IOException("empty_record");
             if(comment.equals(current.comment) && quote.equals(current.sourceText) && original.equals(original(current))
-                    && normalizedTags.toString().equals(current.tags.toString())) return current;
+                    && normalizedTags.toString().equals(current.tags.toString())&&transcriptTaskId==null) return current;
             JSONObject metadata=CaptureStore.readRecordObject(current.metadataFile);
             if(metadata==null) throw new IOException("record_unavailable");
             File canonicalFile=new File(current.metadataFile.getParentFile(),"remote.json");
@@ -82,6 +94,12 @@ final class CaptureRecordEdits {
                     .put("textOnlyEdit",true)
                     .put("editedAt",System.currentTimeMillis()).put("syncLastError",JSONObject.NULL)
                     .put("syncState",CaptureAccountSession.hasAccount(context) ? CaptureStore.SYNC_PENDING : CaptureStore.SYNC_LOCAL_ONLY);
+            if(transcriptTaskId!=null){
+                metadata.put("sourceType","video_transcript").put("fidelityLevel","machine_transcribed");
+                evidence.put("transcription",new JSONObject().put("method","automatic_speech_recognition")
+                        .put("verified",false).put("task_id",transcriptTaskId));
+                JSONObject edits=evidence.optJSONObject("text_edit");if(edits!=null)edits.remove("quote_modified");
+            }
             File root=new File(CaptureStore.inboxDirectory(context),id);
             String version=UUID.randomUUID().toString();
             File destination=new File(root,"edits/"+version);

@@ -21,6 +21,7 @@ bool HasEditor();
 void Show();
 void Hide();
 void QuickNote();
+void ShowTranscriptTasks();
 void Compose(Draft draft);
 void Sync();
 std::string Scope();

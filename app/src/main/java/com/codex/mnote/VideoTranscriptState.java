@@ -13,6 +13,9 @@ final class VideoTranscriptState {
     final File file;final String scope;
     String share="",basis="",note="",agreement="",text="",sourceUrl="",problem="",requestId=UUID.randomUUID().toString();
     boolean consent,importSource,creating,imported;
+    // Old in-flight cache handoffs keep their original explicit-import flow.
+    boolean backgroundFlow,audioRequested,linkOnly;
+    String backgroundTaskId="",captureId="";
     JSONObject job;
     VideoTranscriptState(File file,String scope){this.file=file;this.scope=scope;}
     static VideoTranscriptState create(Context context,String scope)throws Exception {
@@ -31,6 +34,10 @@ final class VideoTranscriptState {
         state.agreement=json.optString("agreement");state.text=json.optString("text");state.sourceUrl=json.optString("source_url");
         state.consent=json.optBoolean("consent");state.importSource=json.optBoolean("import_source");state.creating=json.optBoolean("creating");
         state.imported=json.optBoolean("imported");state.job=json.optJSONObject("job");state.problem=json.optString("problem");
+        state.backgroundFlow=json.optBoolean("background_flow");state.audioRequested=json.optBoolean("audio_requested");
+        state.linkOnly=json.optBoolean("link_only");state.backgroundTaskId=json.optString("background_task_id");
+        state.captureId=json.optString("capture_id");
+        if(!state.backgroundTaskId.isEmpty()&&!state.backgroundTaskId.matches("[a-f0-9-]{36}"))throw new IOException("invalid_job");
         state.requestId=json.optString("request_id",state.requestId);
         if(!state.requestId.matches("[a-f0-9-]{36}"))throw new IOException("invalid_job");
         if(state.text.length()>MAX_TEXT||state.share.length()>8192||state.note.length()>1000)throw new IOException("response_too_large");
@@ -41,6 +48,9 @@ final class VideoTranscriptState {
         JSONObject json=new JSONObject().put("scope",scope).put("share",share).put("basis",basis).put("note",note)
                 .put("agreement",agreement).put("text",text).put("source_url",sourceUrl).put("consent",consent)
                 .put("import_source",importSource).put("creating",creating).put("imported",imported).put("problem",problem)
+                .put("background_flow",backgroundFlow).put("audio_requested",audioRequested)
+                .put("link_only",linkOnly).put("background_task_id",backgroundTaskId)
+                .put("capture_id",captureId)
                 .put("request_id",requestId)
                 .put("job",job==null?JSONObject.NULL:job);
         if(json.toString().getBytes(StandardCharsets.UTF_8).length>2*1024*1024)throw new IOException("response_too_large");

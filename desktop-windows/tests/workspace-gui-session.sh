@@ -267,12 +267,22 @@ drive capture
 until_drive unified-ready
 drive transcript-open
 until_drive transcript-ready
-drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/video-transcript-preview.png" 'Mnote · 从视频链接摘录'
+drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/video-transcript-preview.png" 'Mnote · 视频链接'
 drive transcript-small
 until_drive transcript-ready
-drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/video-transcript-small-preview.png" 'Mnote · 从视频链接摘录'
+drive window-screenshot "Z:${repo_dir}/desktop-windows/build-gui-smoke/video-transcript-small-preview.png" 'Mnote · 视频链接'
 drive transcript-close
 until_drive transcript-preserved
+drive transcript-open
+until_drive transcript-ready
+drive transcript-link-only
+until_drive transcript-link-only-ready
+python3 - "${application_data}" <<'PY'
+import json,pathlib,sys
+for path in (pathlib.Path(sys.argv[1])/'transcript-tasks').glob('*.json'):
+    assert not json.loads(path.read_text())['pending'], 'audio-off must not enqueue a parse'
+print('GUI: audio-off link capture returns immediately, thought/excerpt retained, Save available, no transcription enqueued')
+PY
 until_drive discard-editor
 drive show
 until_drive library-uncovered

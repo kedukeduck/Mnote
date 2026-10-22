@@ -17,6 +17,7 @@ public final class MnoteApplication extends Application {
         Thread.UncaughtExceptionHandler previous=Thread.getDefaultUncaughtExceptionHandler();
         if(previous instanceof CrashHandler) previous=((CrashHandler)previous).previous;
         Thread.setDefaultUncaughtExceptionHandler(new CrashHandler(getApplicationContext(),previous));
+        try{VideoTranscriptTasks.schedule(this);}catch(RuntimeException ignored){/* A later app-open schedules durable tasks again. */}
     }
     static final class CrashHandler implements Thread.UncaughtExceptionHandler {
         final Context context;

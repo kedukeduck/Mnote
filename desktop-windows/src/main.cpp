@@ -107,6 +107,7 @@ HANDLE g_singleInstanceMutex = nullptr;
 ULONG_PTR g_gdiplusToken = 0;
 UINT g_taskbarCreatedMessage = 0;
 NOTIFYICONDATAW g_trayIcon{};
+bool g_transcriptNotice=false;
 
 CaptureFrame g_capture;
 OverlayControls g_controls;
@@ -1315,7 +1316,10 @@ LRESULT CALLBACK MainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
         return 0;
 
     case kTrayMessage:
-        if (static_cast<UINT>(lParam) == WM_LBUTTONDBLCLK) {
+        if(static_cast<UINT>(lParam)==NIN_BALLOONUSERCLICK) {
+            if(g_transcriptNotice)Mnote::Workspace::ShowTranscriptTasks();
+            else Mnote::Workspace::Show();
+        }else if (static_cast<UINT>(lParam) == WM_LBUTTONDBLCLK) {
             Mnote::Workspace::Show();
         } else if (static_cast<UINT>(lParam) == WM_RBUTTONUP ||
                    static_cast<UINT>(lParam) == WM_CONTEXTMENU) {
@@ -1462,7 +1466,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     try {
         std::wstring root;if(!GetApplicationDirectory(root))throw std::runtime_error("storage_write");
         Mnote::Workspace::Start(instance,root,[]{BeginCapture();},[](const std::wstring& text,bool error){
-            ShowTrayNotice(error ? L"Mnote · 操作提示" : L"Mnote · 已保存",text.c_str(),error ? NIIF_WARNING : NIIF_INFO);
+            g_transcriptNotice=text.rfind(L"音视频",0)==0||text.rfind(L"音频解析",0)==0;
+            ShowTrayNotice(g_transcriptNotice?L"Mnote · 音视频解析":(error ? L"Mnote · 操作提示" : L"Mnote · 已保存"),text.c_str(),error ? NIIF_WARNING : NIIF_INFO);
         },[]{DestroyWindow(g_mainWindow);}, BeginAnnotate);
     } catch(const std::exception& error) {MessageBoxW(nullptr,Mnote::ErrorText(error).c_str(),kAppName,MB_OK|MB_ICONERROR);return 1;}
     MSG message{};

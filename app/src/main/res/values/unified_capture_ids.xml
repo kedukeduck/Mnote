@@ -16,6 +16,11 @@
     <item name="unified_clipboard" type="id" />
     <item name="unified_video_transcript" type="id" />
     <item name="video_transcript_link" type="id" />
+    <item name="video_transcript_audio" type="id" />
+    <item name="settings_transcripts" type="id" />
+    <item name="transcript_tasks_refresh" type="id" />
+    <item name="transcript_tasks_body" type="id" />
+    <item name="transcript_tasks_import" type="id" />
     <item name="video_transcript_basis" type="id" />
     <item name="video_transcript_note" type="id" />
     <item name="video_transcript_consent" type="id" />

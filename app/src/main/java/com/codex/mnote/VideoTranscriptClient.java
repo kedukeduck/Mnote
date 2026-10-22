@@ -26,8 +26,12 @@ final class VideoTranscriptClient {
     static JSONObject request(Context context,String scope,String method,String suffix,JSONObject body,
                               ConnectionFactory factory,int timeoutMillis)throws Exception {
         if(timeoutMillis<1||timeoutMillis>REQUEST_TIMEOUT_MILLIS)throw new IOException("invalid_timeout");
-        if(!suffix.equals("/config")&&!suffix.equals("/jobs")&&!suffix.matches("/jobs/[a-f0-9-]{36}"))throw new IOException("invalid_job");
-        if(!("GET".equals(method)||"POST".equals(method)||"DELETE".equals(method)))throw new IOException("invalid_method");
+        boolean history=suffix.matches("/jobs\\?limit=50&offset=(0|[1-9][0-9]{0,3})");
+        boolean association=suffix.matches("/jobs/[a-f0-9-]{36}/capture");
+        if(!suffix.equals("/config")&&!suffix.equals("/jobs")&&!suffix.matches("/jobs/[a-f0-9-]{36}")&&!history&&!association)throw new IOException("invalid_job");
+        if(!("GET".equals(method)||"POST".equals(method)||"DELETE".equals(method)||"PATCH".equals(method)))throw new IOException("invalid_method");
+        if(history&&!"GET".equals(method)||"PATCH".equals(method)&&!suffix.matches("/jobs/[a-f0-9-]{36}"))throw new IOException("invalid_method");
+        if(association&&!"POST".equals(method))throw new IOException("invalid_method");
         CaptureAccountSession.requireScope(context,scope);
         CaptureSyncPreferences.Config config=CaptureAccountSession.snapshot(context,scope);
         URI target=URI.create(CaptureSyncPreferences.validateAndNormalizeBaseUrl(config.baseUrl)+"/v1/transcripts"+suffix);
@@ -92,15 +96,19 @@ final class VideoTranscriptClient {
             case "source_rate_limited"->"来源平台暂时限制了访问频率，请稍后重试；已有摘录没有变化。";
             case "account_busy","account_limit","daily_limit","queue_full","browser_busy","http_429"->"解析任务或可用额度已满，请稍后再试。";
             case "too_long"->"视频超过服务允许时长，请换一条较短的视频。";
-            case "too_large","request_too_large","response_too_large"->"视频或文字稿过大，未截断任何内容，请换一条较短的视频。";
+            case "too_large","request_too_large","response_too_large","result_too_large"->"视频或文字稿过大，未截断任何内容，请换一条较短的视频。";
             case "unsafe_url","unsupported_source","invalid_url"->"链接不受支持，请填写一条公开的 B 站、抖音视频分享链接。";
             case "media_unavailable"->"没有取得这条视频可转写的音频，请稍后重试；已有摘录没有变化。";
             case "invalid_media"->"已获取视频，但媒体内容无法读取或转换为音频。请稍后重新解析；已有摘录没有变化。";
             case "transcription_failed"->"音频转写未完成，请稍后重新解析；已有摘录没有变化。";
             case "interrupted"->"解析任务因服务中断而停止，请重新解析；已有摘录没有变化。";
             case "not_found"->"临时任务已过期或不存在，请取消该任务后重新解析；已有摘录没有变化。";
+            case "task_expired"->"临时转写任务已过期，未能取得结果；请确认声明后重新创建任务。已有记录没有变化。";
+            case "history_full"->"解析历史已达到存储上限，请先在解析任务中删除不再需要的任务。已有记录没有变化。";
+            case "empty_transcript"->"这段音频没有识别到可读文字，请检查是否有人声或重新尝试。";
             case "not_completed"->"任务尚未完成，请刷新任务进度后再导入。";
             case "submission_uncertain"->"提交结果暂不确定。请勿重复提交，稍后恢复本次提交。";
+            case "submission_unconfirmed"->"超过 24 小时仍无法确认本次提交，已停止重试。可重新添加链接并确认声明，已有记录没有变化。";
             case "request_conflict"->"本次请求与已提交内容不一致，请取消临时任务后重新解析；已有摘录没有变化。";
             case "agreement_required","consent_required","rights_required"->"请重新确认授权依据、说明和本次使用声明。";
             case "network_failed","upstream_unavailable","browser_unavailable","storage_unavailable"->"解析服务暂时不可用，请检查网络或稍后重试；已有摘录没有变化。";

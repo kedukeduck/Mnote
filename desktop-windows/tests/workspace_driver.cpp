@@ -103,24 +103,38 @@ int wmain(int argc, wchar_t **argv) {
         SetDlgItemTextW(w,2101,L"existing excerpt stays intact");
         Click(w,31000);return 0;
     }
+    if(action==L"transcript-link-only") {
+        auto w=Window(L"Mnote · 视频链接");if(!w)return 123;
+        if(SendDlgItemMessageW(w,31010,BM_GETCHECK,0,0)!=BST_UNCHECKED)return 124;
+        SetDlgItemTextW(w,31001,L"合成链接 https://b23.tv/gui-synthetic/ 不解析音频");
+        Click(w,31005);return 0;
+    }
+    if(action==L"transcript-link-only-ready") {
+        auto w=Editor();if(!w||Window(L"Mnote · 视频链接"))return 125;
+        return ControlText(GetDlgItem(w,2100))==L"transcript-draft-kept"&&
+            ControlText(GetDlgItem(w,2101))==L"existing excerpt stays intact"&&
+            ControlText(GetDlgItem(w,2104))==L"https://b23.tv/gui-synthetic/"&&
+            IsWindowEnabled(GetDlgItem(w,2106))?0:126;
+    }
     if(action==L"transcript-ready"||action==L"transcript-small"||action==L"transcript-close") {
-        auto w=Window(L"Mnote · 从视频链接摘录");if(!w)return 111;
+        auto w=Window(L"Mnote · 视频链接");if(!w)return 111;
         if(action==L"transcript-close"){PostMessageW(w,WM_CLOSE,0,0);return 0;}
         if(action==L"transcript-small")SetWindowPos(w,nullptr,0,0,680,650,SWP_NOMOVE|SWP_NOZORDER);
         if(SendDlgItemMessageW(w,31004,BM_GETCHECK,0,0)!=BST_UNCHECKED||
-           SendDlgItemMessageW(w,31009,BM_GETCHECK,0,0)!=BST_UNCHECKED||
+           SendDlgItemMessageW(w,31010,BM_GETCHECK,0,0)!=BST_UNCHECKED||
+           SendDlgItemMessageW(w,31009,BM_GETCHECK,0,0)!=BST_CHECKED||
            SendDlgItemMessageW(w,31002,CB_GETCURSEL,0,0)!=0)return 112;
-        if(!ControlText(GetDlgItem(w,31001)).empty()||!ControlText(GetDlgItem(w,31007)).empty())return 113;
-        if(IsWindowEnabled(GetDlgItem(w,31008)))return 114;
+        if(!ControlText(GetDlgItem(w,31001)).empty())return 113;
+        if(!IsWindowEnabled(GetDlgItem(w,31005))||IsWindowEnabled(GetDlgItem(w,31002)))return 114;
         // Local account fixture deliberately has no transcription backend configured.
         if(ControlText(GetDlgItem(w,2300)).find(L"暂不可用")==std::wstring::npos)return 115;
         RECT client{};GetClientRect(w,&client);
-        for(int id:{31001,31002,31003,31004,31005,31006,31007,31008,31009,2107}){
+        for(int id:{31001,31002,31003,31004,31005,31009,31010,2107}){
             auto control=GetDlgItem(w,id);if(!control)return 116;
             RECT bounds{};GetWindowRect(control,&bounds);MapWindowPoints(nullptr,w,reinterpret_cast<POINT*>(&bounds),2);
             if(bounds.left<0||bounds.right>client.right)return 117;
         }
-        RECT import{},cancel{};GetWindowRect(GetDlgItem(w,31008),&import);GetWindowRect(GetDlgItem(w,2107),&cancel);
+        RECT import{},cancel{};GetWindowRect(GetDlgItem(w,31005),&import);GetWindowRect(GetDlgItem(w,2107),&cancel);
         if(import.right>=cancel.left||import.top!=cancel.top)return 118;
         auto draft=Editor();if(!draft)return 119;
         RECT draftClient{};GetClientRect(draft,&draftClient);
@@ -131,7 +145,7 @@ int wmain(int argc, wchar_t **argv) {
         return 0;
     }
     if(action==L"transcript-preserved") {
-        auto w=Editor();if(!w||Window(L"Mnote · 从视频链接摘录"))return 121;
+        auto w=Editor();if(!w||Window(L"Mnote · 视频链接"))return 121;
         return ControlText(GetDlgItem(w,2100))==L"transcript-draft-kept"&&
                ControlText(GetDlgItem(w,2101))==L"existing excerpt stays intact"?0:122;
     }

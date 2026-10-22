@@ -31,6 +31,10 @@ public final class SettingsActivity extends Activity {
         section(root, "我的记录");
         accountSummary = row(root, "账号与同步", "", R.id.settings_account,
             () -> startActivity(new Intent(this, CaptureAccountActivity.class)));
+        row(root,"解析任务","查看后台进度、文字稿和失败原因",R.id.settings_transcripts,()->{
+            if(!CaptureAccountSession.hasAccount(this))startActivity(new Intent(this,CaptureAccountActivity.class));
+            else startActivity(VideoTranscriptTasksActivity.open(this,CaptureAccountSession.scope(this),null));
+        });
         row(root, "分享管理", "回看已导出的文字与图片，管理分享链接", R.id.settings_shares, () -> {
             if (!CaptureAccountSession.hasAccount(this)) {
                 Toast.makeText(this, "请先登录后查看分享", Toast.LENGTH_LONG).show();

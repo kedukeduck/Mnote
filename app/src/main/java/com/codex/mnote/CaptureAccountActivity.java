@@ -125,9 +125,12 @@ public final class CaptureAccountActivity extends Activity {
                 JSONObject result = CaptureAccountHttp.request(base, "POST", create ? "/v1/auth/activate" : "/v1/auth/login", null, body, null);
                 synchronized (CaptureAccountSession.LOCK) {
                     if (destroyed) return;
+                    String previousScope=CaptureAccountSession.scope(this);
                     CaptureAccountSession.save(this, base, result);
+                    if(!previousScope.equals(CaptureAccountSession.scope(this)))VideoTranscriptTasks.cancelForScope(this,previousScope);
                 }
                 CaptureAccountSync.enqueue(this);
+                VideoTranscriptTasks.schedule(this);
                 runOnUiThread(() -> { if (!destroyed) { password.setText(""); invitation.setText(""); Toast.makeText(this, "已登录，正在同步记录", Toast.LENGTH_SHORT).show(); finish(); } });
             } catch (Exception error) { error(error); }
         });
@@ -143,6 +146,7 @@ public final class CaptureAccountActivity extends Activity {
                     // Local logout succeeds offline; the remote session otherwise expires in 30 days.
                     if (old != null) try { CaptureAccountHttp.request(old.baseUrl, "POST", "/v1/auth/logout", old.writeToken, new JSONObject(), null); }
                     catch (Exception ignored) { }
+                    VideoTranscriptTasks.cancelForScope(this,CaptureAccountSession.scope(this));
                     CaptureAccountSync.cancel(this); CaptureAccountSession.clear(this);
                 }
                 runOnUiThread(() -> { if (!destroyed) finish(); });

@@ -102,6 +102,12 @@ final class CaptureRecordPage {
             source.setOnClickListener(view->openSource.accept(record.sourceUrl));
             body.addView(source,new LinearLayout.LayoutParams(-1,-2));
         }
+        if(CaptureAccountSession.hasAccount(activity)){
+            try{boolean associated=false;String scope=CaptureAccountSession.scope(activity);
+                for(VideoTranscriptTasks.Task task:VideoTranscriptTasks.list(activity,scope))if(record.id.equals(task.captureId)){associated=true;break;}
+                if(associated)AiUi.button(body,"查看这条记录的解析任务",false,()->activity.startActivity(VideoTranscriptTasksActivity.open(activity,scope,record.id)));
+            }catch(Exception ignored){/* A task cache cannot prevent reading a saved note. */}
+        }
         space(body,24);JournalUi.rule(body);
         String info=android.text.format.DateFormat.format("yyyy-MM-dd HH:mm",record.createdAt).toString()
             +" · "+activity.getString("todo".equals(record.kind)?R.string.capture_kind_todo:

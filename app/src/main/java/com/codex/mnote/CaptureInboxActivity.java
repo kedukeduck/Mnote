@@ -96,6 +96,7 @@ public final class CaptureInboxActivity extends Activity {
         super.onResume();
         renderRecords();
         if (CaptureAccountSession.hasAccount(this)) CaptureAccountSync.enqueue(this);
+        VideoTranscriptTasks.schedule(this);
     }
 
     @Override

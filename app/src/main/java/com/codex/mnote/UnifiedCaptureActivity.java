@@ -162,7 +162,7 @@ public final class UnifiedCaptureActivity extends Activity {
         Module quote=module(body,"excerpt",R.id.unified_excerpt_toggle,"摘录","手动输入、读取剪贴板，或粘贴视频链接生成文字稿。");
         excerpt=input(quote.body,R.id.unified_excerpt,"想保留的那一段…",4);CaptureLongText.attach(this,excerpt,"摘录");
         button(quote.body,"读取剪贴板第一条",R.id.unified_clipboard,false,this::readClipboard);
-        button(quote.body,"从视频链接解析文字稿",R.id.unified_video_transcript,false,this::openVideoTranscript);
+        button(quote.body,"添加分享链接 · 可选解析音频",R.id.unified_video_transcript,false,this::openVideoTranscript);
         Module page=module(body,"original",R.id.unified_original_toggle,"页面原文","与截图同时保留。读取仅尝试当前来源页，不保证文章全文。");
         original=input(page.body,R.id.unified_original,"粘贴或编辑完整原文…",5);CaptureLongText.attach(this,original,"页面原文");
         original.addTextChangedListener(new android.text.TextWatcher(){
@@ -175,6 +175,7 @@ public final class UnifiedCaptureActivity extends Activity {
         sourceLabel=JournalUi.text(this,"",13,R.color.ink_muted);source.body.addView(sourceLabel);
         url=input(source.body,R.id.unified_url,"https://…",1);url.setSingleLine(true);
         url.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);
+        button(source.body,"添加分享链接 · 可选解析音频",View.NO_ID,false,this::openVideoTranscript);
         Module crop=module(body,"crop",R.id.unified_crop_toggle,"圈选与批注","单独保留你关注的区域；取消编辑不会替换已确认的结果。");
         cropImage=image(crop.body,R.id.unified_crop_preview,"已确认的圈选与批注",180);
         cropImage.setOnClickListener(v->showImage(cropPreview,"圈选与批注"));
@@ -292,11 +293,11 @@ public final class UnifiedCaptureActivity extends Activity {
     }
     private void openVideoTranscript() {
         if(session.pending!=null||acquiring)return;
-        if(!CaptureAccountSession.hasAccount(this)){message("请先在设置中登录账号，再解析视频文字稿；当前记录草稿会保留。");return;}
         try {
             collect();VideoTranscriptState state=null;
             if(!draft.transcriptState.isEmpty())try{state=VideoTranscriptState.read(this,draft.transcriptState);}catch(Exception ignored){}
-            if(state==null){state=VideoTranscriptState.create(this,draft.scope);draft.transcriptState=state.file.getAbsolutePath();}
+            if(state==null){state=VideoTranscriptState.create(this,draft.scope);state.backgroundFlow=true;state.importSource=true;
+                state.share=CaptureSourceUrl.fromTranscriptShareText(draft.url);state.persist();draft.transcriptState=state.file.getAbsolutePath();}
             draft.transcriptBaselineExcerpt=excerpt.getText().toString();draft.transcriptBaselineUrl=url.getText().toString();
             draft.persist();hideKeyboard();startActivityForResult(VideoTranscriptActivity.open(this,draft.transcriptState),REQUEST_VIDEO_TRANSCRIPT);
         }catch(Exception error){message("暂时无法打开文字稿解析，当前草稿仍保留。请检查登录状态后重试。");}
@@ -308,6 +309,14 @@ public final class UnifiedCaptureActivity extends Activity {
             CaptureAccountSession.requireScope(this,draft.scope);
             if(data==null||!draft.transcriptState.equals(data.getStringExtra(VideoTranscriptActivity.STATE)))throw new IOException("invalid_transcript");
             VideoTranscriptState state=VideoTranscriptState.read(this,draft.transcriptState);
+            if(state.backgroundFlow&&(state.linkOnly||!state.backgroundTaskId.isEmpty())){
+                if(!state.backgroundTaskId.isEmpty()&&draft.backgroundTaskIds.size()<20)draft.backgroundTaskIds.add(state.backgroundTaskId);
+                if((state.linkOnly||state.importSource)&&url.getText().toString().equals(draft.transcriptBaselineUrl)&&!state.sourceUrl.isEmpty()){
+                    url.setText(state.sourceUrl);draft.selected.add("source");
+                }
+                state.discard();draft.transcriptState="";persist();refreshModules();
+                message(state.linkOnly?"链接已加入记录，不会解析音频。可继续编辑并保存。":"后台任务已创建，可直接保存记录；完成后会通知，不会覆盖现有摘录。");return;
+            }
             if(!state.imported||state.text.trim().isEmpty()||state.text.length()>VideoTranscriptState.MAX_TEXT)throw new IOException("invalid_transcript");
             Runnable apply=()->{
                 if(destroyed||!draft.scope.equals(CaptureAccountSession.scope(this)))return;
@@ -495,6 +504,7 @@ public final class UnifiedCaptureActivity extends Activity {
                         record=CaptureStore.save(app,screenshot,originalCrop,annotatedCrop,annotation,category,comment,type,quote,pkg,link,origin,context,material,savedTags);
                         synchronized(target){target.recordId=record.id;try{target.persist();}catch(IOException ignored){/* The record already committed; never offer a duplicate retry. */}}
                     }
+                    for(String taskId:target.backgroundTaskIds)try{VideoTranscriptTasks.attachCapture(app,scope,taskId,record.id);}catch(Exception ignored){/* Task remains accessible in settings; never fail a committed note. */}
                     if(CaptureStore.SYNC_PENDING.equals(record.syncState))try{CaptureSyncWorker.enqueue(app);}catch(RuntimeException ignored){}
                 } catch(Exception|OutOfMemoryError error){if(target.recordId.isEmpty())work.error="保存失败，内容仍保留在编辑器中。请检查账号和存储后重试。";}
                 finally{recycle(originalCrop);recycle(annotatedCrop);work.complete=true;handler.post(work::deliver);}
@@ -519,7 +529,7 @@ public final class UnifiedCaptureActivity extends Activity {
         if(session.pending!=null)return;
         if(acquiring){finishPage("已取消页面读取，已有内容仍保留。");return;}
         if(draft.editing){cancelCanvas();return;}
-        new AlertDialog.Builder(this).setTitle("放弃这条记录？").setMessage("尚未保存的文字、截图和圈选草稿将被移除。")
+        new AlertDialog.Builder(this).setTitle("放弃这条记录？").setMessage("尚未保存的文字、截图和圈选草稿将被移除。已创建的后台解析任务不会取消，仍可在设置中查看。")
                 .setNegativeButton("继续编辑",null).setPositiveButton("放弃",(d,w)->finish()).show();
     }
     @Override protected void onResume(){super.onResume();resumed=true;if(draft!=null&&!draft.scope.equals(CaptureAccountSession.scope(this))){message("账号已变化，已关闭当前记录页。");finish();}}

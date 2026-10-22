@@ -3,6 +3,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
@@ -23,6 +24,7 @@
         <activity android:name=".SettingsActivity" android:exported="false" android:label="设置" />
         <activity android:name=".VideoTranscriptActivity" android:exported="false" android:label="视频文字稿"
             android:windowSoftInputMode="adjustResize|stateAlwaysHidden" />
+        <activity android:name=".VideoTranscriptTasksActivity" android:exported="false" android:label="解析任务" />
         <activity android:name=".AiChatActivity" android:exported="false" android:label="围绕这条聊聊"
             android:windowSoftInputMode="adjustResize|stateAlwaysHidden" />
         <activity android:name=".AiChatHistoryActivity" android:exported="false" android:label="AI 对话" />

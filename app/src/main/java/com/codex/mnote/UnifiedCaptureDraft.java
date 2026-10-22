@@ -16,6 +16,7 @@ final class UnifiedCaptureDraft {
     final File stateFile;
     final String scope;
     final Set<String> selected = new LinkedHashSet<>();
+    final Set<String> backgroundTaskIds = new LinkedHashSet<>();
     String thought="", excerpt="", original="", url="", tags="", kind="thought";
     String recordId="";
     String excerptOrigin="",transcriptState="",transcriptBaselineExcerpt="",transcriptBaselineUrl="";
@@ -48,6 +49,10 @@ final class UnifiedCaptureDraft {
         draft.recordId=data.optString("record");
         draft.excerptOrigin=data.optString("excerpt_origin");draft.transcriptState=data.optString("transcript_state");
         draft.transcriptBaselineExcerpt=data.optString("transcript_baseline_excerpt");draft.transcriptBaselineUrl=data.optString("transcript_baseline_url");
+        JSONArray taskIds=data.optJSONArray("background_task_ids");
+        if(taskIds!=null)for(int i=0;i<Math.min(taskIds.length(),20);i++){
+            String taskId=taskIds.optString(i);if(taskId.matches("[a-f0-9-]{36}"))draft.backgroundTaskIds.add(taskId);
+        }
         draft.source=new CaptureSourceContext(data.optString("package"),data.optString("detected_url"),data.optString("origin"));
         draft.screenshot=CaptureStore.safeDraftFile(context,data.optString("screenshot"));
         draft.cropOriginal=CaptureStore.safeDraftFile(context,data.optString("crop_original"));
@@ -64,6 +69,7 @@ final class UnifiedCaptureDraft {
                     .put("clipboard",clipboardRead).put("page",pageRead).put("editing",editing).put("record",recordId)
                     .put("excerpt_origin",excerptOrigin).put("transcript_state",transcriptState)
                     .put("transcript_baseline_excerpt",transcriptBaselineExcerpt).put("transcript_baseline_url",transcriptBaselineUrl)
+                    .put("background_task_ids",new JSONArray(backgroundTaskIds))
                     .put("package",source.appPackage).put("detected_url",source.url).put("origin",source.origin)
                     .put("selected",new JSONArray(selected)).put("screenshot",path(screenshot))
                     .put("crop_original",path(cropOriginal)).put("crop_annotated",path(cropAnnotated))
