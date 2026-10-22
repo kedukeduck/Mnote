@@ -192,8 +192,18 @@ def parse_share_text(text: object, direct_hosts: tuple[str, ...]) -> dict:
     if re.match(r"https?://", stripped, re.I) and not re.search(r"\s", stripped):
         if SHARE_URL_RE.fullmatch(stripped) is None:
             raise ServiceError("invalid_url")
+        # No surrounding prose/Markdown exists to trim. Preserve query bytes,
+        # including punctuation that can legitimately belong to a signature.
+        candidates = [stripped]
+        naked = True
+    else:
+        candidates = SHARE_URL_RE.findall(text)
+        naked = False
     urls = set()
-    for candidate in SHARE_URL_RE.findall(text):
+    for candidate in candidates:
+        if naked:
+            urls.add(candidate)
+            continue
         candidate = candidate.rstrip(".,;!?】）")
         # Only discard unmatched Markdown/prose closers, not a balanced ')' in
         # a path or signature such as ?sig=(value).

@@ -169,6 +169,46 @@ public class VideoTranscriptActivityTest {
             assertEquals(2,Transport.posts);assertEquals(key,Transport.body.getString("client_request_id"));
         }
     }
+    @Test public void markdownShareKeepsOriginalIdempotentPayloadAndCleanSourceUrl()throws Exception {
+        String url="https://v.douyin.com/P3DO6rRvucA/";
+        String share="8.43 复制打开抖音，看看【示例作品】 ["+url+"]("+url+" \""+url+"\") sEh:/ 08/23";
+        Transport.failCreate=true;VideoTranscriptState state=VideoTranscriptState.create(context,CaptureAccountSession.scope(context));
+        try(var c=open(state)){
+            form(c.get());c.get().<EditText>findViewById(R.id.video_transcript_link).setText(share);
+            c.get().<CheckBox>findViewById(R.id.video_transcript_consent).setChecked(true);
+            c.get().findViewById(R.id.video_transcript_parse).performClick();drain(c.get());
+            assertEquals(1,Transport.posts);assertEquals(share,Transport.body.getString("share_text"));
+            String requestId=Transport.body.getString("client_request_id");
+            assertEquals(url,VideoTranscriptState.read(context,state.file.getAbsolutePath()).sourceUrl);
+            c.recreate();drain(c.get());Transport.failCreate=false;
+            c.get().findViewById(R.id.video_transcript_refresh).performClick();drain(c.get());
+            assertEquals(2,Transport.posts);assertEquals(share,Transport.body.getString("share_text"));
+            assertEquals(requestId,Transport.body.getString("client_request_id"));
+        }
+    }
+    @Test public void differentMarkdownLinksNeverSubmitATranscriptJob()throws Exception {
+        VideoTranscriptState state=VideoTranscriptState.create(context,CaptureAccountSession.scope(context));
+        try(var c=open(state)){
+            form(c.get());c.get().<EditText>findViewById(R.id.video_transcript_link)
+                    .setText("[https://v.douyin.com/first/](https://v.douyin.com/second/)");
+            c.get().<CheckBox>findViewById(R.id.video_transcript_consent).setChecked(true);
+            c.get().findViewById(R.id.video_transcript_parse).performClick();drain(c.get());
+            assertEquals(0,Transport.posts);assertNotNull(c.get().<EditText>findViewById(R.id.video_transcript_link).getError());
+        }
+    }
+    @Test public void failedMediaShowsSafeActionableReasonWithoutChangingTheExcerpt()throws Exception {
+        VideoTranscriptState state=VideoTranscriptState.create(context,CaptureAccountSession.scope(context));
+        state.job=Transport.job(false).put("status","failed").put("stage","failed")
+                .put("error",new JSONObject().put("code","invalid_media").put("message","https://private.example/?token=secret"));
+        state.persist();
+        try(var c=open(state)){
+            String status=c.get().<TextView>findViewById(R.id.video_transcript_status).getText().toString();
+            assertTrue(status,status.contains("媒体内容无法读取"));assertTrue(status,status.contains("错误标识：invalid_media"));
+            assertFalse(status,status.contains("secret"));assertFalse(status,status.contains("https://"));
+            assertFalse(c.get().findViewById(R.id.video_transcript_import).isEnabled());
+            assertEquals("",VideoTranscriptState.read(context,state.file.getAbsolutePath()).text);assertEquals(0,Transport.posts);
+        }
+    }
     @Test public void oversizedTranscriptIsNotTruncatedOrImported()throws Exception {
         Transport.tooLong=true;VideoTranscriptState state=VideoTranscriptState.create(context,CaptureAccountSession.scope(context));
         try(var c=open(state)){

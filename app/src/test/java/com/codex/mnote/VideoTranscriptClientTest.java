@@ -179,6 +179,48 @@ public class VideoTranscriptClientTest {
         assertTrue(connection.disconnected);
     }
 
+    @Test public void terminalFailuresExplainTheirStageAndExposeOnlyFixedErrorCodes() {
+        String[] codes = {"media_unavailable", "invalid_media", "transcription_failed", "interrupted", "not_found", "not_ready"};
+        String[] details = {"没有取得", "媒体内容无法读取", "音频转写未完成", "服务中断", "过期", "尚未准备好"};
+        for (int i = 0; i < codes.length; i++) {
+            String message = VideoTranscriptClient.error(new IOException(codes[i]));
+            assertTrue(message, message.contains(details[i]));
+            assertTrue(message, message.contains("错误标识：" + codes[i]));
+            assertTrue(message, message.contains("已有摘录没有变化"));
+        }
+    }
+
+    @Test public void platformRateLimitIsNotReportedAsPersonalDailyQuota() {
+        String message = VideoTranscriptClient.error(new IOException("source_rate_limited"));
+        assertTrue(message, message.contains("来源平台"));
+        assertFalse(message, message.contains("额度已满"));
+        assertTrue(message, message.contains("错误标识：source_rate_limited"));
+    }
+
+    @Test public void accountAdapterErrorsKeepTheirSpecificSafeIdentifiers() {
+        for (String code : new String[]{"not_configured", "not_found", "invalid_request", "request_conflict",
+                "account_busy", "account_limit", "daily_limit", "submission_uncertain", "upstream_unavailable", "storage_unavailable"}) {
+            String message = VideoTranscriptClient.error(new IOException(code));
+            assertTrue(message, message.contains("错误标识：" + code));
+            assertFalse(message, message.contains("unknown_error"));
+        }
+    }
+
+    @Test public void unknownMessagesAndNetworkDetailsNeverLeakCredentialsOrSignedUrls() {
+        String privateMessage = "network_failed https://cdn.example/video?signature=private-token Authorization=secret";
+        String unknown = VideoTranscriptClient.error(new IOException(privateMessage));
+        assertTrue(unknown, unknown.contains("错误标识：unknown_error"));
+        assertFalse(unknown, unknown.contains("private-token"));
+        assertFalse(unknown, unknown.contains("https://"));
+        assertFalse(unknown, unknown.contains("secret"));
+        String network = VideoTranscriptClient.error(new java.net.UnknownHostException(privateMessage));
+        assertTrue(network, network.contains("错误标识：network_failed"));
+        assertFalse(network, network.contains("private-token"));
+        String unauthorized = VideoTranscriptClient.error(new VideoTranscriptClient.Rejected(privateMessage, 401));
+        assertTrue(unauthorized, unauthorized.contains("登录"));
+        assertFalse(unauthorized, unauthorized.contains("private-token"));
+    }
+
     @Test public void redirectIsRejectedRatherThanForwardingCredentials() throws Exception {
         FakeConnection connection = new FakeConnection(302, "{}");
         AtomicInteger connections = new AtomicInteger();

@@ -101,7 +101,7 @@ public final class VideoTranscriptActivity extends Activity {
         collect();VideoTranscriptState state=session.state;
         if(session.busy||!state.id().isEmpty()||state.creating)return;
         if(!session.ready||state.agreement.isEmpty()){toast("请先连接到可用的解析服务。");return;}
-        if(state.share.trim().isEmpty()||state.share.length()>8192||CaptureSourceUrl.fromSharedText(state.share).isEmpty()){link.setError("请粘贴一条有效的视频分享链接");return;}
+        if(state.share.trim().isEmpty()||state.share.length()>8192||CaptureSourceUrl.fromTranscriptShareText(state.share).isEmpty()){link.setError("请粘贴一条有效的视频分享链接；多个不同链接请分别解析");return;}
         if(state.basis.isEmpty()){toast("请选择本次内容的使用依据。");return;}
         if(state.note.trim().isEmpty()||state.note.length()>1000||(!"owned".equals(state.basis)&&state.note.trim().length()<8)){note.setError("请填写 1–1000 字说明；授权和开放许可说明至少 8 个字");return;}
         if(!state.consent){toast("请确认本次内容的权利声明与服务器转写说明。");return;}
@@ -171,7 +171,9 @@ public final class VideoTranscriptActivity extends Activity {
             message=ready?"已连接 · 最长 "+Math.max(1,response.optInt("max_duration_seconds",1800)/60)+" 分钟。请确认本次授权后开始解析。":"当前服务器尚未启用视频文字稿服务。";persist();
         });}
         void create(){
-            try{state.sourceUrl=CaptureSourceUrl.fromSharedText(state.share);state.creating=true;state.problem="";if(!persist()){state.creating=false;return;}
+            try{state.sourceUrl=CaptureSourceUrl.fromTranscriptShareText(state.share);state.creating=true;state.problem="";if(!persist()){state.creating=false;return;}
+                // Keep the original payload on retries: a persisted request ID
+                // must never be reused with a newly normalized request body.
                 JSONObject body=new JSONObject().put("share_text",state.share.trim()).put("rights_basis",state.basis)
                         .put("rights_note",state.note.trim()).put("agreement_version",state.agreement).put("consent",true).put("client_request_id",state.requestId);
                 run("POST","/jobs",body,response->{acceptJob(response);state.creating=false;persist();schedule();});

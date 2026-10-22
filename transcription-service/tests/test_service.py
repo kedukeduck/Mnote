@@ -163,6 +163,12 @@ class URLTests(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(api.ServiceError):
                 api.parse_share_text(url, ("media.example.org",))
 
+    def test_naked_query_punctuation_is_preserved_exactly(self):
+        for suffix in ("abc)", "abc!", "abc.", "abc;", "abc?"):
+            url = "https://media.example.org/audio.wav?signature=" + suffix
+            with self.subTest(url=url):
+                self.assertEqual(api.parse_share_text(url, ("media.example.org",))["url"], url)
+
     def test_balanced_parentheses_are_not_stripped_from_media_urls(self):
         for url in ("https://media.example.org/audio.wav?sig=(foo)",
                     "https://media.example.org/audio.wav?sig=((foo))",
