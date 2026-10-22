@@ -161,7 +161,7 @@ def backup(data_root: str, backup_root: str, retention_days: int = 14) -> Path:
         destination.mkdir(mode=0o700)
         databases = snapshot_data(source, destination)
         metadata = {"format": 2, "created_at": datetime.now(timezone.utc).isoformat(),
-                    "databases": databases, "includes": ["accounts", "all-vault-records", "private-chats", "images", "active-share-snapshots", "transcript-admission-ledger"],
+                    "databases": databases, "includes": ["accounts", "all-vault-records", "private-chats", "images", "active-share-snapshots", "transcript-admission-ledger", "durable-transcript-history"],
                     "excludes": ["update-installers", "server-env", "model-credentials"]}
         (stage / "BACKUP.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
         (stage / "RESTORE.txt").write_text(

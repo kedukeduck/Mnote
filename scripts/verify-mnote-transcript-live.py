@@ -33,13 +33,14 @@ class NoRedirect(HTTPRedirectHandler):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", type=Path, default=Path("/var/lib/heartnote-capture"))
+    parser.add_argument("--background", action="store_true", help="Verify server collection without client job polling, plus non-blocking note saving")
     args = parser.parse_args()
     assert args.data.resolve() == Path("/var/lib/heartnote-capture")
     quarantine = Path(tempfile.mkdtemp(prefix="mnote-transcript-verify.", dir="/var/backups"))
     quarantine.chmod(0o700)
     accounts = Accounts(CaptureStore(args.data))
     opener = build_opener(NoRedirect())
-    sessions, users, jobs = [], [], []
+    sessions, users, jobs, records = [], [], [], []
 
     def request(method, path, session=None, body=None, extra=None):
         headers = {"Accept": "application/json", "Cache-Control": "no-store"}
@@ -85,14 +86,45 @@ def main():
         assert status == 202 and retried["job"]["id"] == ident, "Duplicate POST created another task"
         assert request("GET", path, second)[0] == 404
         assert request("DELETE", path, second)[0] == 404
+        if args.background:
+            capture_id = "transcript-background-qa-" + uuid.uuid4().hex
+            record_path = "/v1/captures/" + capture_id
+            record = {"id": capture_id, "comment": "Saved independently while ASR is pending",
+                      "source": {"type": "quick_note", "text": "Pre-existing excerpt", "url": SAMPLE}, "ai_access": "deny"}
+            started = time.monotonic()
+            assert request("PUT", record_path, first, record)[0] == 200
+            records.append((first, record_path))
+            assert time.monotonic() - started < 15, "Saving a note waited on ASR"
+            assert request("POST", path + "/capture", first, {"capture_id": capture_id})[0] == 200
+            assert request("POST", path + "/capture", second, {"capture_id": capture_id})[0] == 404
+            status, history = request("GET", "/v1/transcripts/jobs?limit=50&offset=0", second)
+            assert status == 200 and history["jobs"] == []
         deadline, job = time.monotonic() + 180, data["job"]
         while time.monotonic() < deadline:
-            status, data = request("GET", path, first)
-            assert status == 200
-            job = data["job"]
+            if args.background:
+                # History only reads the durable catalog. It does NOT poll the
+                # core, so completion here proves the server collector ran.
+                status, history = request("GET", "/v1/transcripts/jobs?limit=50&offset=0", first)
+                assert status == 200
+                job = next(item for item in history["jobs"] if item["id"] == ident)
+                assert "text" not in job and "segments" not in job
+            else:
+                status, data = request("GET", path, first)
+                assert status == 200
+                job = data["job"]
             if job["status"] in ("completed", "failed"):
                 break
             time.sleep(2)
+        if args.background:
+            assert job["status"] == "completed", job.get("error")
+            assert job["capture_id"] == capture_id
+            status, saved = request("GET", record_path, first)
+            assert status == 200 and saved["comment"] == record["comment"] and saved["source"]["text"] == "Pre-existing excerpt"
+            assert request("DELETE", record_path, first, extra={"If-Match": '"revision:1"'})[0] == 200
+            records.remove((first, record_path))
+            status, data = request("GET", path, first)
+            assert status == 200
+            job = data["job"]
         assert job["status"] == "completed" and "recording" in job["text"].lower(), job.get("error")
         assert 0 < len(job["text"]) <= 100000
         capture_id = "transcript-qa-" + uuid.uuid4().hex
@@ -110,8 +142,15 @@ def main():
         assert request("GET", path, first)[0] == 404
         print("PASS: HTTPS account auth, explicit consent, idempotent POST, owner-header override, cross-account GET/DELETE isolation,")
         print("CC0 full ASR, transcript record save/read/delete and job cleanup; no existing user records accessed.")
+        if args.background:
+            print("PASS: note saved before waiting; server-only result collection, metadata-only history, inert capture association and no excerpt overwrite.")
     finally:
         failures = []
+        for session, path in records:
+            try:
+                assert request("DELETE", path, session, extra={"If-Match": '"revision:1"'})[0] in (200, 404)
+            except Exception as error:
+                failures.append(type(error).__name__)
         for session, path in jobs:
             try:
                 assert request("DELETE", path, session)[0] in (200, 404)

@@ -533,10 +533,14 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
         # explicit localhost host permission and the bundled same-origin UI do
         # not require it.
         self.send_response(HTTPStatus.METHOD_NOT_ALLOWED)
-        self.send_header("Allow", "GET, HEAD, PUT, POST, DELETE")
+        self.send_header("Allow", "GET, HEAD, PUT, POST, PATCH, DELETE")
         self.send_header("Content-Length", "0")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
+
+    def do_PATCH(self) -> None:  # noqa: N802
+        if not self._transcript_action("PATCH"):
+            self._problem(HTTPStatus.NOT_FOUND, "not_found", "Unknown endpoint")
 
     def _chat_action(self, method: str) -> bool:
         parsed = urlparse(self.path)
@@ -616,15 +620,30 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
                     "message": "请先登录 Mnote 账号后使用文字稿解析。"}},
                     {"WWW-Authenticate": 'Bearer realm="Mnote"'} if status == 401 else None)
                 return True
-            if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment or len(self.path) > 160:
+            if parsed.scheme or parsed.netloc or parsed.fragment or len(self.path) > 160:
                 raise TranscriptError("not_found", 404)
             prefix = "/v1/transcripts/"
             suffix = parsed.path[len(prefix):] if parsed.path.startswith(prefix) else ""
+            if parsed.query and not (suffix == "jobs" and method == "GET"):
+                raise TranscriptError("not_found", 404)
             if suffix == "config" and method == "GET":
                 self._json(200, self.transcripts.config(self.account["id"]))
                 return True
             if suffix == "jobs" and method == "POST":
                 status, result = self.transcripts.submit(self.account["id"], self._transcript_body())
+            elif suffix == "jobs" and method == "GET":
+                try:
+                    query = parse_qs(parsed.query, keep_blank_values=True, strict_parsing=True, max_num_fields=2)
+                    if set(query) - {"limit", "offset"} or any(len(items) != 1 or not items[0].isascii() or not items[0].isdigit() or len(items[0]) > 5 for items in query.values()):
+                        raise ValueError()
+                    limit, offset = int(query.get("limit", ["50"])[0]), int(query.get("offset", ["0"])[0])
+                except ValueError:
+                    raise TranscriptError("invalid_request") from None
+                status, result = 200, self.transcripts.history(self.account["id"], limit, offset)
+            elif suffix.startswith("jobs/") and method == "PATCH":
+                status, result = 200, self.transcripts.associate(self.account["id"], suffix[5:], self._transcript_body())
+            elif suffix.startswith("jobs/") and suffix.endswith("/capture") and method == "POST":
+                status, result = 200, self.transcripts.associate(self.account["id"], suffix[5:-8], self._transcript_body())
             elif suffix.startswith("jobs/") and method in ("GET", "DELETE"):
                 status, result = self.transcripts.job(method, self.account["id"], suffix[5:])
             else:
@@ -663,6 +682,19 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid_request"})
 
 
+class CaptureHTTPServer(ThreadingHTTPServer):
+    def serve_forever(self, poll_interval=0.5):
+        self.transcript_collector = self.RequestHandlerClass.transcripts
+        self.transcript_collector.start()
+        return super().serve_forever(poll_interval)
+
+    def server_close(self):
+        collector = getattr(self, "transcript_collector", None)
+        if collector is not None:
+            collector.close()
+        super().server_close()
+
+
 def create_server(host: str, port: int, store: CaptureStore, tokens: Tokens, public_base: str | None = None) -> ThreadingHTTPServer:
     handler = type(
         "ConfiguredCaptureRequestHandler",
@@ -671,7 +703,7 @@ def create_server(host: str, port: int, store: CaptureStore, tokens: Tokens, pub
          "exports": MarkdownExports(store.root, os.environ.get("MNOTE_PUBLIC_BASE_URL", "") if public_base is None else public_base),
          "transcripts": Transcripts(store.root)},
     )
-    return ThreadingHTTPServer((host, port), handler)
+    return CaptureHTTPServer((host, port), handler)
 
 
 def main() -> None:

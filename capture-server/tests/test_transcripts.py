@@ -274,6 +274,242 @@ class TranscriptServiceTest(unittest.TestCase):
         self.assertEqual(1, sum(call[0] == "POST" for call in self.core.calls))
         self.assertEqual(202, self.service.submit("account", body)[0])
 
+    def due(self):
+        with self.service.admissions.db() as db:
+            db.execute("UPDATE catalog SET next_poll=0")
+
+    def test_durable_history_owner_pagination_and_summaries(self):
+        ids = []
+        for index in range(3):
+            _, result = self.service.submit("account", BODY | {"client_request_id": str(uuid.uuid4()), "capture_id": "local-capture-" + str(index)})
+            ident = result["job"]["id"]
+            ids.append(ident)
+            self.core.jobs[ident][1].update(status="completed", text="完整文字稿" + str(index))
+            self.service.job("GET", "account", ident)
+        page = self.service.history("account", 2, 0)
+        self.assertEqual(ids[::-1][:2], [item["id"] for item in page["jobs"]])
+        self.assertEqual(2, page["next_offset"])
+        self.assertTrue(page["has_more"])
+        self.assertNotIn("text", page["jobs"][0])
+        self.assertNotIn("segments", page["jobs"][0])
+        self.assertTrue(page["jobs"][0]["has_text"])
+        self.assertEqual("local-capture-2", page["jobs"][0]["capture_id"])
+        self.assertEqual(BODY["share_text"], page["jobs"][0]["source_url"])
+        self.assertEqual(ids[:1], [item["id"] for item in self.service.history("account", 2, 2)["jobs"]])
+        self.assertEqual([], self.service.history("other")["jobs"])
+        for limit, offset in ((0, 0), (51, 0), (True, 0), (1, -1), (1, 5001), ("2", 0)):
+            with self.assertRaises(TranscriptError):
+                self.service.history("account", limit, offset)
+
+    def test_collector_saves_result_without_app_poll_and_survives_core_expiry(self):
+        body = BODY | {"client_request_id": str(uuid.uuid4())}
+        _, result = self.service.submit("account", body)
+        ident = result["job"]["id"]
+        self.core.jobs[ident][1].update(status="completed", stage="completed", text="后台完整结果")
+        self.due()
+        self.service.collect_once()
+        self.core.jobs.clear()
+        restarted = Transcripts(self.root, "")
+        with patch("heartnote_capture.transcripts.time.time", return_value=time.time() + 3 * 86400):
+            self.assertEqual("后台完整结果", restarted.job("GET", "account", ident)[1]["job"]["text"])
+            self.assertEqual("completed", restarted.history("account")["jobs"][0]["status"])
+        self.assertEqual(1, sum(call[0] == "POST" for call in self.core.calls))
+        enabled = Transcripts(self.root, TOKEN)
+        enabled.client = self.core
+        self.assertEqual(ident, enabled.submit("account", body)[1]["job"]["id"])
+        self.assertEqual(1, sum(call[0] == "POST" for call in self.core.calls))
+
+    def test_collector_records_core_expiry_as_visible_failure(self):
+        _, result = self.service.submit("account", BODY)
+        ident = result["job"]["id"]
+        self.core.jobs.clear()
+        self.due()
+        self.service.collect_once()
+        value = self.service.job("GET", "account", ident)[1]["job"]
+        self.assertEqual("failed", value["status"])
+        self.assertEqual("task_expired", value["error"]["code"])
+        self.assertEqual(202, self.service.submit("account", BODY)[0])
+
+    def test_collector_transient_outage_backoff_is_not_terminal_failure(self):
+        _, result = self.service.submit("account", BODY)
+        ident = result["job"]["id"]
+        self.core.failure = TranscriptError("upstream_unavailable", 503)
+        self.due()
+        self.service.collect_once()
+        self.assertEqual("queued", self.service.history("account")["jobs"][0]["status"])
+        with self.service.admissions.db() as db:
+            failures, next_poll = db.execute("SELECT poll_failures,next_poll FROM catalog").fetchone()
+        self.assertEqual(1, failures)
+        self.assertGreater(next_poll, time.time())
+        self.core.failure = None
+        self.core.jobs[ident][1].update(status="failed", error={"code": "invalid_media", "message": "无音轨"})
+        self.due()
+        self.service.collect_once()
+        self.assertEqual("invalid_media", self.service.history("account")["jobs"][0]["error"]["code"])
+
+    def test_restart_recovers_accepted_legacy_tasks_but_never_uncertain_post(self):
+        owner = self.service.owner("account")
+        request_id = str(uuid.uuid4())
+        reservation = self.service.admissions.reserve(owner, request_id, "fingerprint")
+        _, payload = self.core.request("POST", "/v1/jobs", owner, BODY)
+        ident = payload["job"]["id"]
+        self.service.admissions.accepted(reservation, ident)
+        self.service.admissions.reserve("another-owner", str(uuid.uuid4()), "unknown")
+        restarted = Transcripts(self.root, TOKEN)
+        restarted.client = self.core
+        restarted.collect_once()
+        page = restarted.history("account")
+        self.assertEqual(request_id, page["jobs"][0]["client_request_id"])
+        self.assertEqual(ident, page["jobs"][0]["id"])
+        self.assertEqual(1, sum(call[0] == "POST" for call in self.core.calls))
+
+    def test_association_is_owner_only_inert_and_does_not_change_idempotency(self):
+        body = BODY | {"client_request_id": str(uuid.uuid4())}
+        _, result = self.service.submit("account", body)
+        ident = result["job"]["id"]
+        associated = self.service.associate("account", ident, {"capture_id": "local-pending-capture"})
+        self.assertEqual("local-pending-capture", associated["job"]["capture_id"])
+        self.assertEqual("local-pending-capture", self.service.submit("account", body)[1]["job"]["capture_id"])
+        self.assertNotIn("capture_id", self.core.calls[0][3])
+        with self.assertRaises(TranscriptError) as raised:
+            self.service.associate("other", ident, {"capture_id": "other-record"})
+        self.assertEqual("not_found", raised.exception.code)
+        for invalid in ({}, {"capture_id": "../escape"}, {"capture_id": "a" * 129}, {"capture_id": "local-id", "owner": "other"}, {"capture_id": None}):
+            with self.assertRaises(TranscriptError):
+                self.service.associate("account", ident, invalid)
+
+    def test_terminal_and_deleted_results_cannot_be_resurrected_by_stale_poll(self):
+        _, result = self.service.submit("account", BODY)
+        ident = result["job"]["id"]
+        stale = copy.deepcopy(result["job"])
+        self.core.jobs[ident][1].update(status="completed", text="应保留的完整结果")
+        self.service.job("GET", "account", ident)
+        self.service.admissions.remember(self.service.owner("account"), stale)
+        self.assertEqual("应保留的完整结果", self.service.job("GET", "account", ident)[1]["job"]["text"])
+        self.core.failure = TranscriptError("upstream_unavailable", 503)
+        self.assertEqual(200, self.service.job("DELETE", "account", ident)[0])
+        self.service.admissions.remember(self.service.owner("account"), stale)
+        self.assertEqual([], self.service.history("account")["jobs"])
+        self.core.failure = None
+        self.due()
+        self.service.collect_once()
+        self.service.collect_once()
+        self.assertEqual([], self.service.history("account")["jobs"])
+        self.assertNotIn(ident, self.core.jobs)
+
+    def test_archive_limit_reports_failure_never_silently_truncates_text(self):
+        _, result = self.service.submit("account", BODY)
+        ident = result["job"]["id"]
+        self.core.jobs[ident][1].update(status="completed", text="文" * 100001)
+        self.service.job("GET", "account", ident)
+        value = self.service.job("GET", "account", ident)[1]["job"]
+        self.assertEqual("failed", value["status"])
+        self.assertEqual("result_too_large", value["error"]["code"])
+        self.assertEqual("", value["text"])
+
+    def test_full_history_rejects_before_submission_and_never_evicts(self):
+        _, result = self.service.submit("account", BODY)
+        ident = result["job"]["id"]
+        self.core.jobs[ident][1].update(status="completed", text="保留")
+        self.service.job("GET", "account", ident)
+        with patch("heartnote_capture.transcripts.MAX_HISTORY_ROWS", 1):
+            with self.assertRaises(TranscriptError) as raised:
+                self.service.submit("account", BODY)
+            self.assertEqual("history_full", raised.exception.code)
+        self.assertEqual(1, len(self.service.history("account")["jobs"]))
+        self.assertEqual(1, sum(call[0] == "POST" for call in self.core.calls))
+
+    def test_collector_lifecycle_single_thread_and_close(self):
+        _, result = self.service.submit("account", BODY)
+        self.core.jobs[result["job"]["id"]][1].update(status="completed", text="后台完成")
+        self.due()
+        with patch("heartnote_capture.transcripts.POLL_SECONDS", 0.01):
+            self.service.start()
+            first_thread = self.service._thread
+            self.service.start()
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and self.service.history("account")["jobs"][0]["status"] != "completed":
+                threading.Event().wait(0.01)
+            self.service.close()
+        self.assertIs(first_thread, self.service._thread)
+        self.assertFalse(first_thread.is_alive())
+        self.assertEqual("completed", self.service.history("account")["jobs"][0]["status"])
+
+    def test_expired_pending_job_becomes_failure_even_during_core_outage(self):
+        _, result = self.service.submit("account", BODY)
+        ident = result["job"]["id"]
+        self.core.failure = TranscriptError("upstream_unavailable", 503)
+        with patch("heartnote_capture.transcripts.time.time", return_value=time.time() + 2 * 86400):
+            self.service.collect_once()
+        self.assertEqual("task_expired", self.service.history("account")["jobs"][0]["error"]["code"])
+        self.assertEqual("failed", self.service.job("GET", "account", ident)[1]["job"]["status"])
+
+    def test_accepted_result_metadata_is_atomic_and_read_failure_does_not_lose_idempotency(self):
+        body = BODY | {"client_request_id": str(uuid.uuid4()), "capture_id": "new-local-capture"}
+        real_cached = self.service.admissions.cached
+        with patch.object(self.service.admissions, "cached", side_effect=OSError("synthetic read failure")):
+            with self.assertRaises(OSError):
+                self.service.submit("account", body)
+        with self.service.admissions.db() as db:
+            self.assertEqual("accepted", db.execute("SELECT status FROM requests").fetchone()[0])
+        _, result = self.service.submit("account", body)
+        self.assertEqual("new-local-capture", result["job"]["capture_id"])
+        self.assertEqual(BODY["share_text"], real_cached(self.service.owner("account"), result["job"]["id"])["share_text"])
+        self.assertEqual(1, sum(call[0] == "POST" for call in self.core.calls))
+
+    def test_legacy_delete_before_first_collector_does_not_reappear(self):
+        owner = self.service.owner("account")
+        reservation = self.service.admissions.reserve(owner)
+        _, value = self.core.request("POST", "/v1/jobs", owner, BODY)
+        ident = value["job"]["id"]
+        self.service.admissions.accepted(reservation, ident)
+        self.assertEqual(200, self.service.job("DELETE", "account", ident)[0])
+        self.due()
+        self.service.collect_once()
+        self.service.collect_once()
+        self.assertEqual([], self.service.history("account")["jobs"])
+
+    def test_core_metadata_cannot_smuggle_nested_private_values(self):
+        for path in ("title", "progress", "text", "rights", "consented_at"):
+            value = job()
+            if path == "title":
+                value["source"]["title"] = {"private_url": "https://signed.invalid/secret"}
+            elif path == "rights":
+                value["rights"]["note"] = {"token": "secret"}
+            elif path == "consented_at":
+                value["rights"]["consented_at"] = float("nan")
+            else:
+                value[path] = {"token": "secret"}
+            with self.assertRaises(TranscriptError):
+                public_payload(200, {"job": value})
+
+    def test_metadata_empty_values_are_strings_and_preserve_balanced_url_signatures(self):
+        simple = self.service._metadata(BODY)
+        self.assertEqual("", simple["capture_id"])
+        self.assertEqual("", simple["client_request_id"])
+        self.assertEqual("", self.service._metadata({})["source_url"])
+        url = "https://www.bilibili.com/video/BVfixture?signature=(exact)!"
+        self.assertEqual(url, self.service._metadata({"share_text": url})["source_url"])
+        self.assertEqual(url.rstrip("!"), self.service._metadata({"share_text": "分享 [原文](" + url.rstrip("!") + ")"})["source_url"])
+        self.assertEqual("", self.service._metadata({"share_text": "https://user:password@www.bilibili.com/video/private"})["source_url"])
+
+    def test_history_page_byte_budget_uses_returned_count_for_offset(self):
+        for index in range(3):
+            self.service.admissions.remember(self.service.owner("account"), job(status="completed"), {"share_text": "文" * 100})
+        with patch("heartnote_capture.transcripts.MAX_HISTORY_PAGE_BYTES", 1):
+            page = self.service.history("account", 3, 0)
+        self.assertEqual(1, len(page["jobs"]))
+        self.assertTrue(page["has_more"])
+        self.assertEqual(1, page["next_offset"])
+
+    def test_capacity_reserves_space_for_inflight_posts_without_catalog_row(self):
+        amount = 1024 * 1024 + 16 * 1024 * 2
+        with patch("heartnote_capture.transcripts.MAX_GLOBAL_HISTORY_BYTES", amount * 2 - 1):
+            self.service.admissions.reserve("first-owner")
+            with self.assertRaises(TranscriptError) as raised:
+                self.service.admissions.reserve("second-owner")
+        self.assertEqual("history_full", raised.exception.code)
+
 
 class TranscriptHTTPTest(unittest.TestCase):
     def setUp(self):
@@ -361,6 +597,30 @@ class TranscriptHTTPTest(unittest.TestCase):
         self.assertEqual("account_busy", result["error"]["code"])
         self.assertEqual("30", headers["Retry-After"])
         self.assertNotIn(TOKEN, json.dumps(result))
+
+    def test_history_and_capture_association_routes_are_account_scoped(self):
+        self.assertEqual(401, self.request("GET", "/v1/transcripts/jobs")[0])
+        self.assertEqual(403, self.request("GET", "/v1/transcripts/jobs", "read-token")[0])
+        _, _, created = self.request("POST", "/v1/transcripts/jobs", self.token, BODY | {"client_request_id": str(uuid.uuid4())})
+        ident = created["job"]["id"]
+        for method, suffix in (("PATCH", ""), ("POST", "/capture")):
+            status, _, value = self.request(method, "/v1/transcripts/jobs/" + ident + suffix, self.token, {"capture_id": "draft-capture-123"})
+            self.assertEqual(200, status)
+            self.assertEqual("draft-capture-123", value["job"]["capture_id"])
+            self.assertEqual(404, self.request(method, "/v1/transcripts/jobs/" + ident + suffix, self.other, {"capture_id": "draft-capture-123"})[0])
+        status, _, value = self.request("GET", "/v1/transcripts/jobs?limit=1&offset=0", self.token)
+        self.assertEqual(200, status)
+        self.assertEqual(ident, value["jobs"][0]["id"])
+        self.assertNotIn("text", value["jobs"][0])
+        self.assertNotIn("segments", value["jobs"][0])
+        self.assertEqual([], self.request("GET", "/v1/transcripts/jobs", self.other)[2]["jobs"])
+        self.assertEqual([], self.request("GET", "/v1/captures", self.token)[2]["records"])
+
+    def test_history_query_validation_and_patch_body(self):
+        for query in ("limit=0", "limit=51", "offset=-1", "offset=5001", "limit=1&limit=2", "limit=1&offset=0&url=x", "url=https://attacker.invalid", "limit", "limit=", "offset=1.1", "limit=%D9%A1"):
+            self.assertEqual(400, self.request("GET", "/v1/transcripts/jobs?" + query, self.token)[0], query)
+        self.assertEqual(404, self.request("GET", "/v1/transcripts/jobs/" + str(uuid.uuid4()) + "?limit=1", self.token)[0])
+        self.assertEqual(400, self.request("PATCH", "/v1/transcripts/jobs/" + str(uuid.uuid4()), self.token, {})[0])
 
 
 class CoreClientTest(unittest.TestCase):

@@ -136,6 +136,16 @@ class CompleteBackupTest(unittest.TestCase):
         manifest = json.loads((restored / "BACKUP.json").read_text())
         self.assertIn("transcripts/admissions.sqlite3", manifest["databases"])
 
+    def test_durable_transcript_result_and_association_are_in_atomic_ledger_backup(self):
+        state = Admissions(self.data / "transcripts")
+        state.remember("synthetic-account", {"id": "synthetic-core-id", "status": "completed", "stage": "completed", "text": "完整后台文字稿", "segments": [], "error": None}, {"capture_id": "local-capture", "client_request_id": "synthetic-request"})
+        archive = backup_tool.backup(str(self.data), str(self.output))
+        restored = self.unpack(archive)
+        with sqlite3.connect(restored / "data" / "transcripts" / "admissions.sqlite3") as db:
+            metadata, payload = db.execute("SELECT metadata,payload FROM catalog").fetchone()
+        self.assertEqual("local-capture", json.loads(metadata)["capture_id"])
+        self.assertEqual("完整后台文字稿", json.loads(payload)["text"])
+
     def test_source_symlinks_and_nested_roots_rejected_without_copying_outside(self):
         outside = self.root / "outside.txt"
         outside.write_text("synthetic private outside file")
