@@ -160,8 +160,22 @@ public final class VideoTranscriptActivity extends Activity {
     }
     private void returnResult(){setResult(RESULT_OK,new Intent().putExtra(STATE,session.state.file.getAbsolutePath()));
         if(getIntent().getBooleanExtra("task_only",false)&&!session.state.backgroundTaskId.isEmpty()){session.cancelled=true;session.state.discard();}finish();}
-    private void keepAndReturn(){collect();if(getIntent().getBooleanExtra("task_only",false)&&session.state.backgroundFlow){session.cancelled=true;session.state.discard();finish();}
-        else if(session.persist())finish();}
+    private void keepAndReturn(){
+        collect();VideoTranscriptState state=session.state;
+        if(state.backgroundFlow&&state.audioRequested&&state.backgroundTaskId.isEmpty()&&!state.linkOnly){
+            new AlertDialog.Builder(this).setTitle("还没有加入后台解析")
+                    .setMessage("仅勾选音频解析还不会创建任务。加入后台解析后即可返回保存记录，无需等待文字稿完成。")
+                    .setPositiveButton("加入后台解析并返回",(dialog,which)->submit())
+                    .setNegativeButton("继续设置",null)
+                    .setNeutralButton("返回，暂不解析",(dialog,which)->leaveWithoutSubmitting()).show();
+            return;
+        }
+        leaveWithoutSubmitting();
+    }
+    private void leaveWithoutSubmitting(){
+        if(getIntent().getBooleanExtra("task_only",false)&&session.state.backgroundFlow){session.cancelled=true;session.state.discard();finish();}
+        else if(session.persist())finish();
+    }
     private void confirmCancel() {
         new AlertDialog.Builder(this).setTitle("取消文字稿解析？").setMessage("会尝试删除服务器上的临时任务，不会修改已经写下的想法和摘录。")
                 .setNegativeButton("继续",null).setPositiveButton("取消任务",(d,w)->{session.cancelled=true;session.cleanupJob();session.state.discard();setResult(RESULT_CANCELED);finish();}).show();

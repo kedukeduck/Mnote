@@ -2,7 +2,6 @@ package com.codex.mnote;
 
 import android.content.Context;
 import android.content.Intent;
-import androidx.work.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.File;
@@ -20,11 +19,10 @@ final class VideoTranscriptTasks {
     static final int MAX_BYTES=2*1024*1024,MAX_TASKS=5000;
     private static final Object FILE_LOCK=new Object();
     private static final ReentrantLock RUNNING=new ReentrantLock();
-    private static final String PREFIX="mnote-video-tasks-";
     interface Transport {JSONObject request(Context context,String scope,String method,String path,JSONObject body)throws Exception;}
     static final class Task {
         String id,requestId,remoteId="",scope,status="local_queued",stage="queued",text="",title="",sourceUrl="",captureId="",problemCode="",share="";
-        long createdAt,updatedAt;int progress;boolean imported,notified,associationDirty,deletionPending,resultFetched,resultRequested;
+        long createdAt,updatedAt,lastAttemptAt,nextAttemptAt;int progress;boolean imported,notified,associationDirty,deletionPending,resultFetched,resultRequested;
         JSONObject submission=new JSONObject(),job;
         boolean terminal(){return "completed".equals(status)||"failed".equals(status)||"cancelled".equals(status);}
         boolean completed(){return "completed".equals(status);}
@@ -32,7 +30,7 @@ final class VideoTranscriptTasks {
             return new JSONObject().put("id",id).put("request_id",requestId).put("remote_id",remoteId).put("scope",scope)
                     .put("status",status).put("stage",stage).put("text",text).put("title",title).put("source_url",sourceUrl)
                     .put("capture_id",captureId).put("problem_code",problemCode).put("share",share).put("created_at",createdAt)
-                    .put("updated_at",updatedAt).put("progress",progress).put("imported",imported).put("notified",notified)
+                    .put("updated_at",updatedAt).put("last_attempt_at",lastAttemptAt).put("next_attempt_at",nextAttemptAt).put("progress",progress).put("imported",imported).put("notified",notified)
                     .put("association_dirty",associationDirty).put("deletion_pending",deletionPending).put("result_fetched",resultFetched).put("result_requested",resultRequested).put("submission",submission).put("job",job==null?JSONObject.NULL:job);
         }
     }
@@ -105,25 +103,10 @@ final class VideoTranscriptTasks {
         state.imported=true;state.persist();return state;
     }
     static void schedule(Context context){
-        if(!CaptureAccountSession.hasAccount(context))return;
-        String scope=CaptureAccountSession.scope(context);if(!scope.matches("[a-f0-9]{64}"))return;
-        Context app=context.getApplicationContext();Constraints network=new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build();
-        Data data=new Data.Builder().putString(WORK_SCOPE,scope).build();
-        try{
-            WorkManager work=WorkManager.getInstance(app);
-            work.enqueueUniqueWork(PREFIX+scope,ExistingWorkPolicy.KEEP,new OneTimeWorkRequest.Builder(VideoTranscriptWorker.class)
-                    .setInputData(data).setConstraints(network).addTag(PREFIX+scope)
-                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).build());
-            work.enqueueUniquePeriodicWork(PREFIX+scope+"-periodic",ExistingPeriodicWorkPolicy.KEEP,
-                    new PeriodicWorkRequest.Builder(VideoTranscriptWorker.class,15,TimeUnit.MINUTES)
-                            .setInputData(data).setConstraints(network).addTag(PREFIX+scope).build());
-        }catch(RuntimeException ignored){/* The durable outbox is still committed; app-open can schedule again. */}
+        VideoTranscriptScheduler.schedule(context);
     }
     static void cancelForScope(Context context,String scope){
-        if(scope==null||!scope.matches("[a-f0-9]{64}"))return;
-        try{WorkManager work=WorkManager.getInstance(context);work.cancelUniqueWork(PREFIX+scope);work.cancelUniqueWork(PREFIX+scope+"-periodic");}
-        catch(RuntimeException ignored){}
-        VideoTranscriptNotifications.cancelScope(context,scope);
+        VideoTranscriptScheduler.cancel(context,scope);
     }
 
     /** One bounded reconciliation pass. Called by WorkManager, never the main thread. */
@@ -136,11 +119,38 @@ final class VideoTranscriptTasks {
         try{
             List<Task> local; synchronized(FILE_LOCK){local=listUnlocked(context,scope);}Map<String,Task> byRemote=new HashMap<>(),byRequest=new HashMap<>();
             for(Task task:local){byRequest.put(task.requestId,task);if(!task.remoteId.isEmpty())byRemote.put(task.remoteId,task);}
+            long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(180);
+            Set<String> processed=new HashSet<>();
+            // A never-attempted durable UUID (or a known rejected submission) does not
+            // need a history round-trip. Submit it before unrelated history can fail
+            // or consume the pass. Reserve half the slots for existing active work.
+            local.sort(attemptOrder());
+            boolean otherWork=local.stream().anyMatch(task->needsNetwork(task)&&!safeUnsubmitted(task));
+            boolean uncertainWork=local.stream().anyMatch(task->needsNetwork(task)&&task.remoteId.isEmpty()&&!safeUnsubmitted(task));
+            boolean knownWork=local.stream().anyMatch(task->needsNetwork(task)&&!task.remoteId.isEmpty());
+            int freshLimit=uncertainWork&&knownWork?3:otherWork?4:8;
+            for(Task stale:local){
+                if(processed.size()>=freshLimit||System.nanoTime()>=deadline)break;
+                if(!safeUnsubmitted(stale)||!attemptDue(stale))continue;
+                process(context,scope,stale.id,transport);processed.add(stale.id);
+            }
+            // Existing server work also progresses without depending on history.
+            // Per-task attempt timestamps rotate the bounded eight slots fairly.
+            int knownProcessed=0,knownLimit=uncertainWork?4:8;
+            for(Task stale:local){
+                if(processed.size()>=8||knownProcessed>=knownLimit||System.nanoTime()>=deadline)break;
+                if(processed.contains(stale.id)||stale.remoteId.isEmpty()||!needsNetwork(stale)||!attemptDue(stale))continue;
+                process(context,scope,stale.id,transport);processed.add(stale.id);knownProcessed++;
+            }
+            synchronized(FILE_LOCK){local=listUnlocked(context,scope);}
+            byRemote.clear();byRequest.clear();
+            for(Task task:local){byRequest.put(task.requestId,task);if(!task.remoteId.isEmpty())byRemote.put(task.remoteId,task);}
             android.content.SharedPreferences scans=context.getSharedPreferences("video-task-history-scan",Context.MODE_PRIVATE);
             int offset=Math.max(0,Math.min(MAX_TASKS,scans.getInt(scope,0)));Set<String> seen=new HashSet<>();
-            long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(180);
-            boolean moreHistory=false;
-            for(int page=0;page<100&&System.nanoTime()<deadline;page++){
+            boolean moreHistory=true,historyComplete=false;
+            // History is resumable metadata-only maintenance, not a gate before a
+            // new task. At most two pages per pass, even for a very large account.
+            try{for(int page=0;page<2&&System.nanoTime()<deadline;page++){
                 JSONObject response=transport.request(context,scope,"GET","/jobs?limit=50&offset="+offset,null);
                 JSONArray summaries=response.optJSONArray("jobs");if(summaries==null)throw new IOException("invalid_job");
                 for(int i=0;i<summaries.length();i++){
@@ -163,19 +173,59 @@ final class VideoTranscriptTasks {
                     if(unknown)local.add(task);
                 }
                 moreHistory=response.optBoolean("has_more");
-                if(!moreHistory){scans.edit().putInt(scope,0).apply();break;}
+                if(!moreHistory){scans.edit().putInt(scope,0).apply();historyComplete=true;break;}
                 int next=response.optInt("next_offset",offset+summaries.length());if(next<=offset)throw new IOException("invalid_job");offset=next;
                 scans.edit().putInt(scope,offset).apply();
+            }}catch(Exception failure){
+                CaptureAccountSession.requireScope(context,scope);
+                if(isAuthentication(safeCode(failure)))throw failure;
+                // Keep local outbox/results intact. A failed history endpoint must
+                // not prevent initial submission or polling a known server UUID.
+                moreHistory=true;
             }
-            boolean pending=moreHistory;int processed=0;
-            local.sort(Comparator.comparingLong(task->task.createdAt));
+            // Preserve slots for uncertain recovery too; a long-running prefix
+            // of known jobs must not permanently prevent its idempotent retry.
+            local.sort(Comparator.comparingInt((Task task)->task.remoteId.isEmpty()&&!safeUnsubmitted(task)?0:1).thenComparing(attemptOrder()));
             for(Task stale:local){
-                CaptureAccountSession.requireScope(context,scope);Task task=read(context,scope,stale.id);
-                boolean wantsResult=task.completed()&&!task.resultFetched&&(task.resultRequested||task.submission.length()>0);
-                boolean needsNetwork=task.deletionPending&&!task.remoteId.isEmpty()||!task.terminal()
-                        ||wantsResult||task.associationDirty;
-                if(System.nanoTime()>=deadline&&needsNetwork){pending=true;continue;}
-                if(needsNetwork&&++processed>8){pending=true;continue;}
+                Task task;synchronized(FILE_LOCK){if(!file(context,scope,stale.id).isFile())continue;task=readUnlocked(context,scope,stale.id);}
+                if(processed.contains(task.id))continue;
+                if(needsNetwork(task)){
+                    if(processed.size()>=8||System.nanoTime()>=deadline)continue;
+                    if(!attemptDue(task))continue;
+                    // An uncertain POST must first be sought in a complete history
+                    // scan. Any eventual retry retains the exact durable key/body.
+                    if(task.remoteId.isEmpty()&&!safeUnsubmitted(task)&&!historyComplete)continue;
+                    process(context,scope,task.id,transport);processed.add(task.id);
+                }else if(!task.deletionPending)notifyTerminal(context,scope,task.id);
+            }
+            boolean pending=moreHistory;
+            // Reload so a note/task saved during this pass cannot be lost at the
+            // worker's completion boundary, and include newly discovered history.
+            for(Task task:list(context,scope))if(needsNetwork(task)){pending=true;break;}
+            synchronized(FILE_LOCK){for(Task task:listUnlocked(context,scope))if(task.deletionPending&&!task.remoteId.isEmpty()){pending=true;break;}}
+            changed(context);return pending;
+        }finally{RUNNING.unlock();}
+    }
+    private static Comparator<Task> attemptOrder(){
+        return Comparator.comparingLong((Task task)->task.lastAttemptAt).thenComparingLong(task->task.createdAt).thenComparing(task->task.id);
+    }
+    private static boolean safeUnsubmitted(Task task){
+        return !task.deletionPending&&task.remoteId.isEmpty()&&!task.terminal()
+                &&Set.of("local_queued","waiting_quota","blocked_login").contains(task.status);
+    }
+    private static boolean wantsResult(Task task){return task.completed()&&!task.resultFetched&&(task.resultRequested||task.submission.length()>0);}
+    private static boolean attemptDue(Task task){return task.deletionPending||now()>=task.nextAttemptAt;}
+    private static boolean needsNetwork(Task task){
+        return task.deletionPending?!task.remoteId.isEmpty():!task.terminal()||wantsResult(task)||task.associationDirty&&!task.remoteId.isEmpty();
+    }
+    private static void process(Context context,String scope,String id,Transport transport)throws Exception {
+                CaptureAccountSession.requireScope(context,scope);Task task;
+                synchronized(FILE_LOCK){
+                    if(!file(context,scope,id).isFile())return;
+                    task=readUnlocked(context,scope,id);if(!attemptDue(task))return;
+                    task.lastAttemptAt=Math.max(now(),task.lastAttemptAt+1);writeUnlocked(context,task);
+                }
+                boolean wantsResult=wantsResult(task);
                 try{
                     if(task.deletionPending){
                         // Never submit a job merely to cancel an uncertain POST. Reconciliation
@@ -185,11 +235,11 @@ final class VideoTranscriptTasks {
                             catch(VideoTranscriptClient.Rejected rejected){if(rejected.status!=404)throw rejected;}
                             synchronized(FILE_LOCK){if(!file(context,scope,task.id).delete())throw new IOException("storage_unavailable");}
                         }
-                        continue;
+                        return;
                     }
                     if(task.remoteId.isEmpty()&&!task.terminal()){
                         if(Set.of("uncertain","submitting").contains(task.status)&&now()-task.createdAt>TimeUnit.HOURS.toMillis(24)){
-                            task.status="failed";task.stage="failed";task.problemCode="submission_unconfirmed";save(context,task);notifyTerminal(context,scope,task.id);continue;
+                            task.status="failed";task.stage="failed";task.problemCode="submission_unconfirmed";save(context,task);notifyTerminal(context,scope,task.id);return;
                         }
                         validateSubmission(task.submission);task.status="submitting";task.problemCode="";save(context,task);
                         JSONObject response=transport.request(context,scope,"POST","/jobs",new JSONObject(task.submission.toString()));
@@ -219,15 +269,12 @@ final class VideoTranscriptTasks {
                         }else if(latest.remoteId.isEmpty()){
                             latest.status=Set.of("account_busy","account_limit","daily_limit","queue_full","browser_busy","http_429").contains(code)?"waiting_quota":"uncertain";
                         }
+                        latest.nextAttemptAt="waiting_quota".equals(latest.status)?now()+TimeUnit.MINUTES.toMillis(1):0;
                         latest.updatedAt=System.currentTimeMillis();writeUnlocked(context,latest);task=latest;
                     }
                     if(!task.deletionPending)notifyTerminal(context,scope,task.id);
                     if(isAuthentication(code))throw failure;
                 }
-                if(!task.terminal()||task.associationDirty||task.completed()&&!task.resultFetched&&(task.resultRequested||task.submission.length()>0))pending=true;
-            }
-            changed(context);return pending;
-        }finally{RUNNING.unlock();}
     }
     private static void merge(Context context,Task task,JSONObject remote,boolean full)throws Exception {
         String id=uuid(remote.optString("id"));if(!task.remoteId.isEmpty()&&!id.equals(task.remoteId))throw new IOException("invalid_job");
@@ -235,7 +282,7 @@ final class VideoTranscriptTasks {
         if(!Set.of("queued","running","processing","completed","failed","cancelled").contains(status))throw new IOException("invalid_job");
         // A delayed summary must never regress a locally cached terminal result.
         if(task.terminal()&&!status.equals(task.status))return;
-        task.remoteId=id;task.status=status;task.stage=remote.optString("stage",status);task.progress=Math.max(0,Math.min(100,remote.optInt("progress")));
+        task.remoteId=id;task.status=status;task.nextAttemptAt=0;task.stage=remote.optString("stage",status);task.progress=Math.max(0,Math.min(100,remote.optInt("progress")));
         task.updatedAt=timestamp(remote.opt("updated_at"),System.currentTimeMillis());
         JSONObject source=remote.optJSONObject("source");if(source!=null)task.title=limited(source.optString("title"),1000);
         if(task.share.isEmpty())task.share=limited(remote.optString("share_text"),8192);
@@ -265,6 +312,7 @@ final class VideoTranscriptTasks {
                 Task latest=readUnlocked(context,task.scope,task.id);
                 if(latest.associationDirty){task.captureId=latest.captureId;task.associationDirty=true;}
                 task.imported=latest.imported;task.notified=latest.notified;
+                task.lastAttemptAt=Math.max(task.lastAttemptAt,latest.lastAttemptAt);
                 task.deletionPending=latest.deletionPending;
                 task.resultRequested=latest.resultRequested;
                 if(task.text.isEmpty()&&!latest.text.isEmpty()&&!latest.deletionPending)task.text=latest.text;
@@ -293,7 +341,7 @@ final class VideoTranscriptTasks {
         task.remoteId=json.optString("remote_id");if(!task.remoteId.isEmpty())uuid(task.remoteId);
         task.status=json.optString("status");task.stage=json.optString("stage");task.text=limited(json.optString("text"),VideoTranscriptState.MAX_TEXT);
         task.title=limited(json.optString("title"),1000);task.sourceUrl=CaptureSourceUrl.clean(json.optString("source_url"));task.captureId=recordId(json.optString("capture_id"));
-        task.problemCode=json.optString("problem_code");task.share=limited(json.optString("share"),8192);task.createdAt=json.optLong("created_at");task.updatedAt=json.optLong("updated_at");
+        task.problemCode=json.optString("problem_code");task.share=limited(json.optString("share"),8192);task.createdAt=json.optLong("created_at");task.updatedAt=json.optLong("updated_at");task.lastAttemptAt=json.optLong("last_attempt_at");task.nextAttemptAt=json.optLong("next_attempt_at");
         task.progress=json.optInt("progress");task.imported=json.optBoolean("imported");task.notified=json.optBoolean("notified");task.associationDirty=json.optBoolean("association_dirty");task.deletionPending=json.optBoolean("deletion_pending");task.resultFetched=json.optBoolean("result_fetched");
         task.resultRequested=json.optBoolean("result_requested");
         task.submission=json.optJSONObject("submission");if(task.submission==null)task.submission=new JSONObject();task.job=json.optJSONObject("job");return task;

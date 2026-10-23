@@ -93,6 +93,9 @@ public final class VideoTranscriptTasksActivity extends Activity {
     private void showDetail(VideoTranscriptTasks.Task task){
         body.addView(JournalUi.text(this,task.title.isBlank()?"视频文字稿":task.title,25,R.color.ink));
         body.addView(JournalUi.text(this,label(task),14,R.color.copper));
+        if(!task.terminal())body.addView(JournalUi.text(this,task.remoteId.isEmpty()
+                ?"任务已保存在本机，联网后会自动提交。可以离开此页面、继续编辑或保存记录，不需要手动刷新来启动解析。"
+                :"服务器已接收任务，离开此页面不影响解析。完成或失败后会通知；已有摘录不会被自动替换。",12,R.color.ink_muted));
         if(!task.terminal()){ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(100);progress.setProgress(task.progress);body.addView(progress,new LinearLayout.LayoutParams(-1,dp(5)));}
         if(!task.problemCode.isEmpty())body.addView(JournalUi.text(this,VideoTranscriptClient.error(new IOException(task.problemCode)),13,R.color.ink_muted));
         if(!task.sourceUrl.isEmpty())AiUi.button(body,"打开原始链接",false,()->openSource(task.sourceUrl));
@@ -139,7 +142,9 @@ public final class VideoTranscriptTasksActivity extends Activity {
         if("failed".equals(task.status))return "解析失败";if("cancelled".equals(task.status))return "已取消";
         if("blocked_login".equals(task.status))return "等待重新登录";if("uncertain".equals(task.status))return "正在确认提交结果";
         if("waiting_quota".equals(task.status))return "等待空闲名额 / 可用额度";
-        return switch(task.stage){case "resolving"->"正在解析链接";case "downloading"->"正在获取音轨";case "transcribing"->"正在生成文字稿";default->"等待后台处理";};
+        if("local_queued".equals(task.status))return "待提交 · 已保存在本机";
+        if("submitting".equals(task.status))return "正在提交到服务器";
+        return switch(task.stage){case "resolving"->"正在解析链接";case "downloading"->"正在获取音轨";case "transcribing"->"正在生成文字稿";default->"已提交 · 等待服务器解析";};
     }
     private int dp(int value){return AiUi.dp(this,value);}
     private void toast(String text){if(!destroyed)Toast.makeText(this,text,Toast.LENGTH_LONG).show();}

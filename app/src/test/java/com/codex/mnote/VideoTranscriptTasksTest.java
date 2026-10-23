@@ -17,7 +17,7 @@ import static org.junit.Assert.*;
 
 /** Offline outbox, account fencing and idempotent recovery use real private task files. */
 @RunWith(RobolectricTestRunner.class)
-@Config(sdk=30,instrumentedPackages="com.codex.mnote")
+@Config(sdk=30,instrumentedPackages="com.codex.mnote",shadows=VideoTranscriptSchedulerTest.NoDispatch.class)
 public class VideoTranscriptTasksTest {
     static final String SCOPE="a".repeat(64),OTHER="b".repeat(64);
     static final String TASK="12345678-1234-4234-8234-123456789abc";
@@ -90,7 +90,9 @@ public class VideoTranscriptTasksTest {
     }
     @Test public void uncertainAcceptedPostRecoversFromListWithoutSecondPost()throws Exception {
         enqueue();transport.failPostAfterAccept=true;assertTrue(VideoTranscriptTasks.reconcile(context,SCOPE,transport));
-        assertEquals("uncertain",VideoTranscriptTasks.read(context,SCOPE,TASK).status);assertEquals(1,transport.posts);
+        // The bounded maintenance scan can recover the accepted UUID in this
+        // same pass, but it must never retry the POST to learn the outcome.
+        assertEquals(REMOTE,VideoTranscriptTasks.read(context,SCOPE,TASK).remoteId);assertEquals(1,transport.posts);
         transport.remote.get(REMOTE).put("status","completed").put("stage","completed").put("text","恢复后的文字稿");
         assertFalse(VideoTranscriptTasks.reconcile(context,SCOPE,transport));
         assertEquals(1,transport.posts);assertEquals(REMOTE,VideoTranscriptTasks.read(context,SCOPE,TASK).remoteId);
@@ -102,24 +104,35 @@ public class VideoTranscriptTasksTest {
         assertFalse(VideoTranscriptTasks.reconcile(context,SCOPE,transport));assertEquals(2,transport.posts);
         assertEquals(Arrays.asList(TASK,TASK),transport.requestIds);
     }
-    @Test public void networkFailureRetainsQueueRatherThanSendingAnUnlistedDuplicate()throws Exception {
+    @Test public void historyFailureCannotBlockFirstDurableIdempotentSubmission()throws Exception {
         enqueue();transport.failList=true;
-        assertThrows(IOException.class,()->VideoTranscriptTasks.reconcile(context,SCOPE,transport));
-        assertEquals(0,transport.posts);assertEquals("local_queued",VideoTranscriptTasks.read(context,SCOPE,TASK).status);
+        assertTrue(VideoTranscriptTasks.reconcile(context,SCOPE,transport));
+        assertEquals(1,transport.posts);assertEquals("processing",VideoTranscriptTasks.read(context,SCOPE,TASK).status);
+        assertEquals("POST /jobs",transport.operations.get(0));
+        assertEquals(TASK,transport.requestIds.get(0));
+    }
+    @Test public void failedHistoryDoesNotRepostAnUncertainSubmission()throws Exception {
+        enqueue();transport.failBeforeAccept=true;VideoTranscriptTasks.reconcile(context,SCOPE,transport);
+        transport.failBeforeAccept=false;transport.failList=true;
+        assertTrue(VideoTranscriptTasks.reconcile(context,SCOPE,transport));
+        assertEquals(1,transport.posts);assertEquals("uncertain",VideoTranscriptTasks.read(context,SCOPE,TASK).status);
+        transport.failList=false;VideoTranscriptTasks.reconcile(context,SCOPE,transport);
+        assertEquals(Arrays.asList(TASK,TASK),transport.requestIds);
     }
     @Test public void accountSwitchBeforeSyncOrWhileRequestRunsDiscardsForeignResult()throws Exception {
         enqueue();CaptureAccountSession.preferences(context).edit().putString("scope",OTHER).commit();
         assertThrows(IOException.class,()->VideoTranscriptTasks.reconcile(context,SCOPE,transport));assertEquals(0,transport.lists);
         CaptureAccountSession.preferences(context).edit().putString("scope",SCOPE).commit();
+        VideoTranscriptTasks.reconcile(context,SCOPE,transport);
         transport.onList=()->CaptureAccountSession.preferences(context).edit().putString("scope",OTHER).commit();
-        assertThrows(IOException.class,()->VideoTranscriptTasks.reconcile(context,SCOPE,transport));assertEquals(0,transport.posts);
+        assertThrows(IOException.class,()->VideoTranscriptTasks.reconcile(context,SCOPE,transport));assertEquals(1,transport.posts);
         assertTrue(VideoTranscriptTasks.list(context,OTHER).isEmpty());
         CaptureAccountSession.preferences(context).edit().putString("scope",SCOPE).commit();
-        assertEquals("local_queued",VideoTranscriptTasks.read(context,SCOPE,TASK).status);
+        assertEquals("processing",VideoTranscriptTasks.read(context,SCOPE,TASK).status);
     }
-    @Test public void queuedRemovalNeverCreatesRemoteTaskEvenIfWorkerAlreadyListedLocals()throws Exception {
-        enqueue();transport.onList=()->{try{VideoTranscriptTasks.remove(context,SCOPE,TASK);}catch(Exception error){throw new RuntimeException(error);}};
-        try{VideoTranscriptTasks.reconcile(context,SCOPE,transport);}catch(IOException ignored){}
+    @Test public void queuedRemovalNeverCreatesRemoteTask()throws Exception {
+        enqueue();VideoTranscriptTasks.remove(context,SCOPE,TASK);
+        VideoTranscriptTasks.reconcile(context,SCOPE,transport);
         assertEquals(0,transport.posts);assertTrue(VideoTranscriptTasks.list(context,SCOPE).isEmpty());
     }
     @Test public void removeUncertainTaskDoesNotSubmitToCancelAndLaterDeletesRecoveredJob()throws Exception {
@@ -181,6 +194,7 @@ public class VideoTranscriptTasksTest {
         enqueue();transport.postRejection=new VideoTranscriptClient.Rejected("account_busy",429);
         assertTrue(VideoTranscriptTasks.reconcile(context,SCOPE,transport));assertEquals("waiting_quota",VideoTranscriptTasks.read(context,SCOPE,TASK).status);
         transport.postRejection=new VideoTranscriptClient.Rejected("unsafe_url",400);
+        rewriteTask(TASK,new JSONObject().put("next_attempt_at",0));
         assertFalse(VideoTranscriptTasks.reconcile(context,SCOPE,transport));assertEquals("failed",VideoTranscriptTasks.read(context,SCOPE,TASK).status);
         assertEquals("unsafe_url",VideoTranscriptTasks.read(context,SCOPE,TASK).problemCode);
     }
@@ -203,6 +217,73 @@ public class VideoTranscriptTasksTest {
         transport.uniquePostIds=true;assertTrue(VideoTranscriptTasks.reconcile(context,SCOPE,transport));assertEquals(8,transport.posts);
         assertEquals(12,VideoTranscriptTasks.list(context,SCOPE).size());
     }
+    @Test public void nextPassSubmitsRemainingQueueInsteadOfPollingOnlyFirstEight()throws Exception {
+        for(int i=0;i<12;i++)VideoTranscriptTasks.enqueue(context,SCOPE,body(UUID.randomUUID().toString()),URL,"");
+        transport.uniquePostIds=true;VideoTranscriptTasks.reconcile(context,SCOPE,transport);
+        assertEquals(8,transport.posts);
+        VideoTranscriptTasks.reconcile(context,SCOPE,transport);
+        assertEquals(12,transport.posts);assertEquals(12,new HashSet<>(transport.requestIds).size());
+    }
+    @Test public void pendingRemoteTasksRotateBeyondOldestEightEvenIfHistoryFails()throws Exception {
+        for(int i=0;i<12;i++){
+            String id=UUID.randomUUID().toString();transport.remote.put(id,job(id,UUID.randomUUID().toString(),"processing",null));
+        }
+        VideoTranscriptTasks.reconcile(context,SCOPE,transport);assertEquals(8,transport.details);
+        transport.failList=true;VideoTranscriptTasks.reconcile(context,SCOPE,transport);
+        assertEquals(12,transport.detailIds.size());
+        // A third pass keeps rotating, rather than getting stuck forever on a
+        // fixed prefix when the clock has not advanced between worker runs.
+        VideoTranscriptTasks.reconcile(context,SCOPE,transport);
+        for(int count:transport.detailIds.values())assertTrue(count>=2);
+    }
+    @Test public void freshSubmissionAndAcceptedWorkBothProgressBeforeHistory()throws Exception {
+        for(int i=0;i<8;i++){
+            String id=UUID.randomUUID().toString();transport.remote.put(id,job(id,UUID.randomUUID().toString(),"processing",null));
+        }
+        VideoTranscriptTasks.reconcile(context,SCOPE,transport);
+        transport.operations.clear();int before=transport.details;
+        enqueue();transport.uniquePostIds=true;
+        transport.onList=()->{assertEquals(1,transport.posts);assertTrue(transport.details>before);};
+        VideoTranscriptTasks.reconcile(context,SCOPE,transport);
+        assertEquals("POST /jobs",transport.operations.get(0));assertEquals(1,transport.posts);
+    }
+    @Test public void uncertainRecoveryAlsoGetsSlotsAlongsideEightKnownPendingTasks()throws Exception {
+        for(int i=0;i<8;i++){
+            String id=UUID.randomUUID().toString();transport.remote.put(id,job(id,UUID.randomUUID().toString(),"processing",null));
+        }
+        VideoTranscriptTasks.reconcile(context,SCOPE,transport);
+        enqueue();transport.failBeforeAccept=true;VideoTranscriptTasks.reconcile(context,SCOPE,transport);
+        assertEquals("uncertain",VideoTranscriptTasks.read(context,SCOPE,TASK).status);
+        transport.failBeforeAccept=false;transport.uniquePostIds=true;
+        VideoTranscriptTasks.reconcile(context,SCOPE,transport);
+        assertEquals(2,transport.posts);assertFalse(VideoTranscriptTasks.read(context,SCOPE,TASK).remoteId.isEmpty());
+        assertEquals(Arrays.asList(TASK,TASK),transport.requestIds);
+    }
+    @Test public void largeHistoryHasBoundedPagesAndCannotDelayFreshSubmission()throws Exception {
+        for(int i=0;i<150;i++){
+            String id=UUID.randomUUID().toString();transport.remote.put(id,job(id,UUID.randomUUID().toString(),"completed","old"));
+        }
+        enqueue();transport.uniquePostIds=true;
+        transport.onList=()->assertEquals(1,transport.posts);
+        assertTrue(VideoTranscriptTasks.reconcile(context,SCOPE,transport));
+        assertEquals(2,transport.lists);assertEquals("POST /jobs",transport.operations.get(0));
+        VideoTranscriptTasks.reconcile(context,SCOPE,transport);
+        assertEquals(151,VideoTranscriptTasks.list(context,SCOPE).size());assertEquals(1,transport.posts);
+    }
+    @Test public void uncertainAcceptedJobOnLaterHistoryPageRecoversWithoutSecondPost()throws Exception {
+        enqueue();transport.failBeforeAccept=true;assertTrue(VideoTranscriptTasks.reconcile(context,SCOPE,transport));
+        assertEquals(1,transport.posts);assertEquals("uncertain",VideoTranscriptTasks.read(context,SCOPE,TASK).status);
+        transport.failBeforeAccept=false;
+        for(int i=0;i<120;i++){
+            String id=UUID.randomUUID().toString();transport.remote.put(id,job(id,UUID.randomUUID().toString(),"completed","old"));
+        }
+        transport.remote.put(REMOTE,job(REMOTE,TASK,"completed","稍后恢复的完整文字稿"));
+        assertTrue(VideoTranscriptTasks.reconcile(context,SCOPE,transport));
+        assertEquals(1,transport.posts);assertEquals("",VideoTranscriptTasks.read(context,SCOPE,TASK).remoteId);
+        assertFalse(VideoTranscriptTasks.reconcile(context,SCOPE,transport));
+        assertEquals(1,transport.posts);assertEquals(REMOTE,VideoTranscriptTasks.read(context,SCOPE,TASK).remoteId);
+        assertEquals("稍后恢复的完整文字稿",VideoTranscriptTasks.read(context,SCOPE,TASK).text);
+    }
     @Test public void uncertainSubmissionOlderThanTwentyFourHoursNeverPostsAgain()throws Exception {
         enqueue();transport.failBeforeAccept=true;VideoTranscriptTasks.reconcile(context,SCOPE,transport);
         rewriteTask(TASK,new JSONObject().put("created_at",VideoTranscriptTasks.now()-java.util.concurrent.TimeUnit.HOURS.toMillis(25)));
@@ -215,8 +296,19 @@ public class VideoTranscriptTasksTest {
         transport.postRejection=new VideoTranscriptClient.Rejected("account_busy",429);
         assertTrue(VideoTranscriptTasks.reconcile(context,SCOPE,transport));assertEquals("waiting_quota",VideoTranscriptTasks.read(context,SCOPE,TASK).status);
         transport.postRejection=null;transport.completeAfterPost=true;
+        rewriteTask(TASK,new JSONObject().put("next_attempt_at",0));
         assertFalse(VideoTranscriptTasks.reconcile(context,SCOPE,transport));assertEquals(2,transport.posts);
         assertTrue(VideoTranscriptTasks.read(context,SCOPE,TASK).completed());
+    }
+    @Test public void quotaCooldownDoesNotHammerPostDuringFrequentHealthyWorkerTicks()throws Exception {
+        enqueue();transport.postRejection=new VideoTranscriptClient.Rejected("account_busy",429);
+        assertTrue(VideoTranscriptTasks.reconcile(context,SCOPE,transport));assertEquals(1,transport.posts);
+        assertTrue(VideoTranscriptTasks.read(context,SCOPE,TASK).nextAttemptAt>VideoTranscriptTasks.now());
+        for(int i=0;i<3;i++)assertTrue(VideoTranscriptTasks.reconcile(context,SCOPE,transport));
+        assertEquals(1,transport.posts);
+        rewriteTask(TASK,new JSONObject().put("next_attempt_at",0));
+        transport.postRejection=null;transport.completeAfterPost=true;
+        assertFalse(VideoTranscriptTasks.reconcile(context,SCOPE,transport));assertEquals(2,transport.posts);
     }
     @Test public void nullRemoteCaptureIdIsEmptyRatherThanLiteralNull()throws Exception {
         transport.remote.put(REMOTE,job(REMOTE,TASK,"completed","旧文字稿").put("capture_id",JSONObject.NULL));
@@ -240,11 +332,14 @@ public class VideoTranscriptTasksTest {
     final class Fake implements VideoTranscriptTasks.Transport {
         final LinkedHashMap<String,JSONObject> remote=new LinkedHashMap<>();
         final List<String> requestIds=new ArrayList<>();
+        final List<String> operations=new ArrayList<>();
+        final Map<String,Integer> detailIds=new HashMap<>();
         int posts,lists,details,deletes;boolean failList,failBeforeAccept,failPostAfterAccept,completeAfterPost,uniquePostIds;
         String resultText="完整的测试文字稿",attached="";JSONObject postBody;Exception postRejection;
         Runnable onList,onDetail,onAssociation;
         @Override public JSONObject request(Context ctx,String scope,String method,String path,JSONObject payload)throws Exception {
             assertEquals(SCOPE,scope);
+            operations.add(method+" "+path);
             if("GET".equals(method)&&path.startsWith("/jobs?")){
                 lists++;if(failList)throw new IOException("network_failed");if(onList!=null){Runnable next=onList;onList=null;next.run();}
                 int offset=Integer.parseInt(path.substring(path.indexOf("offset=")+7));JSONArray values=new JSONArray();List<JSONObject> all=new ArrayList<>(remote.values());
@@ -267,7 +362,7 @@ public class VideoTranscriptTasksTest {
                 return new JSONObject().put("job",new JSONObject(remote.get(id).toString()));
             }
             if("GET".equals(method)){
-                details++;if(onDetail!=null){Runnable next=onDetail;onDetail=null;next.run();}
+                details++;detailIds.merge(id,1,Integer::sum);if(onDetail!=null){Runnable next=onDetail;onDetail=null;next.run();}
                 return new JSONObject().put("job",new JSONObject(remote.get(id).toString()));
             }
             if("DELETE".equals(method)){deletes++;remote.remove(id);return new JSONObject().put("deleted",true);}

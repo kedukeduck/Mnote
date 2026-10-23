@@ -21,7 +21,7 @@ import static org.junit.Assert.*;
 import static org.robolectric.Shadows.shadowOf;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(sdk=30,qualifiers="zh-rCN-w390dp-h844dp-mdpi",instrumentedPackages="com.codex.mnote",shadows=VideoTranscriptTasksActivityTest.Transport.class)
+@Config(sdk=30,qualifiers="zh-rCN-w390dp-h844dp-mdpi",instrumentedPackages="com.codex.mnote",shadows={VideoTranscriptSchedulerTest.NoDispatch.class,VideoTranscriptTasksActivityTest.Transport.class})
 @LooperMode(LooperMode.Mode.PAUSED)
 public class VideoTranscriptTasksActivityTest {
     Context context;
@@ -74,6 +74,14 @@ public class VideoTranscriptTasksActivityTest {
             find(root,"未完成").performClick();drain(activity);
             assertNull(find(root,"完成的自有视频"));assertNotNull(find(root,"未完成的自有视频"));
         }
+    }
+    @Test public void queueLabelsDistinguishLocalPersistenceFromServerAcceptance()throws Exception {
+        VideoTranscriptTasks.Task task=new VideoTranscriptTasks.Task();task.status="local_queued";task.stage="queued";
+        assertEquals("待提交 · 已保存在本机",ReflectionHelpers.callStaticMethod(VideoTranscriptTasksActivity.class,"label",ReflectionHelpers.ClassParameter.from(VideoTranscriptTasks.Task.class,task)));
+        task.status="submitting";
+        assertEquals("正在提交到服务器",ReflectionHelpers.callStaticMethod(VideoTranscriptTasksActivity.class,"label",ReflectionHelpers.ClassParameter.from(VideoTranscriptTasks.Task.class,task)));
+        task.status="queued";task.remoteId=VideoTranscriptTasksTest.REMOTE;
+        assertEquals("已提交 · 等待服务器解析",ReflectionHelpers.callStaticMethod(VideoTranscriptTasksActivity.class,"label",ReflectionHelpers.ClassParameter.from(VideoTranscriptTasks.Task.class,task)));
     }
     @Test public void recordSpecificInboxDoesNotShowUnrelatedRecordTasks()throws Exception {
         seed(VideoTranscriptTasksTest.TASK,"本条记录的视频","completed","capture-first");seed(SECOND,"其他记录的视频","failed","capture-second");

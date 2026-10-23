@@ -1,6 +1,7 @@
 package com.codex.mnote;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.*;
 import android.os.Looper;
 import android.widget.*;
@@ -10,12 +11,13 @@ import org.junit.runner.RunWith;
 import org.robolectric.*;
 import org.robolectric.annotation.*;
 import org.robolectric.util.ReflectionHelpers;
+import org.robolectric.shadows.ShadowAlertDialog;
 import java.util.concurrent.*;
 import static org.junit.Assert.*;
 import static org.robolectric.Shadows.shadowOf;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(sdk=30,shadows={VideoTranscriptBackgroundActivityTest.Transport.class,QuickNoteActivityTest.ClipboardShadow.class,QuickNoteActivityTest.ServiceShadow.class})
+@Config(sdk=30,shadows={VideoTranscriptSchedulerTest.NoDispatch.class,VideoTranscriptBackgroundActivityTest.Transport.class,QuickNoteActivityTest.ClipboardShadow.class,QuickNoteActivityTest.ServiceShadow.class})
 @LooperMode(LooperMode.Mode.PAUSED)
 public class VideoTranscriptBackgroundActivityTest {
     private Context context;
@@ -49,6 +51,34 @@ public class VideoTranscriptBackgroundActivityTest {
             VideoTranscriptTasks.Task task=VideoTranscriptTasks.read(context,SCOPE,saved.backgroundTaskId);
             assertEquals(state.requestId,task.id);assertEquals("local_queued",task.status);assertEquals("",task.remoteId);
             assertEquals(1,shadowOf(activity).getResultIntent().getExtras().size());
+        }
+    }
+    @Test public void leavingCheckedAudioWithoutSubmittingExplainsThatNoTaskExists()throws Exception{
+        VideoTranscriptState state=state();
+        try(var controller=Robolectric.buildActivity(VideoTranscriptActivity.class,VideoTranscriptActivity.open(context,state.file.getAbsolutePath())).setup()){
+            VideoTranscriptActivity activity=controller.get();activity.<CheckBox>findViewById(R.id.video_transcript_audio).setChecked(true);drain(activity);
+            activity.<EditText>findViewById(R.id.video_transcript_link).setText(URL);
+            activity.onBackPressed();AlertDialog dialog=ShadowAlertDialog.getLatestAlertDialog();
+            assertTrue(dialog.isShowing());assertFalse(activity.isFinishing());assertTrue(VideoTranscriptTasks.list(context,SCOPE).isEmpty());
+            assertEquals("还没有加入后台解析",shadowOf(dialog).getTitle().toString());
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();drain(activity);assertTrue(activity.isFinishing());
+            assertTrue(VideoTranscriptTasks.list(context,SCOPE).isEmpty());assertEquals(0,Transport.posts);
+        }
+    }
+    @Test public void exitConfirmationCanQueueButNeverBypassesConsent()throws Exception{
+        VideoTranscriptState state=state();
+        try(var controller=Robolectric.buildActivity(VideoTranscriptActivity.class,VideoTranscriptActivity.open(context,state.file.getAbsolutePath())).setup()){
+            VideoTranscriptActivity activity=controller.get();activity.<CheckBox>findViewById(R.id.video_transcript_audio).setChecked(true);drain(activity);
+            activity.<EditText>findViewById(R.id.video_transcript_link).setText(URL);
+            activity.<Spinner>findViewById(R.id.video_transcript_basis).setSelection(1);activity.<EditText>findViewById(R.id.video_transcript_note).setText("原创测试录音");
+            activity.onBackPressed();ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            drain(activity);
+            assertFalse(activity.isFinishing());assertTrue(VideoTranscriptTasks.list(context,SCOPE).isEmpty());
+            activity.<CheckBox>findViewById(R.id.video_transcript_consent).setChecked(true);
+            activity.onBackPressed();ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            drain(activity);
+            assertTrue(activity.isFinishing());assertEquals(1,VideoTranscriptTasks.list(context,SCOPE).size());
+            assertEquals(0,Transport.posts);
         }
     }
     @Test public void savingCaptureDoesNotWaitForTranscriptOrOverwriteModules()throws Exception{

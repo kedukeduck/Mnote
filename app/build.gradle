@@ -11,8 +11,8 @@ android {
         applicationId "com.codex.mnote"
         minSdk 26
         targetSdk 35
-        versionCode 43
-        versionName "1.23.0-test"
+        versionCode 44
+        versionName "1.23.1-test"
     }
 
     buildTypes {
